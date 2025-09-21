@@ -1,4 +1,5 @@
 import { setupAnimationActions } from "./animation";
+import { setupBlockymodelCodec } from "./blockymodel";
 import { setupElements } from "./element";
 
 const deletables: Deletable[] = [];
@@ -29,6 +30,8 @@ BBPlugin.register('hytale_plugin', {
             stretch_cubes: true,
             confidential: true,
             model_identifier: true,
+            animation_loop_wrapping: true,
+            quaternion_interpolation: true,
         })
         deletables.push(format);
         Language.addTranslations('en', {
@@ -36,8 +39,9 @@ BBPlugin.register('hytale_plugin', {
         })
 
         deletables.push(
-            ...setupAnimationActions(),
             ...setupElements(),
+            ...setupBlockymodelCodec(),
+            ...setupAnimationActions(),
         )
         
     },

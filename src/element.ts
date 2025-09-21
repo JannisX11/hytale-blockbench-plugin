@@ -1,15 +1,4 @@
 export function setupElements(): Deletable[] {
-	let property_double_sided = new Property(Cube, 'boolean', 'double_sided', {
-		condition: () => Format.id == 'hytale_model',
-		inputs: {
-			element_panel: {
-				input: {label: 'Double Sided', type: 'checkbox'},
-				onChange() {
-					Canvas.updateView({elements: Cube.all, element_aspects: {transform: true}})
-				}
-			}
-		}
-	});
 	let property_shading_mode = new Property(Cube, 'enum', 'shading_mode', {
 		default: 'flat',
 		values: ['flat', 'standard', 'fullbright', 'reflective'],
@@ -23,6 +12,17 @@ export function setupElements(): Deletable[] {
 					reflective: 'Reflective'
 				}},
 				onChange() {
+				}
+			}
+		}
+	});
+	let property_double_sided = new Property(Cube, 'boolean', 'double_sided', {
+		condition: () => Format.id == 'hytale_model',
+		inputs: {
+			element_panel: {
+				input: {label: 'Double Sided', type: 'checkbox'},
+				onChange() {
+					Canvas.updateView({elements: Cube.all, element_aspects: {transform: true}})
 				}
 			}
 		}

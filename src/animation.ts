@@ -17,7 +17,7 @@ interface IAnimationObject {
 }
 interface IKeyframe {
 	time: number
-	delta: {x: number, y: number, z: number}
+	delta: {x: number, y: number, z: number, w?: number}
 	interpolationType: 'smooth' | 'linear'
 }
 
@@ -29,13 +29,16 @@ function parseAnimationFile(file: Filesystem.FileResult, content: IBlockyAnimJSO
 		path: file.path,
 		snapping: FPS,
 	});
+	let quaternion = new THREE.Quaternion();
+	let euler = new THREE.Euler(0, 0, 0, 'ZYX');
 
 	for (let name in content.nodeAnimations) {
-		let group = Group.all.find(g => g.name == name);
 		let anim_data = content.nodeAnimations[name];
+		let group_name = name.replace(/-/g, '_');
+		let group = Group.all.find(g => g.name == group_name);
 		let uuid = group ? group.uuid : guid();
 
-		let ba = new BoneAnimator(uuid, animation, name);
+		let ba = new BoneAnimator(uuid, animation, group_name);
 		animation.animators[uuid] = ba;
 
 		//Channels
@@ -48,17 +51,27 @@ function parseAnimationFile(file: Filesystem.FileResult, content: IBlockyAnimJSO
 			if (!keyframes || keyframes.length == 0) continue;
 
 			for (let kf_data of keyframes) {
+				let data_point;
+				if (channel == 'rotation') {
+					quaternion.set(kf_data.delta.x, kf_data.delta.y, kf_data.delta.z, kf_data.delta.w);
+					euler.setFromQuaternion(quaternion.normalize(), 'ZYX');
+					data_point = {
+						x: Math.radToDeg(euler.x),
+						y: Math.radToDeg(euler.y),
+						z: Math.radToDeg(euler.z),
+					}
+				} else {
+					data_point = {
+						x: kf_data.delta.x,
+						y: kf_data.delta.y,
+						z: kf_data.delta.z,
+					}
+				}
 				ba.addKeyframe({
 					time: kf_data.time / FPS,
 					channel,
 					interpolation: kf_data.interpolationType == 'smooth' ? 'catmullrom' : 'linear',
-					data_points: [
-						{
-							x: kf_data.delta.x,
-							y: kf_data.delta.y,
-							z: kf_data.delta.z,
-						}
-					]
+					data_points: [data_point]
 				});
 			}
 		}

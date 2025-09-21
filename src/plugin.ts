@@ -1,8 +1,7 @@
 import { setupAnimationActions } from "./animation";
 import { setupBlockymodelCodec } from "./blockymodel";
+import { cleanup, track } from "./cleanup";
 import { setupElements } from "./element";
-
-const deletables: Deletable[] = [];
 
 BBPlugin.register('hytale_plugin', {
     title: 'Test Plugin',
@@ -16,6 +15,8 @@ BBPlugin.register('hytale_plugin', {
     repository: 'https://github.com/JannisX11/hytale-blockbench-plugin',
     onload() {
 
+        let codec = setupBlockymodelCodec();
+
         let format = new ModelFormat('hytale_model', {
             name: 'Test Model',
             description: 'Test Format',
@@ -27,29 +28,26 @@ BBPlugin.register('hytale_plugin', {
             centered_grid: true,
             box_uv: false,
             optional_box_uv: false,
+            uv_rotation: true,
+            per_texture_uv_size: true,
             stretch_cubes: true,
             confidential: true,
             model_identifier: true,
             animation_loop_wrapping: true,
             quaternion_interpolation: true,
-        })
-        deletables.push(format);
+            codec,
+        });
+        codec.format = format;
+        track(format);
         Language.addTranslations('en', {
             'format_category.hytale': 'Hytale'
         })
 
-        deletables.push(
-            ...setupElements(),
-            ...setupBlockymodelCodec(),
-            ...setupAnimationActions(),
-        )
+        track(...setupElements());
+        track(...setupAnimationActions());
         
     },
     onunload() {
-        // Delete actions etc. when reloading or uninstalling the plugin
-        for (let deletable of deletables) {
-            deletable.delete();
-        }
-        deletables.empty();
+        cleanup();
     }
 })

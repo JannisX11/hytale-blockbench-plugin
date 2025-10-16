@@ -11,7 +11,7 @@
   "author": "JannisX11",
   "license": "MIT",
   "dependencies": {
-    "blockbench-types": "^5.0.0-beta.2"
+    "blockbench-types": "../../../../../xampp/htdocs/blockbench/blockbench/types"
   },
   "devDependencies": {
     "esbuild": "^0.25.9"

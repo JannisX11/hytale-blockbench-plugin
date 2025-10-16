@@ -1,3 +1,4 @@
+/// <reference path="../node_modules/blockbench-types/index.d.ts" />
 import { setupAnimationActions } from "./animation";
 import { setupAttachments } from "./attachments";
 import { setupBlockymodelCodec } from "./blockymodel";
@@ -11,11 +12,11 @@ const HytaleAnglePreset: AnglePreset = {
 }
 
 BBPlugin.register('hytale_plugin', {
-    title: 'Test Plugin',
+    title: 'Hytale Plugin',
     author: 'JannisX11',
     icon: 'icon.png',
     version: '1.0.0',
-    description: 'Hello World',
+    description: 'Adds support for creating models and animations for Hytale',
     variant: 'both',
     min_version: '4.10.0',
     has_changelog: true,
@@ -25,8 +26,8 @@ BBPlugin.register('hytale_plugin', {
         let codec = setupBlockymodelCodec();
 
         let format = new ModelFormat('hytale_model', {
-            name: 'Test Model',
-            description: 'Test Format',
+            name: 'Hytale Model',
+            description: 'Create models using Hytale\'s blockymodel format',
             icon: 'icon-format_hytale',
             category: 'hytale',
             single_texture_default: true,
@@ -37,6 +38,7 @@ BBPlugin.register('hytale_plugin', {
             box_uv: false,
             optional_box_uv: false,
             uv_rotation: true,
+            rotate_cubes: true,
             per_texture_uv_size: true,
             stretch_cubes: true,
             confidential: true,

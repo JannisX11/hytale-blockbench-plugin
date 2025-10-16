@@ -14,7 +14,8 @@ export function setupAttachments() {
 			}, (files) => {
 				for (let file of files) {
 					let json = autoParseJSON(file.content as string);
-					let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: true});
+					let attachment_name = file.name.replace(/\.\w+$/, '');
+					let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: attachment_name});
 					let name = file.name.split('.')[0]
 
 					let new_groups = content.new_groups as Group[];
@@ -24,9 +25,9 @@ export function setupAttachments() {
 						name,
 						children: root_groups.map(g => g.uuid),
 						export_codec: 'blockymodel',
-						export_path: file.path,
 						visibility: true,
 					}).add();
+					collection.export_path = file.path;
 
 					let new_textures = content.new_textures as Texture[];
 					if (new_textures.length) {
@@ -34,8 +35,11 @@ export function setupAttachments() {
 						texture_group.add();
 						// @ts-expect-error
 						new_textures.forEach(tex => tex.group = texture_group.uuid);
+
+						let texture = new_textures.find(t => t.name.startsWith(attachment_name)) ?? new_textures[0];
+
 						// @ts-expect-error
-						collection.texture = new_textures[0].uuid;
+						collection.texture = texture.uuid;
 						//new_groups.forEach(group => group.texture = new_textures[0].uuid);
 					}
 				}
@@ -53,7 +57,6 @@ export function setupAttachments() {
 	track(texture_property);
 
 	function getCollection(cube: Cube) {
-		// @ts-expect-error
 		return Collection.all.find(c => c.contains(cube));
 	}
 
@@ -108,6 +111,6 @@ export function setupAttachments() {
 			return arr;
 		}
 	};
-	Collection.prototype.menu.addAction(assign_texture);
+	Collection.menu.addAction(assign_texture);
 
 }

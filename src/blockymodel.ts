@@ -16,8 +16,22 @@ type BlockymodelNode = {
 		textureLayout: Record<string, IUvFace>
 		type: 'box' | 'none' | 'quad'
 		settings: {
+			/**
+			 * Dimensions of the cube
+			 */
 			size?: IVector
+			/**
+			 * For quads, the normal direction of the plane
+			 */
 			normal?: '+X' | '+Y' | '+Z' | '-X' | '-Y' | '-Z'
+			/**
+			 * unknown
+			 */
+			isPiece?: boolean
+			/**
+			 * Indicates that the node should be convertex into a basic cube rather than a group containing a group
+			 */
+			isStaticBox?: true
 		}
 		unwrapMode: "custom"
 		visible: boolean
@@ -34,6 +48,10 @@ type IUvFace = {
 type IVector = {x: number, y: number, z: number}
 type IQuaternion = {x: number, y: number, z: number, w: number}
 
+interface CompileOptions {
+	attachment?: UUID,
+	raw?: boolean
+}
 export function setupBlockymodelCodec(): Codec {
 	let codec = new Codec('blockymodel', {
 		name: 'Hytale Blockymodel',
@@ -44,50 +62,173 @@ export function setupBlockymodelCodec(): Codec {
 			type: 'json',
 			extensions: ['blockymodel']
 		},
-		compile(options): string | BlockymodelJSON {
+		compile(options: CompileOptions = {}): string | BlockymodelJSON {
 			let model: BlockymodelJSON = {
 				nodes: [],
 				lod: 'auto'
 			}
 			let id_count = 1;
+			const attach_collection = options.attachment && Collection.all.find(c => c.uuid == options.attachment);
 
-			let formatVector = (input: ArrayVector3) => ({
-				x: input[0],
-				y: input[1],
-				z: input[2],
-			} as IVector);
+			let formatVector = (input: ArrayVector3) => {
+				return new oneLiner({
+					x: input[0],
+					y: input[1],
+					z: input[2],
+				}) as IVector;
+			};
+			/*
+			Process group
+				if no cube, set to shape:none
+				if child cube
+			*/
 
-			function compileNode(group: Group): BlockymodelNode | undefined {
-				let collection = Collection.all.find(c => c.contains(group));
-				if (collection && (!options.attachment || options.attachment == collection.uuid)) {
-					return;
+			function cubeIsQuad(cube: Cube) {
+				return cube.size()[2] == 0;
+			}
+			function turnNodeIntoBox(node: BlockymodelNode, cube: Cube, original_element: Cube | Group) {
+				let size = cube.size();
+				let stretch = cube.stretch.slice() as ArrayVector3;
+				let offset: ArrayVector3 = [
+					-(cube.origin[0] - Math.lerp(cube.from[0], cube.to[0], 0.5)),
+					-(cube.origin[1] - Math.lerp(cube.from[1], cube.to[1], 0.5)),
+					-(cube.origin[2] - Math.lerp(cube.from[2], cube.to[2], 0.5)),
+				];
+				if (node.name == "belly") console.log('X', offset[0], cube.origin[1], Math.lerp(cube.from[1], cube.to[1], 0.5))
+				node.shape.type = 'box';
+				node.shape.settings.size = formatVector(size);
+				node.shape.offset = formatVector(offset);
+
+				
+				let temp: number;
+				function switchIndices(arr: ArrayVector3 | ArrayVector2, i1: number, i2: number) {
+					temp = arr[i1];
+					arr[i1] = arr[i2];
+					arr[i2] = temp;
+				}
+				if (cubeIsQuad(cube)) {
+					node.shape.type = 'quad';
+					// Detect normal
+					if (cube.rotation[0] == -90) {
+						node.shape.settings.normal = '+Y';
+						switchIndices(stretch, 1, 2);
+					} else if (cube.rotation[0] == 90) {
+						node.shape.settings.normal = '-Y';
+						switchIndices(stretch, 1, 2);
+					} else if (cube.rotation[1] == 90) {
+						node.shape.settings.normal = '+X';
+						switchIndices(stretch, 0, 2);
+					} else if (cube.rotation[1] == -90) {
+						node.shape.settings.normal = '-X';
+						switchIndices(stretch, 0, 2);
+					} else if (cube.rotation[1] == 180) {
+						node.shape.settings.normal = '-Z';
+					} else {
+						node.shape.settings.normal = '+Z';
+					}
+				}
+				node.shape.stretch = formatVector(stretch);
+
+				if (cube == original_element) {
+					node.shape.settings.isStaticBox = true;
+				}
+
+				// UV
+				const BBToHytaleDirection = {
+					north: "back",
+					south: "front",
+					west: "left",
+					east: "right",
+					up: "top",
+					down: "bottom",
+				}
+				let faces = node.shape.type == 'quad' ? ['south', 'north'] : Object.keys(cube.faces);
+				for (let fkey of faces) {
+					let face = cube.faces[fkey];
+					if (face.texture == null) continue;
+					let direction = BBToHytaleDirection[fkey];
+					let uv_offset = [face.uv[0], face.uv[1]];
+
+
+					let layout_face: IUvFace = {
+						offset: new oneLiner({x: uv_offset[0], y: uv_offset[1]}),
+						angle: face.rotation,
+						mirror: new oneLiner({x: false, y: false})
+					};
+					node.shape.textureLayout[direction] = layout_face;
+				}
+
+			}
+
+			function compileNode(element: Group | Cube): BlockymodelNode | undefined {
+				// Filter attachment
+				if (attach_collection) {
+					if (!attach_collection.contains(element)) return;
+				} else {
+					let collection = Collection.all.find(c => c.contains(element));
+					if (collection && (!options.attachment || options.attachment == collection.uuid)) {
+						return;
+					}
 				}
 
 				let euler = Reusable.euler1.set(
-					Math.degToRad(group.rotation[0]),
-					Math.degToRad(group.rotation[1]),
-					Math.degToRad(group.rotation[2]),
-					group.scene_object.rotation.order
+					Math.degToRad(element.rotation[0]),
+					Math.degToRad(element.rotation[1]),
+					Math.degToRad(element.rotation[2]),
+					element.scene_object.rotation.order
 				);
 				let quaternion = Reusable.quat1.setFromEuler(euler);
-				let orientation = {
+				let orientation = new oneLiner({
 					x: quaternion.x,
 					y: quaternion.y,
 					z: quaternion.z,
-					w: quaternion.x,
+					w: quaternion.w,
+				}) as IQuaternion;
+				let origin = element.origin.slice() as ArrayVector3;
+				if (element.parent instanceof Group) {
+					origin.V3_subtract(element.parent.origin);
+					console.log(element.name, origin, element.parent.origin, element.origin.slice())
 				}
 				let node: BlockymodelNode = {
 					id: id_count.toString(),
-					name: group.name,
-					position: formatVector(group.origin),
+					name: element.name,
+					position: formatVector(origin),
 					orientation,
+					shape: {
+						type: "none",
+						offset: formatVector([0, 0, 0]),
+						stretch: formatVector([0, 0, 0]),
+						settings: {
+							isPiece: false
+						},
+						textureLayout: {},
+						unwrapMode: "custom",
+						visible: true,
+						doubleSided: false,
+						shadingMode: "flat"
+					},
 				}
 				id_count++;
 
-				let shape_count = 0;
-				for (let child of group.children){
-					if (child instanceof Cube && shape_count == 0) {
+				if (element instanceof Cube) {
+					turnNodeIntoBox(node, element, element);
+				} else if ('children' in element) {
+					let shape_count = 0;
+					for (let child of element.children ?? []) {
+						let result: BlockymodelNode;
+						if (child instanceof Cube && shape_count == 0) {
+							turnNodeIntoBox(node, child, element);
+							shape_count++;
 
+						} else if (child instanceof Cube) {
+							result = compileNode(child);
+						} else if (child instanceof Group) {
+							result = compileNode(child)
+						}
+						if (result) {
+							if (!node.children) node.children = [];
+							node.children.push(result);
+						}
 					}
 				}
 
@@ -101,7 +242,10 @@ export function setupBlockymodelCodec(): Codec {
 			if (options.raw) {
 				return model;
 			} else {
-				return autoStringify(model);
+				return compileJSON(model, {
+					final_newline: false,
+					indentation: '  ',
+				})
 			}
 		},
 		parse(model: BlockymodelJSON, path: string, args?: {attachment?: string}) {
@@ -393,7 +537,7 @@ export function setupBlockymodelCodec(): Codec {
 	let export_action = new Action('export_blockymodel', {
 		name: 'Export Hytale Blockymodel',
 		description: 'Export a blockymodel file',
-		icon: 'icon-hytale',
+		icon: 'icon-format_hytale',
 		category: 'file',
 		condition: () => Format.id == 'hytale_model',
 		click: function () {
@@ -401,5 +545,6 @@ export function setupBlockymodelCodec(): Codec {
 		}
 	})
 	track(codec, export_action);
+	MenuBar.menus.file.addAction(export_action, 'export.1');
 	return codec;
 }

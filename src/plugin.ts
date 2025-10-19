@@ -30,6 +30,15 @@ BBPlugin.register('hytale_plugin', {
             description: 'Create models using Hytale\'s blockymodel format',
             icon: 'icon-format_hytale',
             category: 'hytale',
+            target: 'Hytale',
+            format_page: {
+                content: [
+                    {type: 'h3', text: tl('mode.start.format.resources')},
+                    {text: ['* [Modeling Tutorial](https://hytale.com/)',
+                            '* [Animation Tutorial](https://hytale.com/)'].join('\n')
+                    }
+                ]
+            },
             single_texture_default: true,
             animation_files: true,
             animation_mode: true,

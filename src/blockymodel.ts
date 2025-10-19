@@ -414,6 +414,13 @@ export function setupBlockymodelCodec(): Codec {
 						})
 					}
 
+					// Properties
+					cube.extend({
+						// @ts-ignore
+						shading_mode: node.shape.shadingMode,
+						double_sided: node.shape.doubleSided,
+					})
+
 					let temp: number;
 					function switchIndices(arr: ArrayVector3 | ArrayVector2, i1: number, i2: number) {
 						temp = arr[i1];

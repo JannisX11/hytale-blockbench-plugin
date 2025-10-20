@@ -1,4 +1,3 @@
-/// <reference path="../node_modules/blockbench-types/index.d.ts" />
 import { setupAnimationActions } from "./animation";
 import { setupAttachments } from "./attachments";
 import { setupBlockymodelCodec } from "./blockymodel";
@@ -18,7 +17,7 @@ BBPlugin.register('hytale_plugin', {
     version: '1.0.0',
     description: 'Adds support for creating models and animations for Hytale',
     variant: 'both',
-    min_version: '4.10.0',
+    min_version: '5.0.0',
     has_changelog: true,
     repository: 'https://github.com/JannisX11/hytale-blockbench-plugin',
     onload() {

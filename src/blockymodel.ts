@@ -1,5 +1,6 @@
 import { parseAnimationFile } from "./animation"
 import { track } from "./cleanup"
+import { Config } from "./config"
 
 type BlockymodelJSON = {
 	nodes: BlockymodelNode[]
@@ -326,10 +327,7 @@ export function setupBlockymodelCodec(): Codec {
 			if (options.raw) {
 				return model;
 			} else {
-				return compileJSON(model, {
-					final_newline: false,
-					indentation: '  ',
-				})
+				return compileJSON(model, Config.json_compile_options)
 			}
 		},
 		parse(model: BlockymodelJSON, path: string, args: {attachment?: string} = {}) {
@@ -607,6 +605,7 @@ export function setupBlockymodelCodec(): Codec {
 						let texture = Texture.all.find(t => t.path == path);
 						if (!texture) {
 							texture = new Texture().fromPath(path).add(false, true);
+							if (texture.name.startsWith(Project.name)) texture.select();
 						}
 						new_textures.push(texture);
 					}
@@ -615,10 +614,12 @@ export function setupBlockymodelCodec(): Codec {
 					let listener = Blockbench.on('select_mode', ({mode}) => {
 						if (mode.id != 'animate' || project != Project) return;
 						listener.delete();
+						let anim_path = PathModule.resolve(dirname, '../Animations/')
 						try {
-							let anim_folders = fs.readdirSync(PathModule.resolve(dirname, '../Animations/'));
+							let anim_folders = fs.existsSync(anim_path) ? fs.readdirSync(anim_path) : [];
 							for (let folder of anim_folders) {
-								let path = PathModule.resolve(dirname, '../Animations/', folder);
+								if (folder.includes('.')) continue;
+								let path = PathModule.resolve(anim_path, folder);
 								let anim_files = fs.readdirSync(path);
 								for (let file_name of anim_files) {
 									if (file_name.match(/\.blockyanim$/i)) {

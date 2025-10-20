@@ -1,4 +1,5 @@
 import { track } from "./cleanup";
+import { Config } from "./config";
 
 const FPS = 60;
 // @ts-expect-error
@@ -36,7 +37,7 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 
 	for (let name in content.nodeAnimations) {
 		let anim_data = content.nodeAnimations[name];
-		let group_name = name.replace(/-/g, '_');
+		let group_name = name;//.replace(/-/g, '_');
 		let group = Group.all.find(g => g.name == group_name);
 		let uuid = group ? group.uuid : guid();
 
@@ -89,44 +90,69 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 	const nodeAnimations: Record<string, IAnimationObject> = {};
 	const file: IBlockyAnimJSON = {
 		formatVersion: 1,
-		duration: animation.length / FPS,
+		duration: animation.length * FPS,
 		holdLastKeyframe: animation.loop == 'hold',
 		nodeAnimations,
 	}
+	const channels = {
+		position: 'position',
+		rotation: 'orientation',
+		scale: 'shapeStretch',
+	}
 	for (let uuid in animation.animators) {
 		let animator = animation.animators[uuid];
+		if (!animator.group) continue;
 		let name = animator.name;
-		nodeAnimations[name] = {};
+		let node_data = {};
+		let has_data = false;
 
-		for (let channel in animator.channels) {
+		for (let channel in channels) {
 			let timeline: IKeyframe[];
-			switch (channel) {
-				case 'position': timeline = nodeAnimations[name].position = []; break;
-				case 'rotation': timeline = nodeAnimations[name].orientation = []; break;
-				case 'scale': timeline = nodeAnimations[name].shapeStretch = []; break;
-			}
+			let hytale_channel_key = channels[channel];
+			timeline = timeline = node_data[hytale_channel_key] = [];
 			for (let kf of animator[channel] as _Keyframe[]) {
+				let data_point = kf.data_points[0];
+				let delta: any = {
+					x: parseFloat(data_point.x),
+					y: parseFloat(data_point.y),
+					z: parseFloat(data_point.z),
+				};
+				if (channel == 'rotation') {
+					let euler = new THREE.Euler(
+						Math.degToRad(kf.calc('x')),
+						Math.degToRad(kf.calc('y')),
+						Math.degToRad(kf.calc('z')),
+						Format.euler_order,
+					);
+					let quaternion = new THREE.Quaternion().setFromEuler(euler);
+
+					delta = {
+						x: quaternion.x,
+						y: quaternion.y,
+						z: quaternion.z,
+						w: quaternion.w,
+					};
+				}
 				let kf_output: IKeyframe = {
 					time: Math.round(kf.time * FPS),
-					delta: {
-						x: kf.data_points[0].x,
-						y: kf.data_points[0].y,
-						z: kf.data_points[0].z,
-					},
+					delta: new oneLiner(delta),
 					interpolationType: kf.interpolation == 'catmullrom' ? 'smooth' : 'linear'
 				};
 				timeline.push(kf_output);
+				has_data = true;
 			}
+		}
+		if (has_data) {
+			nodeAnimations[name] = node_data;
 		}
 	}
 	return file;
 }
 
 export function setupAnimationActions() {
-	let import_anim = new Action('import_blockyanim', {
-		name: 'Import Blockyanim',
-		condition: {formats: ['hytale_model']},
-		click() {
+	// @ts-expect-error
+	BarItems.load_animation_file.click = function (...args) {
+		if (Format.id == Config.format_id) {
 			Filesystem.importFile({
 				resource_id: 'blockyanim',
 				extensions: ['blockyanim'],
@@ -138,17 +164,23 @@ export function setupAnimationActions() {
 					parseAnimationFile(file, content);
 				}
 			})
+			return;
+		} else {
+			this.dispatchEvent('use');
+			this.onClick(...args);
+			this.dispatchEvent('used');
 		}
-	})
-	track(import_anim);
+	}
+
 	let export_anim = new Action('export_blockyanim', {
 		name: 'Export Blockyanim',
-		condition: {formats: ['hytale_model']},
+		icon: 'cinematic_blur',
+		condition: {formats: ['hytale_model'], selected: {animation: true}},
 		click() {
 			let animation: _Animation;
 			// @ts-ignore
 			animation = Animation.selected;
-			let content = compileJSON(compileAnimationFile(animation));
+			let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
 			Filesystem.exportFile({
 				resource_id: 'blockyanim',
 				type: 'Blockyanim',
@@ -159,4 +191,6 @@ export function setupAnimationActions() {
 		}
 	})
 	track(export_anim);
+	MenuBar.menus.animation.addAction(export_anim);
+	Panels.animations.toolbars[0].add(export_anim, '4');
 }

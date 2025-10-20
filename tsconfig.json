@@ -5,6 +5,7 @@
         "moduleResolution": "node",
         "allowUmdGlobalAccess": true,
         "lib": ["ES2023", "DOM", "DOM.Iterable"],
+        "types": ["blockbench-types"],
         "rootDir": "src",
         "strictNullChecks": false
     },

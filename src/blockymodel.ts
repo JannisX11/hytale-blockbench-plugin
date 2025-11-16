@@ -6,6 +6,7 @@ type BlockymodelJSON = {
 	nodes: BlockymodelNode[]
 	lod?: 'auto'
 }
+type QuadNormal = '+X' | '+Y' | '+Z' | '-X' | '-Y' | '-Z';
 type BlockymodelNode = {
 	id: string
 	name: string
@@ -24,7 +25,7 @@ type BlockymodelNode = {
 			/**
 			 * For quads, the normal direction of the plane
 			 */
-			normal?: '+X' | '+Y' | '+Z' | '-X' | '-Y' | '-Z'
+			normal?: QuadNormal
 			/**
 			 * unknown
 			 */

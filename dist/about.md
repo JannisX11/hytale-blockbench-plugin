@@ -11,4 +11,3 @@ Missing/planned
 
 Known Issues
 * Models face the wrong directions in thumbnails
-* Quaternions don't use smooth / catmullrom interpolation

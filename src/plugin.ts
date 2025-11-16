@@ -3,6 +3,8 @@ import { setupAttachments } from "./attachments";
 import { setupBlockymodelCodec } from "./blockymodel";
 import { cleanup, track } from "./cleanup";
 import { setupElements } from "./element";
+// @ts-expect-error
+import Package from './../package.json'
 
 const HytaleAnglePreset: AnglePreset = {
     projection: 'perspective',
@@ -14,7 +16,7 @@ BBPlugin.register('hytale_plugin', {
     title: 'Hytale Plugin',
     author: 'JannisX11',
     icon: 'icon.png',
-    version: '1.0.0',
+    version: Package.version,
     description: 'Adds support for creating models and animations for Hytale',
     variant: 'both',
     min_version: '5.0.0',

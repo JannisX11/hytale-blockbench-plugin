@@ -1,12 +1,12 @@
 {
   "name": "hytale-blockbench-plugin",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "A template for building Blockbench plugins using Typescript and esbuild",
   "main": "src/plugin.ts",
   "type": "module",
   "scripts": {
-    "build": "esbuild src/plugin.ts --bundle --outfile=dist/hytale_plugin.js",
-    "dev": "esbuild src/plugin.ts --bundle --outfile=dist/hytale_plugin.js --watch"
+    "build": "esbuild src/plugin.ts --bundle --resolveJsonModule --outfile=dist/hytale_plugin.js",
+    "dev": "esbuild src/plugin.ts --bundle --resolveJsonModule --outfile=dist/hytale_plugin.js --watch"
   },
   "author": "JannisX11",
   "license": "MIT",

@@ -1,11 +1,11 @@
 import { setupAnimationActions } from "./animation";
 import { setupAttachments } from "./attachments";
-import { setupBlockymodelCodec } from "./blockymodel";
 import { cleanup, track } from "./cleanup";
 import { setupElements } from "./element";
 import { setupChecks } from "./validation";
 // @ts-expect-error
 import Package from './../package.json'
+import { FORMAT_IDS, setupFormats } from "./formats";
 
 const HytaleAnglePreset: AnglePreset = {
     projection: 'perspective',
@@ -26,54 +26,7 @@ BBPlugin.register('hytale_plugin', {
     bug_tracker: 'https://github.com/JannisX11/hytale-blockbench-plugin/issues',
     onload() {
 
-        let codec = setupBlockymodelCodec();
-
-        let format = new ModelFormat('hytale_model', {
-            name: 'Hytale Model',
-            description: 'Create models using Hytale\'s blockymodel format',
-            icon: 'icon-format_hytale',
-            category: 'hytale',
-            target: 'Hytale',
-            format_page: {
-                content: [
-                    {type: 'h3', text: tl('mode.start.format.informations')},
-                    {text: `* One texture can be applied to a model at a time
-                            * Models can have a maximum of 255 nodes`.replace(/(\t| {4,4})+/g, '')
-                    },
-                    {type: 'h3', text: tl('mode.start.format.resources')},
-                    {text: ['* [Modeling Tutorial](https://hytale.com/)',
-                            '* [Animation Tutorial](https://hytale.com/)'].join('\n')
-                    }
-                ]
-            },
-            block_size: 32,
-            single_texture_default: true,
-            animation_files: true,
-            animation_mode: true,
-            bone_rig: true,
-            centered_grid: true,
-            box_uv: false,
-            optional_box_uv: false,
-            uv_rotation: true,
-            rotate_cubes: true,
-            per_texture_uv_size: true,
-            stretch_cubes: true,
-            confidential: true,
-            model_identifier: true,
-            animation_loop_wrapping: true,
-            quaternion_interpolation: true,
-            codec,
-            onActivation() {
-                settings.shading.set(false);
-                Panels.animations.inside_vue.$data.group_animations_by_file = false;
-            }
-        });
-        codec.format = format;
-        track(format);
-        Language.addTranslations('en', {
-            'format_category.hytale': 'Hytale'
-        })
-
+        setupFormats();
         setupElements();
         setupAnimationActions();
         setupAttachments();
@@ -81,7 +34,7 @@ BBPlugin.register('hytale_plugin', {
 
         
 		Blockbench.on('load_editor_state', ({project}) => {
-            if (Format == format && project && !project.previews[Preview.selected.id]) {
+            if (FORMAT_IDS.includes(Format.id) && project && !project.previews[Preview.selected.id]) {
                 Preview.selected.loadAnglePreset(HytaleAnglePreset);
             }
         });

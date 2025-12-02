@@ -1,10 +1,10 @@
 import { track } from "./cleanup";
-import { Config } from "./config";
+import { FORMAT_IDS } from "./formats";
 
 export function setupChecks() {
     let check = new ValidatorCheck('hytale_node_count', {
         update_triggers: ['update_selection'],
-        condition: {formats: [Config.format_id]},
+        condition: {formats: FORMAT_IDS},
         run(this: ValidatorCheck) {
             const MAX_NODE_COUNT = 255;
             let node_count = 0;

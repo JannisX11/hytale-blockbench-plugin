@@ -1,11 +1,12 @@
 import { track } from "./cleanup";
 import { Config } from "./config";
+import { FORMAT_IDS } from "./formats";
 
 export function setupElements() {
 	let property_shading_mode = new Property(Cube, 'enum', 'shading_mode', {
 		default: 'flat',
 		values: ['flat', 'standard', 'fullbright', 'reflective'],
-		condition: () => Format.id == 'hytale_model',
+		condition: {formats: FORMAT_IDS},
 		inputs: {
 			element_panel: {
 				input: {label: 'Shading Mode', type: 'select', options: {
@@ -21,7 +22,7 @@ export function setupElements() {
 	});
 	track(property_shading_mode);
 	let property_double_sided = new Property(Cube, 'boolean', 'double_sided', {
-		condition: () => Format.id == 'hytale_model',
+		condition: {formats: FORMAT_IDS},
 		inputs: {
 			element_panel: {
 				input: {label: 'Double Sided', type: 'checkbox'},
@@ -37,7 +38,7 @@ export function setupElements() {
 		name: 'Add Quad',
 		icon: 'highlighter_size_5',
 		category: 'edit',
-		condition: {formats: [Config.format_id], modes: ['edit']},
+		condition: {formats: FORMAT_IDS, modes: ['edit']},
 		click() {
 			let color = Math.floor(Math.random()*markerColors.length);
 			let initial = 'pos_z';

@@ -1,5 +1,6 @@
 import { track } from "./cleanup";
 import { Config } from "./config";
+import { FORMAT_IDS } from "./formats";
 
 const FPS = 60;
 // @ts-expect-error
@@ -156,7 +157,7 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 export function setupAnimationActions() {
 	// @ts-expect-error
 	BarItems.load_animation_file.click = function (...args) {
-		if (Format.id == Config.format_id) {
+		if (FORMAT_IDS.includes(Format.id)) {
 			Filesystem.importFile({
 				resource_id: 'blockyanim',
 				extensions: ['blockyanim'],
@@ -179,7 +180,7 @@ export function setupAnimationActions() {
 	let export_anim = new Action('export_blockyanim', {
 		name: 'Export Blockyanim',
 		icon: 'cinematic_blur',
-		condition: {formats: ['hytale_model'], selected: {animation: true}},
+		condition: {formats: FORMAT_IDS, selected: {animation: true}},
 		click() {
 			let animation: _Animation;
 			// @ts-ignore
@@ -222,7 +223,7 @@ function weightedCubicBezier(t: number): number {
 	return numerator / denominator;
 }
 Blockbench.on('interpolate_keyframes', arg => {
-	if (Format.id != Config.format_id) return;
+	if (!FORMAT_IDS.includes(Format.id)) return;
 	if (!arg.use_quaternions || !arg.t || arg.t == 1) return;
 	if (arg.keyframe_before.interpolation != 'catmullrom' || arg.keyframe_after.interpolation != 'catmullrom') return;
 	return {

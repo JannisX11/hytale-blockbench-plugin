@@ -1,6 +1,7 @@
 import { parseAnimationFile } from "./animation"
 import { track } from "./cleanup"
 import { Config } from "./config"
+import { FORMAT_IDS } from "./formats"
 
 type BlockymodelJSON = {
 	nodes: BlockymodelNode[]
@@ -647,7 +648,7 @@ export function setupBlockymodelCodec(): Codec {
 		description: 'Export a blockymodel file',
 		icon: 'icon-format_hytale',
 		category: 'file',
-		condition: () => Format.id == 'hytale_model',
+		condition: {formats: FORMAT_IDS},
 		click: function () {
 			codec.export()
 		}

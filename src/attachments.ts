@@ -1,4 +1,5 @@
 import { track } from "./cleanup";
+import { FORMAT_IDS } from "./formats";
 
 export function setupAttachments() {
 
@@ -52,7 +53,7 @@ export function setupAttachments() {
 
 
 	let texture_property = new Property(Collection, 'string', 'texture', {
-		condition: () => Format.id == 'hytale_model'
+		condition: {formats: FORMAT_IDS}
 	});
 	track(texture_property);
 
@@ -62,7 +63,7 @@ export function setupAttachments() {
 
 	let originalGetTexture = CubeFace.prototype.getTexture;
 	CubeFace.prototype.getTexture = function(...args) {
-		if (Format.id == 'hytale_model') {
+		if (Format.id == 'hytale_character') {
 			let collection = getCollection(this.cube);
 			if (collection && "texture" in collection && collection.texture) {
 				let texture = Texture.all.find(t => t.uuid == collection.texture);
@@ -81,7 +82,7 @@ export function setupAttachments() {
 		id: 'set_texture',
 		name: 'menu.cube.texture',
 		icon: 'collections',
-		condition: {formats: ['hytale_model']},
+		condition: {formats: FORMAT_IDS},
 		children(context: Collection & {texture: string}) {
 			function applyTexture(texture_value: string, undo_message: string) {
 				Undo.initEdit({collections: Collection.selected});

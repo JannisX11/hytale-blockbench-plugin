@@ -351,8 +351,12 @@ export function setupBlockymodelCodec(): Codec {
 					Math.radToDeg(rotation_euler.y),
 					Math.radToDeg(rotation_euler.z),
 				];
-				
-				if (parent_group instanceof Group) {
+				if (args.attachment && !parent_node && parent_group instanceof Group) {
+					let reference_node = parent_group.children.find(c => c instanceof Cube) ?? parent_group;
+					origin = reference_node.origin.slice() as ArrayVector3;
+					rotation = reference_node.rotation.slice() as ArrayVector3;
+
+				} else if (parent_group instanceof Group) {
 					let parent_geo_origin = parent_group.children.find(cube => cube instanceof Cube)?.origin ?? parent_group.origin;
 					if (parent_geo_origin) {
 						origin.V3_add(parent_geo_origin);

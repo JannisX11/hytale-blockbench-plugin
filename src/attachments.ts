@@ -1,5 +1,6 @@
 import { track } from "./cleanup";
 import { FORMAT_IDS } from "./formats";
+import { updateUVSize } from "./texture";
 
 export function setupAttachments() {
 
@@ -37,11 +38,16 @@ export function setupAttachments() {
 						// @ts-expect-error
 						new_textures.forEach(tex => tex.group = texture_group.uuid);
 
+						// Update UV size
+						for (let texture of new_textures) {
+							updateUVSize(texture);
+						}
+
 						let texture = new_textures.find(t => t.name.startsWith(attachment_name)) ?? new_textures[0];
 
 						// @ts-expect-error
 						collection.texture = texture.uuid;
-						//new_groups.forEach(group => group.texture = new_textures[0].uuid);
+						Canvas.updateAllFaces();
 					}
 				}
 			})

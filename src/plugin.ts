@@ -6,6 +6,7 @@ import { setupChecks } from "./validation";
 // @ts-expect-error
 import Package from './../package.json'
 import { FORMAT_IDS, setupFormats } from "./formats";
+import { setupPhotoshopTools } from "./photoshop_copy_paste";
 
 const HytaleAnglePreset: AnglePreset = {
     projection: 'perspective',
@@ -31,6 +32,7 @@ BBPlugin.register('hytale_plugin', {
         setupAnimationActions();
         setupAttachments();
         setupChecks();
+        setupPhotoshopTools();
 
         
 		Blockbench.on('load_editor_state', ({project}) => {

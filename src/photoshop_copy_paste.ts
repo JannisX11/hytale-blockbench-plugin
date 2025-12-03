@@ -84,7 +84,6 @@ export function setupPhotoshopTools() {
         condition: () => Prop.active_panel == 'uv' && Modes.paint && Texture.getDefault() && FORMAT_IDS.includes(Format.id) && setting.value == true,
         priority: 2,
         run(event) {
-            console.log('TEST copy')
 
             let texture = Texture.getDefault();
 

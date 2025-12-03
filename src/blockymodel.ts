@@ -71,6 +71,41 @@ export function setupBlockymodelCodec(): Codec {
 			type: 'json',
 			extensions: ['blockymodel']
 		},
+		
+		load(model, file, args = {}) {
+			let format = this.format;
+
+			if (Collection.all) console.log(file, Project, Collection.all.slice(), Collection.all.find(c => c.export_path == file.path))
+			if (Project && Collection.all.find(c => c.export_path == file.path)) {
+				format = Formats.hytale_attachment;
+			}
+
+			if (!args.import_to_current_project) {
+				setupProject(format)
+			}
+			if (file.path && isApp && this.remember && !file.no_file ) {
+				let parts = file.path.split(/[\\\/]/);
+				parts[parts.length-1] = parts.last().split('.')[0];
+				Project.name = parts.findLast(p => p != 'Model' && p != 'Models' && p != 'Attachments') ?? 'Model';
+				Project.export_path = file.path;
+			}
+
+			this.parse(model, file.path, args);
+
+			if (file.path && isApp && this.remember && !file.no_file ) {
+				// loadDataFromModelMemory();
+				addRecentProject({
+					name: Project.name,
+					path: Project.export_path,
+					icon: Format.icon
+				})
+				let project = Project;
+				setTimeout(() => {
+					if (Project == project) updateRecentProjectThumbnail();
+				}, 500)
+			}
+			Settings.updateSettingsInProfiles();
+		},
 		compile(options: CompileOptions = {}): string | BlockymodelJSON {
 			let model: BlockymodelJSON = {
 				nodes: [],
@@ -338,7 +373,21 @@ export function setupBlockymodelCodec(): Codec {
 				return Object.values(vec).slice(0, 3) as ArrayVector3;
 			}
 			const new_groups: Group[] = [];
+			const existing_groups = Group.all.slice();
 			function parseNode(node: BlockymodelNode, parent_node: BlockymodelNode | null, parent_group: Group | 'root' = 'root', parent_offset?: ArrayVector3) {
+				
+				if (args.attachment) {
+					// Attach
+					let attachment_node: Group | undefined;
+					if (args.attachment && node.shape?.type == 'none' && existing_groups.length) {
+						let node_name = node.name;
+						attachment_node = existing_groups.find(g => g.name == node_name);
+					}
+					if (attachment_node) {
+						parent_group = attachment_node;
+						parent_node = null;
+					}
+				}
 
 				let quaternion = new THREE.Quaternion();
 				quaternion.set(node.orientation.x, node.orientation.y, node.orientation.z, node.orientation.w);
@@ -377,7 +426,8 @@ export function setupBlockymodelCodec(): Codec {
 					group.addTo(parent_group);
 
 					if (!parent_node && args.attachment) {
-						group.name = args.attachment + ':' + group.name
+						group.name = args.attachment + ':' + group.name;
+						group.color = 1;
 					}
 
 					group.init();
@@ -586,34 +636,27 @@ export function setupBlockymodelCodec(): Codec {
 
 			for (let node of model.nodes) {
 				// Roots
-				let attachment_node: Group | undefined;
-				if (args.attachment && node.shape?.type == 'none' && Group.all.length) {
-					let node_name = node.name;
-					attachment_node = Group.all.find(g => g.name == node_name);
-				}
-				parseNode(node, null, attachment_node);
-			}
-
-			if (path && !args?.attachment) {
-				let parts = path.split(/[\\\/]/);
-				parts[parts.length-1] = parts.last().split('.')[0];
-				Project.name = parts.findLast(p => p != 'Model' && p != 'Models' && p != 'Attachments') ?? 'Model';
+				parseNode(node, null);
 			}
 			
 			const new_textures: Texture[] = [];
 			if (isApp && path) {
 				let project = Project;
 				let dirname = PathModule.dirname(path);
+				let model_file_name = pathToName(path, false);
 				let fs = requireNativeModule('fs', {scope: PathModule.resolve(dirname, '..')});
 
 				let texture_files = fs.readdirSync(dirname);
 				for (let file_name of texture_files) {
-					if (file_name.match(/\.png$/i)) {
+					if (file_name.match(/\.png$/i) && (file_name.startsWith(model_file_name) || file_name == 'Texture.png')) {
 						let path = PathModule.join(dirname, file_name);
 						let texture = Texture.all.find(t => t.path == path);
 						if (!texture) {
 							texture = new Texture().fromPath(path).add(false, true);
 							if (texture.name.startsWith(Project.name)) texture.select();
+						}
+						if (!args.attachment && !Texture.all.find(t => t.use_as_default)) {
+							texture.use_as_default = true;
 						}
 						new_textures.push(texture);
 					}
@@ -657,6 +700,7 @@ export function setupBlockymodelCodec(): Codec {
 			codec.export()
 		}
 	})
+	codec.export_action = export_action;
 	track(codec, export_action);
 	MenuBar.menus.file.addAction(export_action, 'export.1');
 	return codec;

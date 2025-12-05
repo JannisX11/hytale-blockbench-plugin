@@ -125,4 +125,23 @@ export function setupElements() {
 	track(add_quad_action);
 	let add_element_menu = ((BarItems.add_element as Action).side_menu as Menu);
 	add_element_menu.addAction(add_quad_action);
+
+	// UV workflow
+	Blockbench.on('finish_edit', (arg: {aspects: UndoAspects}) => {
+		if (arg.aspects?.elements) {
+			let changes = false;
+			for (let element of arg.aspects.elements) {
+				if (element instanceof Cube == false) continue;
+				if (element.autouv) continue;
+
+				element.autouv = 1;
+				element.mapAutoUV();
+				element.preview_controller.updateUV(element);
+				changes = true;
+			}
+			if (changes) {
+				UVEditor.vue.$forceUpdate();
+			}
+		}
+	})
 };

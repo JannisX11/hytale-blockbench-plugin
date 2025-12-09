@@ -18,6 +18,7 @@ export function setupFormats() {
         forward_direction: '+z',
         single_texture_default: true,
         animation_files: true,
+        animation_grouping: 'custom',
         animation_mode: true,
         bone_rig: true,
         centered_grid: true,

@@ -80,7 +80,7 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 			}
 		}
 	}
-	animation.add(true);
+	animation.add(false);
 
 	if (!Animation.selected && Animator.open) {
 		animation.select()
@@ -198,6 +198,68 @@ export function setupAnimationActions() {
 	track(export_anim);
 	MenuBar.menus.animation.addAction(export_anim);
 	Panels.animations.toolbars[0].add(export_anim, '4');
+
+	let handler = Filesystem.addDragHandler('blockyanim', {
+		extensions: ['blockyanim'],
+		readtype: 'text',
+		condition: {modes: ['animate']},
+	}, async function(files) {
+		for (let file of files) {
+			let content = autoParseJSON(file.content as string);
+			parseAnimationFile(file, content);
+		}
+	});
+	track(handler);
+
+	// save
+	let original_save = Animation.prototype.save;
+	Animation.prototype.save = function(...args) {
+		if (!FORMAT_IDS.includes(Format.id)) {
+			return original_save(...args);
+		}
+
+		let animation: _Animation;
+		// @ts-ignore
+		animation = Animation.selected;
+		let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
+
+		if (isApp && this.path) {
+			// Write
+			Blockbench.writeFile(this.path, {content}, (real_path) => {
+				this.saved = true;
+				this.saved_name = this.name;
+				this.path = real_path;
+			});
+		} else {
+			Blockbench.export({
+				resource_id: 'blockyanim',
+				type: 'Blockyanim',
+				extensions: ['blockyanim'],
+				name: animation.name,
+				startpath: this.path,
+				content,
+			}, (real_path: string) => {
+				if (isApp) this.path == real_path;
+				this.saved = true;
+			})
+		}
+		return this;
+	}
+	track({
+		delete() {
+			Animation.prototype.save = original_save;
+		}
+	});
+
+	let original_condition = BarItems.export_animation_file.condition;
+	BarItems.export_animation_file.condition = () => {
+		return Condition(original_condition) && !FORMAT_IDS.includes(Format.id)
+	};
+	track({
+		delete() {
+			BarItems.export_animation_file.condition = original_condition;
+		}
+	});
 }
 
 // Playback

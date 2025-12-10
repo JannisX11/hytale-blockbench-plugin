@@ -2,6 +2,7 @@ import { setupAnimationActions } from "./animation";
 import { setupAttachments } from "./attachments";
 import { cleanup, track } from "./cleanup";
 import { setupElements } from "./element";
+import { setupUVCycling } from "./uv_cycling";
 import { setupChecks } from "./validation";
 // @ts-expect-error
 import Package from './../package.json'
@@ -28,6 +29,7 @@ BBPlugin.register('hytale_plugin', {
         setupAttachments();
         setupChecks();
         setupPhotoshopTools();
+        setupUVCycling();
 
         let on_finish_edit = Blockbench.on('generate_texture_template', (arg) => {
             for (let element of arg.elements) {

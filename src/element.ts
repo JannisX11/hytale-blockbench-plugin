@@ -34,6 +34,17 @@ export function setupElements() {
 	});
 	track(property_double_sided);
 
+	let property_isPiece = new Property(Group, 'boolean', 'isPiece', {
+		condition: {formats: FORMAT_IDS},
+		inputs: {
+			element_panel: {
+				input: {label: 'isPiece', type: 'checkbox'},
+				onChange() {}
+			}
+		}
+	});
+	track(property_isPiece);
+
 	let add_quad_action = new Action('hytale_add_quad', {
 		name: 'Add Quad',
 		icon: 'highlighter_size_5',

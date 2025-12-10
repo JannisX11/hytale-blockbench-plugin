@@ -57,6 +57,10 @@ type CubeHytale = Cube & {
 	double_sided: boolean
 }
 
+type GroupHytale = Group & {
+	isPiece: boolean
+}
+
 interface CompileOptions {
 	attachment?: Collection,
 	raw?: boolean
@@ -315,7 +319,7 @@ export function setupBlockymodelCodec(): Codec {
 						offset: formatVector([0, 0, 0]),
 						stretch: formatVector([0, 0, 0]),
 						settings: {
-							isPiece: false
+							isPiece: (element instanceof Group && (element as GroupHytale).isPiece) || false
 						},
 						textureLayout: {},
 						unwrapMode: "custom",
@@ -375,9 +379,9 @@ export function setupBlockymodelCodec(): Codec {
 			function parseNode(node: BlockymodelNode, parent_node: BlockymodelNode | null, parent_group: Group | 'root' = 'root', parent_offset?: ArrayVector3) {
 				
 				if (args.attachment) {
-					// Attach
+					// Attach groups marked with isPiece: true to matching bones in main model
 					let attachment_node: Group | undefined;
-					if (args.attachment && node.shape?.type == 'none' && existing_groups.length) {
+					if (args.attachment && node.shape?.settings?.isPiece === true && existing_groups.length) {
 						let node_name = node.name;
 						attachment_node = existing_groups.find(g => g.name == node_name);
 					}
@@ -429,6 +433,9 @@ export function setupBlockymodelCodec(): Codec {
 					}
 
 					group.init();
+					group.extend({
+						isPiece: node.shape?.settings?.isPiece ?? false,
+					});
 				}
 
 

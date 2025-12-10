@@ -10,7 +10,7 @@ import { setupPhotoshopTools } from "./photoshop_copy_paste";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
-    author: 'JannisX11',
+    author: 'JannisX11, Kanno',
     icon: 'icon.png',
     version: Package.version,
     description: 'Adds support for creating models and animations for Hytale',

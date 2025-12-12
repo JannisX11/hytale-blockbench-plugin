@@ -7,6 +7,7 @@ import { setupChecks } from "./validation";
 import Package from './../package.json'
 import { setupFormats } from "./formats";
 import { setupPhotoshopTools } from "./photoshop_copy_paste";
+import { CustomPivotMarker } from "./pivot_marker"
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -28,6 +29,9 @@ BBPlugin.register('hytale_plugin', {
         setupAttachments();
         setupChecks();
         setupPhotoshopTools();
+
+        let pivot_marker = new CustomPivotMarker();
+        track(pivot_marker)
         
     },
     onunload() {

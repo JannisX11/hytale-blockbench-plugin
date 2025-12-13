@@ -17,7 +17,7 @@ BBPlugin.register('hytale_plugin', {
     author: 'JannisX11, Kanno',
     icon: 'icon.png',
     version: Package.version,
-    description: 'Adds support for creating models and animations for Hytale',
+    description: 'Create models and animations for Hytale',
     tags: ['Hytale'],
     variant: 'both',
     min_version: '5.0.0',

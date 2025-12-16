@@ -1889,13 +1889,17 @@
       }
     });
   }
-  function uvRegionFill(texture, ctx, clickX, clickY, area) {
-    const region = findFaceAtPoint(texture, clickX, clickY, area.uvFactorX, area.uvFactorY);
-    if (region) {
+  function uvRegionFill(texture, ctx, x, y, area) {
+    const region = findFaceRegion(texture, x, y, area.uvFactorX, area.uvFactorY);
+    if (!region) return;
+    const clickedAlpha = ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data[3];
+    if (clickedAlpha === 0) {
+      fillTransparent(ctx, region);
+    } else if (isFlatColor(ctx, region)) {
       fillRegion(ctx, region);
     }
   }
-  function findFaceAtPoint(texture, x, y, uvFactorX, uvFactorY) {
+  function findFaceRegion(texture, x, y, uvFactorX, uvFactorY) {
     const animOffset = texture.display_height * texture.currentFrame;
     for (const cube of Cube.all) {
       for (const faceKey in cube.faces) {
@@ -1921,11 +1925,11 @@
         if (face.vertices.length < 3) continue;
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
         for (const vkey in face.uv) {
-          const uvCoord = face.uv[vkey];
-          minX = Math.min(minX, uvCoord[0] * uvFactorX);
-          maxX = Math.max(maxX, uvCoord[0] * uvFactorX);
-          minY = Math.min(minY, uvCoord[1] * uvFactorY);
-          maxY = Math.max(maxY, uvCoord[1] * uvFactorY);
+          const uv = face.uv[vkey];
+          minX = Math.min(minX, uv[0] * uvFactorX);
+          maxX = Math.max(maxX, uv[0] * uvFactorX);
+          minY = Math.min(minY, uv[1] * uvFactorY);
+          maxY = Math.max(maxY, uv[1] * uvFactorY);
         }
         minX = Math.floor(minX);
         minY = Math.floor(minY) + animOffset;
@@ -1938,24 +1942,43 @@
     }
     return null;
   }
-  function fillRegion(ctx, region) {
-    const opacity = BarItems.slider_brush_opacity.get() / 255;
-    const eraseMode = Painter.erase_mode;
-    const lockAlpha = Painter.lock_alpha;
-    ctx.save();
-    if (eraseMode) {
-      ctx.globalAlpha = opacity;
-      ctx.fillStyle = "white";
-      ctx.globalCompositeOperation = "destination-out";
-    } else {
-      ctx.fillStyle = tinycolor(ColorPanel.get()).setAlpha(opacity).toRgbString();
-      ctx.globalCompositeOperation = Painter.getBlendModeCompositeOperation();
-      if (lockAlpha) {
-        ctx.globalCompositeOperation = "source-atop";
+  function isFlatColor(ctx, region) {
+    const width = region.maxX - region.minX;
+    const height = region.maxY - region.minY;
+    if (width <= 0 || height <= 0) return false;
+    const data = ctx.getImageData(region.minX, region.minY, width, height).data;
+    const [r, g, b, a] = [data[0], data[1], data[2], data[3]];
+    for (let i = 4; i < data.length; i += 4) {
+      if (data[i] !== r || data[i + 1] !== g || data[i + 2] !== b || data[i + 3] !== a) {
+        return false;
       }
     }
+    return true;
+  }
+  function fillRegion(ctx, region) {
+    const opacity = BarItems.slider_brush_opacity.get() / 255;
+    ctx.save();
+    ctx.fillStyle = tinycolor(ColorPanel.get()).setAlpha(opacity).toRgbString();
     ctx.fillRect(region.minX, region.minY, region.maxX - region.minX, region.maxY - region.minY);
     ctx.restore();
+  }
+  function fillTransparent(ctx, region) {
+    const width = region.maxX - region.minX;
+    const height = region.maxY - region.minY;
+    if (width <= 0 || height <= 0) return;
+    const imageData = ctx.getImageData(region.minX, region.minY, width, height);
+    const data = imageData.data;
+    const color = tinycolor(ColorPanel.get()).toRgb();
+    const alpha = Math.round(BarItems.slider_brush_opacity.get() / 255 * 255);
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] === 0) {
+        data[i] = color.r;
+        data[i + 1] = color.g;
+        data[i + 2] = color.b;
+        data[i + 3] = alpha;
+      }
+    }
+    ctx.putImageData(imageData, region.minX, region.minY);
   }
 
   // src/plugin.ts

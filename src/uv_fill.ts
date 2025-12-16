@@ -15,20 +15,14 @@ interface FillArea {
 	h: number;
 }
 
-// Adds a "UV" fill mode that fills the UV region of any face clicked on the texture
+// Adds "UV" fill mode: fills transparent areas or replaces flat-colored faces
 export function setupUVFill() {
 	const fillModeSelect = BarItems.fill_mode as BarSelect<string>;
 	fillModeSelect.options['uv'] = { name: 'UV' };
 
 	const originalUseFilltool = Painter.useFilltool;
 
-	Painter.useFilltool = function(
-		texture: Texture,
-		ctx: CanvasRenderingContext2D,
-		x: number,
-		y: number,
-		area: FillArea
-	) {
+	Painter.useFilltool = function(texture: Texture, ctx: CanvasRenderingContext2D, x: number, y: number, area: FillArea) {
 		if (fillModeSelect.get() !== 'uv') {
 			return originalUseFilltool.call(Painter, texture, ctx, x, y, area);
 		}
@@ -43,16 +37,22 @@ export function setupUVFill() {
 	});
 }
 
-// Finds the face UV region at click point and fills it with solid color
-function uvRegionFill(texture: Texture, ctx: CanvasRenderingContext2D, clickX: number, clickY: number, area: FillArea) {
-	const region = findFaceAtPoint(texture, clickX, clickY, area.uvFactorX, area.uvFactorY);
-	if (region) {
+// Main fill logic: transparent click fills transparent pixels, flat color click replaces entire face
+function uvRegionFill(texture: Texture, ctx: CanvasRenderingContext2D, x: number, y: number, area: FillArea) {
+	const region = findFaceRegion(texture, x, y, area.uvFactorX, area.uvFactorY);
+	if (!region) return;
+
+	const clickedAlpha = ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data[3];
+
+	if (clickedAlpha === 0) {
+		fillTransparent(ctx, region);
+	} else if (isFlatColor(ctx, region)) {
 		fillRegion(ctx, region);
 	}
 }
 
-// Returns the UV region of the face containing the given point
-function findFaceAtPoint(texture: Texture, x: number, y: number, uvFactorX: number, uvFactorY: number): UVRegion | null {
+// Returns UV bounds of the face containing the point, or null if none found
+function findFaceRegion(texture: Texture, x: number, y: number, uvFactorX: number, uvFactorY: number): UVRegion | null {
 	const animOffset = texture.display_height * texture.currentFrame;
 
 	for (const cube of Cube.all) {
@@ -84,11 +84,11 @@ function findFaceAtPoint(texture: Texture, x: number, y: number, uvFactorX: numb
 
 			let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 			for (const vkey in face.uv) {
-				const uvCoord = face.uv[vkey];
-				minX = Math.min(minX, uvCoord[0] * uvFactorX);
-				maxX = Math.max(maxX, uvCoord[0] * uvFactorX);
-				minY = Math.min(minY, uvCoord[1] * uvFactorY);
-				maxY = Math.max(maxY, uvCoord[1] * uvFactorY);
+				const uv = face.uv[vkey];
+				minX = Math.min(minX, uv[0] * uvFactorX);
+				maxX = Math.max(maxX, uv[0] * uvFactorX);
+				minY = Math.min(minY, uv[1] * uvFactorY);
+				maxY = Math.max(maxY, uv[1] * uvFactorY);
 			}
 
 			minX = Math.floor(minX);
@@ -105,26 +105,49 @@ function findFaceAtPoint(texture: Texture, x: number, y: number, uvFactorX: numb
 	return null;
 }
 
-// Fills a rectangular region with the current paint color
+function isFlatColor(ctx: CanvasRenderingContext2D, region: UVRegion): boolean {
+	const width = region.maxX - region.minX;
+	const height = region.maxY - region.minY;
+	if (width <= 0 || height <= 0) return false;
+
+	const data = ctx.getImageData(region.minX, region.minY, width, height).data;
+	const [r, g, b, a] = [data[0], data[1], data[2], data[3]];
+
+	for (let i = 4; i < data.length; i += 4) {
+		if (data[i] !== r || data[i + 1] !== g || data[i + 2] !== b || data[i + 3] !== a) {
+			return false;
+		}
+	}
+	return true;
+}
+
 function fillRegion(ctx: CanvasRenderingContext2D, region: UVRegion) {
 	const opacity = (BarItems.slider_brush_opacity as BarSlider).get() / 255;
-	const eraseMode = (Painter as any).erase_mode as boolean;
-	const lockAlpha = (Painter as any).lock_alpha as boolean;
 
 	ctx.save();
+	ctx.fillStyle = tinycolor(ColorPanel.get()).setAlpha(opacity).toRgbString();
+	ctx.fillRect(region.minX, region.minY, region.maxX - region.minX, region.maxY - region.minY);
+	ctx.restore();
+}
 
-	if (eraseMode) {
-		ctx.globalAlpha = opacity;
-		ctx.fillStyle = 'white';
-		ctx.globalCompositeOperation = 'destination-out';
-	} else {
-		ctx.fillStyle = tinycolor(ColorPanel.get()).setAlpha(opacity).toRgbString();
-		ctx.globalCompositeOperation = (Painter as any).getBlendModeCompositeOperation() as GlobalCompositeOperation;
-		if (lockAlpha) {
-			ctx.globalCompositeOperation = 'source-atop';
+function fillTransparent(ctx: CanvasRenderingContext2D, region: UVRegion) {
+	const width = region.maxX - region.minX;
+	const height = region.maxY - region.minY;
+	if (width <= 0 || height <= 0) return;
+
+	const imageData = ctx.getImageData(region.minX, region.minY, width, height);
+	const data = imageData.data;
+	const color = tinycolor(ColorPanel.get()).toRgb();
+	const alpha = Math.round((BarItems.slider_brush_opacity as BarSlider).get() / 255 * 255);
+
+	for (let i = 0; i < data.length; i += 4) {
+		if (data[i + 3] === 0) {
+			data[i] = color.r;
+			data[i + 1] = color.g;
+			data[i + 2] = color.b;
+			data[i + 3] = alpha;
 		}
 	}
 
-	ctx.fillRect(region.minX, region.minY, region.maxX - region.minX, region.maxY - region.minY);
-	ctx.restore();
+	ctx.putImageData(imageData, region.minX, region.minY);
 }

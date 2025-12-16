@@ -1,4 +1,5 @@
 import { track } from "./cleanup";
+import { isHytaleFormat } from "./formats";
 
 // @ts-expect-error
 const Animation = window.Animation as typeof _Animation;
@@ -84,4 +85,20 @@ export function setupNameOverlap() {
             BoneAnimator.prototype.select = bone_animator_select_original;
         }
     })
+
+    let setting = new Setting('hytale_duplicate_bone_names', {
+        name: 'Duplicate Bone Names',
+        description: 'Allow creating duplicate groups names in Hytale formats. Multiple groups with the same name can be used to apply animations to multiple nodes at once.',
+        type: 'toggle',
+        value: false
+    })
+    let override = Group.addBehaviorOverride({
+        condition: () => isHytaleFormat() && setting.value == true,
+        // @ts-ignore
+        priority: 2,
+        behavior: {
+            unique_name: false
+        }
+    })
+    track(override, setting);
 }

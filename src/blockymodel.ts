@@ -5,6 +5,7 @@ import { FORMAT_IDS } from "./formats"
 
 type BlockymodelJSON = {
 	nodes: BlockymodelNode[]
+	format?: string
 	lod?: 'auto'
 }
 type QuadNormal = '+X' | '+Y' | '+Z' | '-X' | '-Y' | '-Z';
@@ -113,7 +114,6 @@ function loadTexturesFromPaths(paths: string[], preferredName?: string): Texture
 	}
 	if (textures.length > 0) {
 		let primary = (preferredName && textures.find(t => t.name.startsWith(preferredName))) || textures[0];
-		primary.select();
 		if (!Texture.all.find(t => t.use_as_default)) {
 			primary.use_as_default = true;
 		}
@@ -184,19 +184,26 @@ export function setupBlockymodelCodec(): Codec {
 		},
 		
 		load(model, file, args = {}) {
-			let format = this.format;
+			let path_segments = file.path && file.path.split(/[\\\/]/);
 
-			if (Project && Collection.all.find(c => c.export_path == file.path)) {
-				format = Formats.hytale_attachment;
+			// Detect format
+			let format = this.format;
+			if (model.format) {
+				if (model.format == 'prop') {
+					format = Formats.hytale_prop;
+				}
+			} else {
+				if (path_segments && path_segments.includes('Blocks')) {
+					format = Formats.hytale_prop;
+				}
 			}
 
 			if (!args.import_to_current_project) {
 				setupProject(format)
 			}
-			if (file.path && isApp && this.remember && !file.no_file ) {
-				let parts = file.path.split(/[\\\/]/);
-				parts[parts.length-1] = parts.last().split('.')[0];
-				Project.name = parts.findLast(p => p != 'Model' && p != 'Models' && p != 'Attachments') ?? 'Model';
+			if (path_segments && isApp && this.remember && !file.no_file ) {
+				path_segments[path_segments.length-1] = path_segments.last().split('.')[0];
+				Project.name = path_segments.findLast((p: string) => p != 'Model' && p != 'Models' && p != 'Attachments') ?? 'Model';
 				Project.export_path = file.path;
 			}
 
@@ -219,6 +226,7 @@ export function setupBlockymodelCodec(): Codec {
 		compile(options: CompileOptions = {}): string | BlockymodelJSON {
 			let model: BlockymodelJSON = {
 				nodes: [],
+				format: Format.id == 'hytale_prop' ? 'prop' : 'character',
 				lod: 'auto'
 			}
 			let node_id = 1;

@@ -51,7 +51,6 @@
     }
     if (textures.length > 0) {
       let primary = preferredName && textures.find((t) => t.name.startsWith(preferredName)) || textures[0];
-      primary.select();
       if (!Texture.all.find((t) => t.use_as_default)) {
         primary.use_as_default = true;
       }
@@ -110,17 +109,23 @@
         extensions: ["blockymodel"]
       },
       load(model, file, args = {}) {
+        let path_segments = file.path && file.path.split(/[\\\/]/);
         let format = this.format;
-        if (Project && Collection.all.find((c) => c.export_path == file.path)) {
-          format = Formats.hytale_attachment;
+        if (model.format) {
+          if (model.format == "prop") {
+            format = Formats.hytale_prop;
+          }
+        } else {
+          if (path_segments && path_segments.includes("Blocks")) {
+            format = Formats.hytale_prop;
+          }
         }
         if (!args.import_to_current_project) {
           setupProject(format);
         }
-        if (file.path && isApp && this.remember && !file.no_file) {
-          let parts = file.path.split(/[\\\/]/);
-          parts[parts.length - 1] = parts.last().split(".")[0];
-          Project.name = parts.findLast((p) => p != "Model" && p != "Models" && p != "Attachments") ?? "Model";
+        if (path_segments && isApp && this.remember && !file.no_file) {
+          path_segments[path_segments.length - 1] = path_segments.last().split(".")[0];
+          Project.name = path_segments.findLast((p) => p != "Model" && p != "Models" && p != "Attachments") ?? "Model";
           Project.export_path = file.path;
         }
         this.parse(model, file.path, args);
@@ -140,6 +145,7 @@
       compile(options = {}) {
         let model = {
           nodes: [],
+          format: Format.id == "hytale_prop" ? "prop" : "character",
           lod: "auto"
         };
         let node_id = 1;
@@ -722,7 +728,6 @@
   // src/formats.ts
   var FORMAT_IDS = [
     "hytale_character",
-    "hytale_attachment",
     "hytale_prop"
   ];
   function setupFormats() {
@@ -771,15 +776,7 @@
     };
     let format_character = new ModelFormat("hytale_character", {
       name: "Hytale Character",
-      description: "Create character models using Hytale's blockymodel format",
-      icon: "icon-format_hytale",
-      format_page,
-      block_size: 64,
-      ...common
-    });
-    let format_attachment = new ModelFormat("hytale_attachment", {
-      name: "Hytale Attachment",
-      description: "Create attachments using Hytale's blockymodel format",
+      description: "Create character and attachment models using Hytale's blockymodel format",
       icon: "icon-format_hytale",
       format_page,
       block_size: 64,
@@ -795,7 +792,6 @@
     });
     codec.format = format_character;
     track(format_character);
-    track(format_attachment);
     track(format_prop);
     Language.addTranslations("en", {
       "format_category.hytale": "Hytale"
@@ -1608,7 +1604,7 @@
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.3.0",
+    version: "0.3.1",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",

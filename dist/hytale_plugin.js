@@ -1871,6 +1871,93 @@
     }
   };
 
+  // src/uv_fill.ts
+  function setupUVFill() {
+    const fillModeSelect = BarItems.fill_mode;
+    fillModeSelect.options["uv"] = { name: "UV" };
+    const originalUseFilltool = Painter.useFilltool;
+    Painter.useFilltool = function(texture, ctx, x, y, area) {
+      if (fillModeSelect.get() !== "uv") {
+        return originalUseFilltool.call(Painter, texture, ctx, x, y, area);
+      }
+      uvRegionFill(texture, ctx, x, y, area);
+    };
+    track({
+      delete() {
+        Painter.useFilltool = originalUseFilltool;
+        delete fillModeSelect.options["uv"];
+      }
+    });
+  }
+  function uvRegionFill(texture, ctx, clickX, clickY, area) {
+    const region = findFaceAtPoint(texture, clickX, clickY, area.uvFactorX, area.uvFactorY);
+    if (region) {
+      fillRegion(ctx, region);
+    }
+  }
+  function findFaceAtPoint(texture, x, y, uvFactorX, uvFactorY) {
+    const animOffset = texture.display_height * texture.currentFrame;
+    for (const cube of Cube.all) {
+      for (const faceKey in cube.faces) {
+        const face = cube.faces[faceKey];
+        const faceTexture = face.getTexture();
+        if (!faceTexture || Painter.getTextureToEdit(faceTexture) !== texture) continue;
+        const uv = face.uv;
+        if (!uv) continue;
+        const minX = Math.floor(Math.min(uv[0], uv[2]) * uvFactorX);
+        const maxX = Math.ceil(Math.max(uv[0], uv[2]) * uvFactorX);
+        const minY = Math.floor(Math.min(uv[1], uv[3]) * uvFactorY) + animOffset;
+        const maxY = Math.ceil(Math.max(uv[1], uv[3]) * uvFactorY) + animOffset;
+        if (x >= minX && x < maxX && y >= minY && y < maxY) {
+          return { minX, minY, maxX, maxY };
+        }
+      }
+    }
+    for (const mesh of Mesh.all) {
+      for (const faceKey in mesh.faces) {
+        const face = mesh.faces[faceKey];
+        const faceTexture = face.getTexture();
+        if (!faceTexture || Painter.getTextureToEdit(faceTexture) !== texture) continue;
+        if (face.vertices.length < 3) continue;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const vkey in face.uv) {
+          const uvCoord = face.uv[vkey];
+          minX = Math.min(minX, uvCoord[0] * uvFactorX);
+          maxX = Math.max(maxX, uvCoord[0] * uvFactorX);
+          minY = Math.min(minY, uvCoord[1] * uvFactorY);
+          maxY = Math.max(maxY, uvCoord[1] * uvFactorY);
+        }
+        minX = Math.floor(minX);
+        minY = Math.floor(minY) + animOffset;
+        maxX = Math.ceil(maxX);
+        maxY = Math.ceil(maxY) + animOffset;
+        if (x >= minX && x < maxX && y >= minY && y < maxY) {
+          return { minX, minY, maxX, maxY };
+        }
+      }
+    }
+    return null;
+  }
+  function fillRegion(ctx, region) {
+    const opacity = BarItems.slider_brush_opacity.get() / 255;
+    const eraseMode = Painter.erase_mode;
+    const lockAlpha = Painter.lock_alpha;
+    ctx.save();
+    if (eraseMode) {
+      ctx.globalAlpha = opacity;
+      ctx.fillStyle = "white";
+      ctx.globalCompositeOperation = "destination-out";
+    } else {
+      ctx.fillStyle = tinycolor(ColorPanel.get()).setAlpha(opacity).toRgbString();
+      ctx.globalCompositeOperation = Painter.getBlendModeCompositeOperation();
+      if (lockAlpha) {
+        ctx.globalCompositeOperation = "source-atop";
+      }
+    }
+    ctx.fillRect(region.minX, region.minY, region.maxX - region.minX, region.maxY - region.minY);
+    ctx.restore();
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -1895,6 +1982,7 @@
       setupPhotoshopTools();
       setupUVCycling();
       setupTextureHandling();
+      setupUVFill();
       let pivot_marker = new CustomPivotMarker();
       track(pivot_marker);
     },

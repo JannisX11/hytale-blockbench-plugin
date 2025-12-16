@@ -1269,7 +1269,40 @@
   }
 
   // src/element.ts
+  function setupStretchedCubeResizeFix() {
+    const originalResize = Cube.prototype.resize;
+    Cube.prototype.resize = function(val, axis, negative, allow_negative, bidirectional) {
+      if (!FORMAT_IDS.includes(Format?.id) || !this.isStretched() || this.stretch[axis] === 1) {
+        return originalResize.call(this, val, axis, negative, allow_negative, bidirectional);
+      }
+      const stretch = this.stretch[axis];
+      let fixedVisualPos = null;
+      if (!bidirectional) {
+        const baseCenter = (this.from[axis] + this.to[axis]) / 2;
+        const baseHalfSize = Math.abs(this.to[axis] - this.from[axis]) / 2;
+        fixedVisualPos = negative ? baseCenter + baseHalfSize * stretch : baseCenter - baseHalfSize * stretch;
+      }
+      const adjustedVal = typeof val === "function" ? (n) => val(n * stretch) / stretch : val / stretch;
+      originalResize.call(this, adjustedVal, axis, negative, allow_negative, bidirectional);
+      if (fixedVisualPos !== null) {
+        const newBaseCenter = (this.from[axis] + this.to[axis]) / 2;
+        const newBaseHalfSize = Math.abs(this.to[axis] - this.from[axis]) / 2;
+        const currentFixedPos = negative ? newBaseCenter + newBaseHalfSize * stretch : newBaseCenter - newBaseHalfSize * stretch;
+        const shift = fixedVisualPos - currentFixedPos;
+        this.from[axis] += shift;
+        this.to[axis] += shift;
+        this.preview_controller.updateGeometry(this);
+      }
+      return this;
+    };
+    track({
+      delete() {
+        Cube.prototype.resize = originalResize;
+      }
+    });
+  }
   function setupElements() {
+    setupStretchedCubeResizeFix();
     let property_shading_mode = new Property(Cube, "enum", "shading_mode", {
       default: "flat",
       values: ["flat", "standard", "fullbright", "reflective"],

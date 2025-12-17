@@ -770,6 +770,7 @@
   function clearAttachmentMaterial(uuid) {
     let cached = attachmentMaterials.get(uuid);
     if (cached) {
+      cached.image.src = "";
       cached.texture.dispose();
       cached.material.dispose();
       attachmentMaterials.delete(uuid);
@@ -777,6 +778,7 @@
   }
   function clearAllAttachmentMaterials() {
     for (let [, data] of attachmentMaterials) {
+      data.image.src = "";
       data.texture.dispose();
       data.material.dispose();
     }
@@ -1015,6 +1017,32 @@
   var reload_all_attachments;
   function setupAttachments() {
     setupAttachmentTextures();
+    let originalRemove = null;
+    function ensureIntercepted() {
+      if (originalRemove) return;
+      if (!Collection.all) return;
+      originalRemove = Collection.all.remove;
+      Collection.all.remove = function(...items) {
+        if (isHytaleFormat()) {
+          for (let collection of items) {
+            if (collection.export_codec === "blockymodel") {
+              for (let child of collection.getChildren()) {
+                child.remove();
+              }
+              clearAttachmentMaterial(collection.uuid);
+            }
+          }
+        }
+        return originalRemove.apply(this, items);
+      };
+    }
+    let handler = Blockbench.on("select_project", ensureIntercepted);
+    track(handler);
+    track({
+      delete() {
+        if (originalRemove) Collection.all.remove = originalRemove;
+      }
+    });
     let import_as_attachment = new Action("import_as_hytale_attachment", {
       name: "Import Attachment",
       icon: "fa-hat-cowboy",
@@ -1115,10 +1143,6 @@
       condition: () => Collection.selected.length && Modes.edit,
       click() {
         for (let collection of [...Collection.selected]) {
-          for (let child of collection.getChildren()) {
-            child.remove();
-          }
-          clearAttachmentMaterial(collection.uuid);
           Collection.all.remove(collection);
         }
       }

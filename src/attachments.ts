@@ -1,5 +1,5 @@
 import { track } from "./cleanup";
-import { FORMAT_IDS } from "./formats";
+import { FORMAT_IDS, isHytaleFormat } from "./formats";
 import { discoverTexturePaths } from "./blockymodel";
 import {
 	AttachmentCollection,
@@ -18,6 +18,34 @@ export let reload_all_attachments: Action;
  */
 export function setupAttachments() {
 	setupAttachmentTextures();
+
+	// Intercept collection removal to clean up attachment materials and children
+	let originalRemove: typeof Collection.all.remove | null = null;
+	function ensureIntercepted() {
+		if (originalRemove) return;
+		if (!Collection.all) return;
+		originalRemove = Collection.all.remove;
+		Collection.all.remove = function(...items: Collection[]) {
+			if (isHytaleFormat()) {
+				for (let collection of items) {
+					if (collection.export_codec === 'blockymodel') {
+						for (let child of collection.getChildren()) {
+							child.remove();
+						}
+						clearAttachmentMaterial(collection.uuid);
+					}
+				}
+			}
+			return originalRemove!.apply(this, items);
+		};
+	}
+	let handler = Blockbench.on('select_project', ensureIntercepted);
+	track(handler);
+	track({
+		delete() {
+			if (originalRemove) Collection.all.remove = originalRemove;
+		}
+	});
 
 	let import_as_attachment = new Action('import_as_hytale_attachment', {
 		name: 'Import Attachment',
@@ -142,10 +170,6 @@ export function setupAttachments() {
 		condition: () => Collection.selected.length && Modes.edit,
 		click() {
 			for (let collection of [...Collection.selected]) {
-				for (let child of collection.getChildren()) {
-					child.remove();
-				}
-				clearAttachmentMaterial(collection.uuid);
 				Collection.all.remove(collection);
 			}
 		}

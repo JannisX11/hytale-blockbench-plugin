@@ -74,6 +74,7 @@ export function scanTexturesAtPath(texturePath: string): {name: string, path: st
 export function clearAttachmentMaterial(uuid: string): void {
 	let cached = attachmentMaterials.get(uuid);
 	if (cached) {
+		cached.image.src = '';
 		cached.texture.dispose();
 		cached.material.dispose();
 		attachmentMaterials.delete(uuid);
@@ -82,6 +83,7 @@ export function clearAttachmentMaterial(uuid: string): void {
 
 export function clearAllAttachmentMaterials(): void {
 	for (let [, data] of attachmentMaterials) {
+		data.image.src = '';
 		data.texture.dispose();
 		data.material.dispose();
 	}

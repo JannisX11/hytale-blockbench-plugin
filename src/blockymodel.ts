@@ -72,7 +72,7 @@ interface CompileOptions {
  * 1. Same directory - files matching model name or Texture.png
  * 2. {ModelName}_Textures subfolder
  */
-function discoverTexturePaths(dirname: string, modelName: string): string[] {
+export function discoverTexturePaths(dirname: string, modelName: string): string[] {
 	let fs = requireNativeModule('fs');
 	let paths: string[] = [];
 

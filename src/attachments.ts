@@ -1,13 +1,23 @@
 import { track } from "./cleanup";
-import { FORMAT_IDS, isHytaleFormat } from "./formats";
-import { updateUVSize } from "./texture";
+import { FORMAT_IDS } from "./formats";
+import { discoverTexturePaths } from "./blockymodel";
+import {
+	AttachmentCollection,
+	setupAttachmentTextures,
+	getAttachmentMaterial,
+	clearAttachmentMaterial
+} from "./attachment_texture";
 
+export { AttachmentCollection } from "./attachment_texture";
 export let reload_all_attachments: Action;
-export type AttachmentCollection = Collection & {
-	texture: string
-}
 
+/**
+ * Attachments are external blockymodel files imported as Collections.
+ * They maintain their own texture system separate from the main model's textures,
+ * allowing accessories like hats or weapons to have independent texture variants.
+ */
 export function setupAttachments() {
+	setupAttachmentTextures();
 
 	let import_as_attachment = new Action('import_as_hytale_attachment', {
 		name: 'Import Attachment',
@@ -20,6 +30,7 @@ export function setupAttachments() {
 				multiple: true,
 				startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, '') + osfs + 'Attachments'
 			}, (files) => {
+				let fs = requireNativeModule('fs');
 				for (let file of files) {
 					let json = autoParseJSON(file.content as string);
 					let attachment_name = file.name.replace(/\.\w+$/, '');
@@ -34,27 +45,40 @@ export function setupAttachments() {
 						children: root_groups.map(g => g.uuid),
 						export_codec: 'blockymodel',
 						visibility: true,
-					}).add();
+					}).add() as AttachmentCollection;
 					collection.export_path = file.path;
 
-					let new_textures = content.new_textures as Texture[];
-					if (new_textures.length) {
-						let texture_group = new TextureGroup({name});
-						texture_group.add();
-						// @ts-ignore
-						new_textures.forEach(tex => tex.group = texture_group.uuid);
+					// Parser creates Texture objects we don't need - attachments use their own texture system
+					let createdTextures = content.new_textures as Texture[];
+					for (let tex of createdTextures) {
+						tex.remove();
+					}
 
-						// Update UV size
-						for (let texture of new_textures) {
-							updateUVSize(texture);
+					// Auto-discover textures: prioritize ModelName_Textures/ folder, fall back to loose files
+					let dirname = PathModule.dirname(file.path);
+					let texturePaths = discoverTexturePaths(dirname, attachment_name);
+
+					if (texturePaths.length > 0) {
+						let texturesFolderPath = PathModule.join(dirname, `${attachment_name}_Textures`);
+						let hasTexturesFolder = fs.existsSync(texturesFolderPath) && fs.statSync(texturesFolderPath).isDirectory();
+
+						if (hasTexturesFolder) {
+							collection.texture_path = texturesFolderPath;
+							let folderTextures = texturePaths.filter(p => p.startsWith(texturesFolderPath));
+							if (folderTextures.length > 0) {
+								collection.selected_texture = PathModule.basename(folderTextures[0]);
+							}
+						} else if (texturePaths.length === 1) {
+							collection.texture_path = texturePaths[0];
+							collection.selected_texture = '';
+						} else {
+							collection.texture_path = dirname;
+							collection.selected_texture = PathModule.basename(texturePaths[0]);
 						}
 
-						let texture = new_textures.find(t => t.name.startsWith(attachment_name)) ?? new_textures[0];
-
-						// @ts-expect-error
-						collection.texture = texture.uuid;
-						Canvas.updateAllFaces();
+						getAttachmentMaterial(collection);
 					}
+					Canvas.updateAllFaces();
 				}
 			})
 		}
@@ -63,38 +87,16 @@ export function setupAttachments() {
 	let toolbar = Panels.collections.toolbars[0];
 	toolbar.add(import_as_attachment);
 
-
-	let texture_property = new Property(Collection, 'string', 'texture', {
-		condition: {formats: FORMAT_IDS}
-	});
-	track(texture_property);
-
-	function getCollection(cube: Cube) {
-		return Collection.all.find(c => c.contains(cube));
-	}
-
-	let originalGetTexture = CubeFace.prototype.getTexture;
-	CubeFace.prototype.getTexture = function(...args) {
-		if (isHytaleFormat()) {
-			if (this.texture == null) return null;
-			let collection = getCollection(this.cube);
-			if (collection && "texture" in collection && collection.texture) {
-				let texture = Texture.all.find(t => t.uuid == collection.texture);
-				if (texture) return texture;
-			}
-		}
-		return originalGetTexture.call(this, ...args);
-	}
-	track({
-		delete() {
-			CubeFace.prototype.getTexture = originalGetTexture;
-		}
-	});
-
+	/**
+	 * Re-imports an attachment from disk, preserving texture settings.
+	 * Used when the source blockymodel file has been modified externally.
+	 */
 	function reloadAttachment(collection: Collection) {
 		for (let child of collection.getChildren()) {
 			child.remove();
 		}
+
+		clearAttachmentMaterial(collection.uuid);
 
 		Filesystem.readFile([collection.export_path], {}, ([file]) => {
 			let json = autoParseJSON(file.content as string);
@@ -103,9 +105,19 @@ export function setupAttachments() {
 			let new_groups = content.new_groups as Group[];
 			let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));
 
+			let createdTextures = content.new_textures as Texture[];
+			for (let tex of createdTextures) {
+				tex.remove();
+			}
+
 			collection.extend({
 				children: root_groups.map(g => g.uuid),
 			}).add();
+
+			let attCollection = collection as AttachmentCollection;
+			if (attCollection.texture_path) {
+				getAttachmentMaterial(attCollection);
+			}
 
 			Canvas.updateAllFaces();
 		})
@@ -133,13 +145,7 @@ export function setupAttachments() {
 				for (let child of collection.getChildren()) {
 					child.remove();
 				}
-				let texture_group = TextureGroup.all.find(tg => tg.name === collection.name);
-				if (texture_group) {
-					for (let texture of [...Texture.all.filter(t => t.group === texture_group.uuid)]) {
-						texture.remove();
-					}
-					texture_group.remove();
-				}
+				clearAttachmentMaterial(collection.uuid);
 				Collection.all.remove(collection);
 			}
 		}
@@ -159,41 +165,4 @@ export function setupAttachments() {
 	});
 	track(reload_all_attachments);
 	toolbar.add(reload_all_attachments);
-
-	let assign_texture: CustomMenuItem = {
-		id: 'set_texture',
-		name: 'menu.cube.texture',
-		icon: 'collections',
-		condition: {formats: FORMAT_IDS},
-		children(context: Collection & {texture: string}) {
-			function applyTexture(texture_value: string, undo_message: string) {
-				Undo.initEdit({collections: Collection.selected});
-				for (let collection of Collection.selected) {
-					// @ts-expect-error
-					collection.texture = texture_value;
-				}
-				Undo.finishEdit(undo_message);
-				Canvas.updateAllFaces();
-			}
-			let arr: CustomMenuItem[] = [
-				{icon: 'crop_square', name: Format.single_texture_default ? 'menu.cube.texture.default' : 'menu.cube.texture.blank', click(group) {
-					applyTexture('', 'Unassign texture from collection');
-				}}
-			]
-			Texture.all.forEach(t => {
-				arr.push({
-					name: t.name,
-					// @ts-ignore
-					icon: t.img,
-					marked: t.uuid == context.texture,
-					click() {
-						applyTexture(t.uuid, 'Apply texture to collection');
-					}
-				})
-			})
-			return arr;
-		}
-	};
-	Collection.menu.addAction(assign_texture);
-
 }

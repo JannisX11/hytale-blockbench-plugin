@@ -1,4 +1,3 @@
-import { AttachmentCollection } from "./attachments";
 import { track } from "./cleanup";
 import { isHytaleFormat } from "./formats";
 
@@ -23,20 +22,16 @@ export function setupTextureHandling() {
     })
     track(setting);
 
+    // Auto-set selected texture as default for the model (not for attachments - those use their own system)
     let handler = Blockbench.on('select_texture', (arg) => {
         if (!isHytaleFormat()) return;
         if (setting.value == false) return;
 
         let texture = arg.texture as Texture;
-        // @ts-ignore
+        // @ts-expect-error - getGroup not in types
         let texture_group = texture.getGroup() as TextureGroup;
-        if (texture_group) {
-            let collection = Collection.all.find(c => c.name == texture_group.name) as AttachmentCollection;
-            if (collection) {
-                collection.texture = texture.uuid;
-                Canvas.updateAllFaces(texture);
-            }
-        } else {
+        // Only auto-set for non-grouped textures (grouped ones are managed separately)
+        if (!texture_group) {
             texture.setAsDefaultTexture();
         }
     });

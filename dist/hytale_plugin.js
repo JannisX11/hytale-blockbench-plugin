@@ -1926,6 +1926,34 @@
       setupPhotoshopTools();
       setupUVCycling();
       setupTextureHandling();
+      let panel_setup_listener;
+      function showCollectionPanel() {
+        const local_storage_key = "hytale_plugin:collection_panel_setup";
+        if (localStorage.getItem(local_storage_key)) return true;
+        if (!Modes.edit) return false;
+        if (Panels.collections.slot == "hidden") {
+          Panels.collections.moveTo("right_bar");
+        }
+        if (Panels.collections.folded) {
+          Panels.collections.fold();
+        }
+        if (panel_setup_listener) {
+          panel_setup_listener.delete();
+          panel_setup_listener = void 0;
+        }
+        localStorage.setItem(local_storage_key, "true");
+        return true;
+      }
+      if (!showCollectionPanel()) {
+        panel_setup_listener = Blockbench.on("select_mode", showCollectionPanel);
+      }
+      let on_finish_edit = Blockbench.on("generate_texture_template", (arg) => {
+        for (let element of arg.elements) {
+          if (typeof element.autouv != "number") continue;
+          element.autouv = 1;
+        }
+      });
+      track(on_finish_edit);
       let pivot_marker = new CustomPivotMarker();
       track(pivot_marker);
     },

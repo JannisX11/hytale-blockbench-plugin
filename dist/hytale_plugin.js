@@ -19,6 +19,17 @@
     }
   };
 
+  // src/util.ts
+  function qualifiesAsMainShape(object) {
+    return object instanceof Cube && (object.rotation.allEqual(0) || cubeIsQuad(object));
+  }
+  function cubeIsQuad(cube) {
+    return cube.size()[2] == 0;
+  }
+  function getMainShape(group) {
+    return group.children.find(qualifiesAsMainShape);
+  }
+
   // src/blockymodel.ts
   function discoverTexturePaths(dirname, modelName) {
     let fs = requireNativeModule("fs");
@@ -156,12 +167,6 @@
             z: input[2]
           });
         };
-        function qualifiesAsMainShape(object) {
-          return object instanceof Cube && (object.rotation.allEqual(0) || cubeIsQuad(object));
-        }
-        function cubeIsQuad(cube) {
-          return cube.size()[2] == 0;
-        }
         function turnNodeIntoBox(node, cube, original_element) {
           let size = cube.size();
           let stretch = cube.stretch.slice();
@@ -290,7 +295,7 @@
           }
         }
         function getNodeOffset(group) {
-          let cube = group.children.find(qualifiesAsMainShape);
+          let cube = getMainShape(group);
           if (cube) {
             let center_pos = cube.from.slice().V3_add(cube.to).V3_divide(2, 2, 2);
             center_pos.V3_subtract(group.origin);
@@ -410,11 +415,11 @@
             Math.radToDeg(rotation_euler.z)
           ];
           if (args.attachment && !parent_node && parent_group instanceof Group) {
-            let reference_node = parent_group.children.find((c) => c instanceof Cube) ?? parent_group;
+            let reference_node = getMainShape(parent_group) ?? parent_group;
             origin = reference_node.origin.slice();
             rotation = reference_node.rotation.slice();
           } else if (parent_group instanceof Group) {
-            let parent_geo_origin = parent_group.children.find((cube) => cube instanceof Cube)?.origin ?? parent_group.origin;
+            let parent_geo_origin = getMainShape(parent_group)?.origin ?? parent_group.origin;
             if (parent_geo_origin) {
               origin.V3_add(parent_geo_origin);
               if (parent_offset) origin.V3_add(parent_offset);
@@ -1269,7 +1274,7 @@
     BoneAnimator.prototype.displayScale = function displayScale(array, multiplier = 1) {
       if (!array) return this;
       if (isHytaleFormat()) {
-        let target_shape = this.group.children.find((c) => c instanceof Cube);
+        let target_shape = getMainShape(this.group);
         if (target_shape) {
           let initial_stretch = target_shape.stretch.slice();
           target_shape.stretch.V3_set([
@@ -1605,11 +1610,11 @@
       if (group.export == false) return;
       if (Collection.all.find((c) => c.contains(group))) continue;
       node_count++;
-      let cube_count = 0;
+      let main_shape = getMainShape(group);
       for (let cube of group.children) {
         if (cube instanceof Cube == false || cube.export == false) continue;
-        cube_count++;
-        if (cube_count > 1) node_count++;
+        if (cube == main_shape) continue;
+        node_count++;
       }
     }
     return node_count;

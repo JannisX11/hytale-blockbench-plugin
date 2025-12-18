@@ -43,6 +43,8 @@ BBPlugin.register('hytale_plugin', {
         setupUVCycling();
         setupTextureHandling();
         setupUVFill();
+        setupAltDuplicate();
+        setupUVOutline();
 
         let pivot_marker = new CustomPivotMarker();
         track(pivot_marker)

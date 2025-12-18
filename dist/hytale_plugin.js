@@ -2387,6 +2387,148 @@
     track(handler);
   }
 
+  // src/alt_duplicate.ts
+  function setupAltDuplicate() {
+    const action = new Action("hytale_duplicate_drag_modifier", {
+      name: "Duplicate While Dragging",
+      icon: "content_copy",
+      category: "edit",
+      condition: { formats: FORMAT_IDS, modes: ["edit"] },
+      keybind: new Keybind({ key: 18 }),
+      click: () => Blockbench.showQuickMessage("Hold this key while dragging the gizmo to duplicate")
+    });
+    track(action);
+    let isDragging = false;
+    let modifierWasPressed = false;
+    let justDuplicated = false;
+    function isModifierPressed(event) {
+      const kb = action.keybind;
+      if (kb.key === 18 || kb.alt) return event.altKey;
+      if (kb.key === 17 || kb.ctrl) return event.ctrlKey;
+      if (kb.key === 16 || kb.shift) return event.shiftKey;
+      return Pressing.alt;
+    }
+    function isModifierKey(event) {
+      const kb = action.keybind;
+      return event.keyCode === kb.key || event.key === "Alt" && (kb.key === 18 || kb.alt) || event.key === "Control" && (kb.key === 17 || kb.ctrl) || event.key === "Shift" && (kb.key === 16 || kb.shift);
+    }
+    function hasSelectedAncestor(node, selectedGroupUuids) {
+      let current = node.parent;
+      while (current && current !== "root") {
+        if (current instanceof Group && selectedGroupUuids.has(current.uuid)) {
+          return true;
+        }
+        current = current.parent;
+      }
+      return false;
+    }
+    function duplicateElement(element) {
+      const copy = element.getSaveCopy?.(true);
+      if (!copy) return null;
+      const newElement = OutlinerElement.fromSave(copy, false);
+      if (!newElement) return null;
+      newElement.init();
+      if (element.parent && element.parent !== "root") {
+        newElement.addTo(element.parent);
+      }
+      return newElement;
+    }
+    function performDuplication() {
+      const selectedGroups = Group.all.filter((g) => g.selected);
+      const selectedElements = [...selected];
+      if (selectedElements.length === 0 && selectedGroups.length === 0) return false;
+      const selectedGroupUuids = new Set(selectedGroups.map((g) => g.uuid));
+      const groupsToDuplicate = selectedGroups.filter((g) => !hasSelectedAncestor(g, selectedGroupUuids));
+      const elementsToDuplicate = selectedElements.filter((el) => !hasSelectedAncestor(el, selectedGroupUuids));
+      if (groupsToDuplicate.length === 0 && elementsToDuplicate.length === 0) return false;
+      Undo.initEdit({ outliner: true, elements: selectedElements, selection: true });
+      const newGroups = [];
+      const newElements = [];
+      for (const group of groupsToDuplicate) {
+        const dup = group.duplicate();
+        newGroups.push(dup);
+        dup.forEachChild((child) => {
+          if (child instanceof OutlinerElement) newElements.push(child);
+        }, OutlinerElement, true);
+      }
+      for (const element of elementsToDuplicate) {
+        const dup = duplicateElement(element);
+        if (dup) newElements.push(dup);
+      }
+      unselectAllElements();
+      Group.all.forEach((g) => g.selected && (g.selected = false));
+      newGroups.forEach((g, i) => g.select(i > 0 ? { shiftKey: true } : void 0));
+      newElements.filter((el) => !newGroups.some((g) => g.contains(el))).forEach((el) => el.select({ shiftKey: true }, true));
+      Canvas.updateView({
+        elements: newElements,
+        element_aspects: { transform: true, geometry: true },
+        selection: true
+      });
+      Undo.finishEdit("Alt + Drag Duplicate", {
+        outliner: true,
+        elements: newElements,
+        selection: true
+      });
+      return true;
+    }
+    function onMouseDown(event) {
+      if (justDuplicated) {
+        justDuplicated = false;
+        return;
+      }
+      const axis = Transformer?.axis;
+      const hasSelection = selected.length > 0 || Group.all.some((g) => g.selected);
+      if (axis && hasSelection && isModifierPressed(event)) {
+        event.stopImmediatePropagation();
+        modifierWasPressed = true;
+        if (performDuplication()) {
+          justDuplicated = true;
+          setTimeout(() => {
+            event.target?.dispatchEvent(new MouseEvent("pointerdown", {
+              bubbles: true,
+              cancelable: true,
+              clientX: event.clientX,
+              clientY: event.clientY,
+              button: event.button,
+              buttons: event.buttons,
+              view: window
+            }));
+            isDragging = true;
+          }, 0);
+        }
+      } else if (axis && hasSelection) {
+        isDragging = true;
+      }
+    }
+    function onKeyDown(event) {
+      if (isModifierKey(event) && isDragging && !modifierWasPressed) {
+        modifierWasPressed = true;
+        performDuplication();
+      }
+    }
+    function onKeyUp(event) {
+      if (isModifierKey(event)) modifierWasPressed = false;
+    }
+    function onMouseUp() {
+      if (isDragging) {
+        isDragging = false;
+        modifierWasPressed = false;
+      }
+    }
+    const events = [
+      ["pointerdown", onMouseDown],
+      ["mousedown", onMouseDown],
+      ["pointerup", onMouseUp],
+      ["mouseup", onMouseUp],
+      ["keydown", onKeyDown],
+      ["keyup", onKeyUp]
+    ];
+    events.forEach(([type, handler]) => document.addEventListener(type, handler, true));
+    track({
+      delete: () => events.forEach(([type, handler]) => document.removeEventListener(type, handler, true))
+    });
+  }
+
   // src/uv_fill.ts
   function setupUVFill() {
     const fillModeSelect = BarItems.fill_mode;
@@ -2497,6 +2639,105 @@
     ctx.putImageData(imageData, region.minX, region.minY);
   }
 
+  // src/uv_outline.ts
+  var UV_OUTLINE_CSS = `
+body.hytale-format #uv_frame .uv_resize_corner,
+body.hytale-format #uv_frame .uv_resize_side,
+body.hytale-format #uv_frame #uv_scale_handle,
+body.hytale-format #uv_frame #uv_selection_frame {
+    display: none;
+}
+
+body.hytale-format #uv_frame.overlay_mode {
+    --uv-line-width: 2px;
+}
+body.hytale-format #uv_frame.overlay_mode .cube_uv_face {
+    border-color: transparent !important;
+}
+body.hytale-format #uv_frame.overlay_mode .cube_uv_face::before {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: -1px;
+    right: -1px;
+    bottom: -1px;
+    border: 1px solid var(--color-text);
+    pointer-events: none;
+}
+body.hytale-format #uv_frame.overlay_mode .cube_uv_face.selected:not(.unselected) {
+    outline: none;
+}
+
+body.hytale-uv-outline-only #uv_frame {
+    --color-uv-background: transparent;
+    --color-uv-background-hover: transparent;
+}
+body.hytale-uv-outline-only #uv_frame .cube_uv_face {
+    border-color: transparent !important;
+}
+body.hytale-uv-outline-only #uv_frame .cube_uv_face::before {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: -1px;
+    right: -1px;
+    bottom: -1px;
+    border: 1px solid var(--color-text);
+    pointer-events: none;
+}
+body.hytale-uv-outline-only #uv_frame .cube_uv_face:hover::before {
+    border-color: var(--color-accent);
+}
+body.hytale-uv-outline-only #uv_frame:not(.overlay_mode) .cube_uv_face.selected:not(.unselected)::before {
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    border-width: 2px;
+    border-color: var(--color-accent);
+}
+body.hytale-uv-outline-only #uv_frame .mesh_uv_face polygon {
+    stroke-width: 1px;
+}
+body.hytale-uv-outline-only #uv_frame:not(.overlay_mode) .mesh_uv_face.selected polygon {
+    stroke-width: 2px;
+}
+body.hytale-uv-outline-only #uv_frame .selection_rectangle {
+    background-color: transparent;
+}
+`;
+  var STYLE_ID = "hytale_uv_outline_style";
+  function updateHytaleFormatClass() {
+    document.body.classList.toggle("hytale-format", isHytaleFormat());
+  }
+  function setupUVOutline() {
+    const style = document.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = UV_OUTLINE_CSS;
+    document.head.appendChild(style);
+    const setting = new Setting("uv_outline_only", {
+      name: "UV Outline Only",
+      description: "Show only outlines for UV faces instead of filled overlays",
+      category: "edit",
+      value: true,
+      onChange(value) {
+        document.body.classList.toggle("hytale-uv-outline-only", value);
+      }
+    });
+    track(setting);
+    const selectProjectListener = Blockbench.on("select_project", updateHytaleFormatClass);
+    track(selectProjectListener);
+    document.body.classList.toggle("hytale-uv-outline-only", settings.uv_outline_only?.value ?? true);
+    updateHytaleFormatClass();
+    track({
+      delete() {
+        document.getElementById(STYLE_ID)?.remove();
+        document.body.classList.remove("hytale-uv-outline-only");
+        document.body.classList.remove("hytale-format");
+      }
+    });
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -2523,6 +2764,8 @@
       setupUVCycling();
       setupTextureHandling();
       setupUVFill();
+      setupAltDuplicate();
+      setupUVOutline();
       let pivot_marker = new CustomPivotMarker();
       track(pivot_marker);
       let group_pivot_indicator = new GroupPivotIndicator();

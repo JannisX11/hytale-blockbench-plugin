@@ -2065,124 +2065,6 @@
     track(shared_paste);
   }
 
-  // src/outliner_filter.ts
-  var HIDDEN_CLASS = "hytale_attachment_hidden";
-  var attachmentsHidden = false;
-  function getAttachmentUUIDs() {
-    let uuids = [];
-    if (!Collection.all?.length) return uuids;
-    for (let collection of Collection.all) {
-      for (let child of collection.getChildren()) {
-        uuids.push(child.uuid);
-        if ("children" in child && Array.isArray(child.children)) {
-          collectChildUUIDs(child, uuids);
-        }
-      }
-    }
-    return uuids;
-  }
-  function collectChildUUIDs(parent, uuids) {
-    for (let child of parent.children) {
-      if (child instanceof OutlinerNode) {
-        uuids.push(child.uuid);
-        if ("children" in child && Array.isArray(child.children)) {
-          collectChildUUIDs(child, uuids);
-        }
-      }
-    }
-  }
-  function applyOutlinerVisibility() {
-    const outlinerNode = Panels.outliner?.node;
-    if (!outlinerNode) return;
-    if (!attachmentsHidden) {
-      outlinerNode.querySelectorAll(`.${HIDDEN_CLASS}`).forEach((el) => {
-        el.classList.remove(HIDDEN_CLASS);
-      });
-      for (let collection of Collection.all ?? []) {
-        for (let child of collection.getChildren()) {
-          unlockRecursive(child);
-        }
-      }
-      return;
-    }
-    const uuids = getAttachmentUUIDs();
-    for (let uuid of uuids) {
-      let node = outlinerNode.querySelector(`[id="${uuid}"]`);
-      if (node) {
-        node.classList.add(HIDDEN_CLASS);
-      }
-      let element = OutlinerNode.uuids[uuid];
-      if (element) {
-        element.locked = true;
-      }
-    }
-  }
-  function unlockRecursive(node) {
-    node.locked = false;
-    if ("children" in node && Array.isArray(node.children)) {
-      for (let child of node.children) {
-        if (child instanceof OutlinerNode) {
-          unlockRecursive(child);
-        }
-      }
-    }
-  }
-  function setupOutlinerFilter() {
-    let style = document.createElement("style");
-    style.id = "hytale-outliner-filter-styles";
-    style.textContent = `
-		.outliner_node.${HIDDEN_CLASS} {
-			display: none !important;
-		}
-	`;
-    document.head.appendChild(style);
-    StateMemory.init("hytale_attachments_hidden", "boolean");
-    attachmentsHidden = StateMemory.get("hytale_attachments_hidden") ?? false;
-    let toggle = new Toggle("toggle_attachments_in_outliner", {
-      name: "Toggle Attachments",
-      description: "Show or hide attachments in the outliner",
-      icon: "fa-paperclip",
-      category: "view",
-      condition: { formats: FORMAT_IDS },
-      default: attachmentsHidden,
-      onChange(value) {
-        attachmentsHidden = value;
-        StateMemory.set("hytale_attachments_hidden", value);
-        applyOutlinerVisibility();
-      }
-    });
-    let outlinerPanel = Panels.outliner;
-    if (outlinerPanel && outlinerPanel.toolbars.length > 0) {
-      outlinerPanel.toolbars[0].add(toggle, -1);
-    }
-    let hookFinishedEdit = Blockbench.on("finished_edit", () => {
-      if (attachmentsHidden) {
-        setTimeout(applyOutlinerVisibility, 10);
-      }
-    });
-    let hookSelectMode = Blockbench.on("select_mode", () => {
-      if (attachmentsHidden) {
-        setTimeout(applyOutlinerVisibility, 50);
-      }
-    });
-    let hookSelection = Blockbench.on("update_selection", () => {
-      if (attachmentsHidden) {
-        setTimeout(applyOutlinerVisibility, 10);
-      }
-    });
-    if (attachmentsHidden) {
-      setTimeout(applyOutlinerVisibility, 100);
-    }
-    track(toggle, hookFinishedEdit, hookSelectMode, hookSelection, {
-      delete() {
-        style.remove();
-        Panels.outliner?.node?.querySelectorAll(`.${HIDDEN_CLASS}`).forEach((el) => {
-          el.classList.remove(HIDDEN_CLASS);
-        });
-      }
-    });
-  }
-
   // src/pivot_marker.ts
   var ThickLineAxisHelper = class ThickLineAxisHelper2 extends THREE.LineSegments {
     constructor(size = 1) {
@@ -2365,6 +2247,146 @@
     }
   };
 
+  // src/outliner_filter.ts
+  var HIDDEN_CLASS = "hytale_attachment_hidden";
+  var attachmentsHidden = false;
+  function getAttachmentUUIDs() {
+    let uuids = [];
+    if (!Collection.all?.length) return uuids;
+    for (let collection of Collection.all) {
+      for (let child of collection.getChildren()) {
+        uuids.push(child.uuid);
+        if ("children" in child && Array.isArray(child.children)) {
+          collectChildUUIDs(child, uuids);
+        }
+      }
+    }
+    return uuids;
+  }
+  function collectChildUUIDs(parent, uuids) {
+    for (let child of parent.children) {
+      if (child instanceof OutlinerNode) {
+        uuids.push(child.uuid);
+        if ("children" in child && Array.isArray(child.children)) {
+          collectChildUUIDs(child, uuids);
+        }
+      }
+    }
+  }
+  function applyOutlinerVisibility() {
+    const outlinerNode = Panels.outliner?.node;
+    if (!outlinerNode) return;
+    if (!attachmentsHidden) {
+      outlinerNode.querySelectorAll(`.${HIDDEN_CLASS}`).forEach((el) => {
+        el.classList.remove(HIDDEN_CLASS);
+      });
+      for (let collection of Collection.all ?? []) {
+        for (let child of collection.getChildren()) {
+          unlockRecursive(child);
+        }
+      }
+      return;
+    }
+    const uuids = getAttachmentUUIDs();
+    for (let uuid of uuids) {
+      let node = outlinerNode.querySelector(`[id="${uuid}"]`);
+      if (node) {
+        node.classList.add(HIDDEN_CLASS);
+      }
+      let element = OutlinerNode.uuids[uuid];
+      if (element) {
+        element.locked = true;
+      }
+    }
+  }
+  function unlockRecursive(node) {
+    node.locked = false;
+    if ("children" in node && Array.isArray(node.children)) {
+      for (let child of node.children) {
+        if (child instanceof OutlinerNode) {
+          unlockRecursive(child);
+        }
+      }
+    }
+  }
+  function setupOutlinerFilter() {
+    let style = document.createElement("style");
+    style.id = "hytale-outliner-filter-styles";
+    style.textContent = `
+		.outliner_node.${HIDDEN_CLASS} {
+			display: none !important;
+		}
+	`;
+    document.head.appendChild(style);
+    StateMemory.init("hytale_attachments_hidden", "boolean");
+    attachmentsHidden = StateMemory.get("hytale_attachments_hidden") ?? false;
+    let toggle = new Toggle("toggle_attachments_in_outliner", {
+      name: "Toggle Attachments",
+      description: "Show or hide attachments in the outliner",
+      icon: "fa-paperclip",
+      category: "view",
+      condition: { formats: FORMAT_IDS },
+      default: attachmentsHidden,
+      onChange(value) {
+        attachmentsHidden = value;
+        StateMemory.set("hytale_attachments_hidden", value);
+        applyOutlinerVisibility();
+      }
+    });
+    let outlinerPanel = Panels.outliner;
+    if (outlinerPanel && outlinerPanel.toolbars.length > 0) {
+      outlinerPanel.toolbars[0].add(toggle, -1);
+    }
+    let hookFinishedEdit = Blockbench.on("finished_edit", () => {
+      if (attachmentsHidden) {
+        setTimeout(applyOutlinerVisibility, 10);
+      }
+    });
+    let hookSelectMode = Blockbench.on("select_mode", () => {
+      if (attachmentsHidden) {
+        setTimeout(applyOutlinerVisibility, 50);
+      }
+    });
+    let hookSelection = Blockbench.on("update_selection", () => {
+      if (attachmentsHidden) {
+        setTimeout(applyOutlinerVisibility, 10);
+      }
+    });
+    if (attachmentsHidden) {
+      setTimeout(applyOutlinerVisibility, 100);
+    }
+    track(toggle, hookFinishedEdit, hookSelectMode, hookSelection, {
+      delete() {
+        style.remove();
+        Panels.outliner?.node?.querySelectorAll(`.${HIDDEN_CLASS}`).forEach((el) => {
+          el.classList.remove(HIDDEN_CLASS);
+        });
+      }
+    });
+  }
+
+  // src/texture.ts
+  function setupTextureHandling() {
+    let setting = new Setting("preview_selected_texture", {
+      name: "Preview Selected Texture",
+      description: "When selecting a texture in a Hytale format, preview the texture on the model instantly",
+      category: "preview",
+      type: "toggle",
+      value: true
+    });
+    track(setting);
+    let handler = Blockbench.on("select_texture", (arg) => {
+      if (!isHytaleFormat()) return;
+      if (setting.value == false) return;
+      let texture = arg.texture;
+      let texture_group = texture.getGroup();
+      if (!texture_group) {
+        texture.setAsDefaultTexture();
+      }
+    });
+    track(handler);
+  }
+
   // src/uv_fill.ts
   function setupUVFill() {
     const fillModeSelect = BarItems.fill_mode;
@@ -2473,28 +2495,6 @@
       }
     }
     ctx.putImageData(imageData, region.minX, region.minY);
-  }
-
-  // src/texture.ts
-  function setupTextureHandling() {
-    let setting = new Setting("preview_selected_texture", {
-      name: "Preview Selected Texture",
-      description: "When selecting a texture in a Hytale format, preview the texture on the model instantly",
-      category: "preview",
-      type: "toggle",
-      value: true
-    });
-    track(setting);
-    let handler = Blockbench.on("select_texture", (arg) => {
-      if (!isHytaleFormat()) return;
-      if (setting.value == false) return;
-      let texture = arg.texture;
-      let texture_group = texture.getGroup();
-      if (!texture_group) {
-        texture.setAsDefaultTexture();
-      }
-    });
-    track(handler);
   }
 
   // src/plugin.ts

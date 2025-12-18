@@ -14,6 +14,7 @@ import { setupOutlinerFilter } from "./outliner_filter";
 import { CustomPivotMarker } from "./pivot_marker"
 import { setupTextureHandling } from "./texture";
 import { setupUVFill } from "./uv_fill";
+import { setupUVOutline } from "./uv_outline";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',

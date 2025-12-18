@@ -1,16 +1,56 @@
 import { track } from "./cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
-import { updateUVSize } from "./texture";
+import { discoverTexturePaths } from "./blockymodel";
+import {
+	AttachmentCollection,
+	setupAttachmentTextures,
+	getAttachmentMaterial,
+	clearAttachmentMaterial
+} from "./attachment_texture";
 
-export type AttachmentCollection = Collection & {
-	texture: string
-}
+export { AttachmentCollection } from "./attachment_texture";
+export let reload_all_attachments: Action;
 
+/**
+ * Attachments are external blockymodel files imported as Collections.
+ * They maintain their own texture system separate from the main model's textures,
+ * allowing accessories like hats or weapons to have independent texture variants.
+ */
 export function setupAttachments() {
+	setupAttachmentTextures();
+
+	// Intercept collection removal to clean up attachment materials and children
+	let originalRemove: typeof Collection.all.remove | null = null;
+	function ensureIntercepted() {
+		if (originalRemove) return;
+		if (!Collection.all) return;
+		originalRemove = Collection.all.remove;
+		Collection.all.remove = function(...items: Collection[]) {
+			if (isHytaleFormat()) {
+				for (let collection of items) {
+					if (collection.export_codec === 'blockymodel') {
+						for (let child of collection.getChildren()) {
+							child.remove();
+						}
+						clearAttachmentMaterial(collection.uuid);
+					}
+				}
+			}
+			return originalRemove!.apply(this, items);
+		};
+	}
+	let handler = Blockbench.on('select_project', ensureIntercepted);
+	track(handler);
+	track({
+		delete() {
+			if (originalRemove) Collection.all.remove = originalRemove;
+		}
+	});
 
 	let import_as_attachment = new Action('import_as_hytale_attachment', {
 		name: 'Import Attachment',
 		icon: 'fa-hat-cowboy',
+		condition: {formats: FORMAT_IDS},
 		click() {
 			Filesystem.importFile({
 				extensions: ['blockymodel'],
@@ -18,6 +58,7 @@ export function setupAttachments() {
 				multiple: true,
 				startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, '') + osfs + 'Attachments'
 			}, (files) => {
+				let fs = requireNativeModule('fs');
 				for (let file of files) {
 					let json = autoParseJSON(file.content as string);
 					let attachment_name = file.name.replace(/\.\w+$/, '');
@@ -32,27 +73,40 @@ export function setupAttachments() {
 						children: root_groups.map(g => g.uuid),
 						export_codec: 'blockymodel',
 						visibility: true,
-					}).add();
+					}).add() as AttachmentCollection;
 					collection.export_path = file.path;
 
-					let new_textures = content.new_textures as Texture[];
-					if (new_textures.length) {
-						let texture_group = new TextureGroup({name});
-						texture_group.add();
-						// @ts-ignore
-						new_textures.forEach(tex => tex.group = texture_group.uuid);
+					// Parser creates Texture objects we don't need - attachments use their own texture system
+					let createdTextures = content.new_textures as Texture[];
+					for (let tex of createdTextures) {
+						tex.remove();
+					}
 
-						// Update UV size
-						for (let texture of new_textures) {
-							updateUVSize(texture);
+					// Auto-discover textures: prioritize ModelName_Textures/ folder, fall back to loose files
+					let dirname = PathModule.dirname(file.path);
+					let texturePaths = discoverTexturePaths(dirname, attachment_name);
+
+					if (texturePaths.length > 0) {
+						let texturesFolderPath = PathModule.join(dirname, `${attachment_name}_Textures`);
+						let hasTexturesFolder = fs.existsSync(texturesFolderPath) && fs.statSync(texturesFolderPath).isDirectory();
+
+						if (hasTexturesFolder) {
+							collection.texture_path = texturesFolderPath;
+							let folderTextures = texturePaths.filter(p => p.startsWith(texturesFolderPath));
+							if (folderTextures.length > 0) {
+								collection.selected_texture = PathModule.basename(folderTextures[0]);
+							}
+						} else if (texturePaths.length === 1) {
+							collection.texture_path = texturePaths[0];
+							collection.selected_texture = '';
+						} else {
+							collection.texture_path = dirname;
+							collection.selected_texture = PathModule.basename(texturePaths[0]);
 						}
 
-						let texture = new_textures.find(t => t.name.startsWith(attachment_name)) ?? new_textures[0];
-
-						// @ts-expect-error
-						collection.texture = texture.uuid;
-						Canvas.updateAllFaces();
+						getAttachmentMaterial(collection);
 					}
+					Canvas.updateAllFaces();
 				}
 			})
 		}
@@ -61,33 +115,41 @@ export function setupAttachments() {
 	let toolbar = Panels.collections.toolbars[0];
 	toolbar.add(import_as_attachment);
 
+	/**
+	 * Re-imports an attachment from disk, preserving texture settings.
+	 * Used when the source blockymodel file has been modified externally.
+	 */
+	function reloadAttachment(collection: Collection) {
+		for (let child of collection.getChildren()) {
+			child.remove();
+		}
 
-	let texture_property = new Property(Collection, 'string', 'texture', {
-		condition: {formats: FORMAT_IDS}
-	});
-	track(texture_property);
+		clearAttachmentMaterial(collection.uuid);
 
-	function getCollection(cube: Cube) {
-		return Collection.all.find(c => c.contains(cube));
-	}
+		Filesystem.readFile([collection.export_path], {}, ([file]) => {
+			let json = autoParseJSON(file.content as string);
+			let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: collection.name});
 
-	let originalGetTexture = CubeFace.prototype.getTexture;
-	CubeFace.prototype.getTexture = function(...args) {
-		if (isHytaleFormat()) {
-			if (this.texture == null) return null;
-			let collection = getCollection(this.cube);
-			if (collection && "texture" in collection && collection.texture) {
-				let texture = Texture.all.find(t => t.uuid == collection.texture);
-				if (texture) return texture;
+			let new_groups = content.new_groups as Group[];
+			let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));
+
+			let createdTextures = content.new_textures as Texture[];
+			for (let tex of createdTextures) {
+				tex.remove();
 			}
-		}
-		return originalGetTexture.call(this, ...args);
+
+			collection.extend({
+				children: root_groups.map(g => g.uuid),
+			}).add();
+
+			let attCollection = collection as AttachmentCollection;
+			if (attCollection.texture_path) {
+				getAttachmentMaterial(attCollection);
+			}
+
+			Canvas.updateAllFaces();
+		})
 	}
-	track({
-		delete() {
-			CubeFace.prototype.getTexture = originalGetTexture;
-		}
-	});
 
 	let reload_attachment_action = new Action('reload_hytale_attachment', {
 		name: 'Reload Attachment',
@@ -95,63 +157,36 @@ export function setupAttachments() {
 		condition: () => Collection.selected.length && Modes.edit,
 		click() {
 			for (let collection of Collection.selected) {
-				for (let child of Collection.selected[0].getChildren()) {
-					child.remove();
-				}
-
-				Filesystem.readFile([collection.export_path], {}, ([file]) => {
-					let json = autoParseJSON(file.content as string);
-					let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: collection.name});
-
-					let new_groups = content.new_groups as Group[];
-					let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));
-
-					collection.extend({
-						children: root_groups.map(g => g.uuid),
-					}).add();
-
-					Canvas.updateAllFaces();
-				})
+				reloadAttachment(collection);
 			}
 		}
 	})
 	Collection.menu.addAction(reload_attachment_action, 10);
 	track(reload_attachment_action);
 
-	let assign_texture: CustomMenuItem = {
-		id: 'set_texture',
-		name: 'menu.cube.texture',
-		icon: 'collections',
-		condition: {formats: FORMAT_IDS},
-		children(context: Collection & {texture: string}) {
-			function applyTexture(texture_value: string, undo_message: string) {
-				Undo.initEdit({collections: Collection.selected});
-				for (let collection of Collection.selected) {
-					// @ts-expect-error
-					collection.texture = texture_value;
-				}
-				Undo.finishEdit(undo_message);
-				Canvas.updateAllFaces();
+	let remove_attachment_action = new Action('remove_hytale_attachment', {
+		name: 'Remove Attachment',
+		icon: 'remove_selection',
+		condition: () => Collection.selected.length && Modes.edit,
+		click() {
+			for (let collection of [...Collection.selected]) {
+				Collection.all.remove(collection);
 			}
-			let arr: CustomMenuItem[] = [
-				{icon: 'crop_square', name: Format.single_texture_default ? 'menu.cube.texture.default' : 'menu.cube.texture.blank', click(group) {
-					applyTexture('', 'Unassign texture from collection');
-				}}
-			]
-			Texture.all.forEach(t => {
-				arr.push({
-					name: t.name,
-					// @ts-ignore
-					icon: t.img,
-					marked: t.uuid == context.texture,
-					click() {
-						applyTexture(t.uuid, 'Apply texture to collection');
-					}
-				})
-			})
-			return arr;
 		}
-	};
-	Collection.menu.addAction(assign_texture);
+	})
+	Collection.menu.addAction(remove_attachment_action, 11);
+	track(remove_attachment_action);
 
+	reload_all_attachments = new Action('reload_all_hytale_attachments', {
+		name: 'Reload All Attachments',
+		icon: 'sync',
+		condition: {formats: FORMAT_IDS},
+		click() {
+			for (let collection of Collection.all.filter(c => c.export_path)) {
+				reloadAttachment(collection);
+			}
+		}
+	});
+	track(reload_all_attachments);
+	toolbar.add(reload_all_attachments);
 }

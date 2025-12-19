@@ -11,6 +11,7 @@ import { setupFormats } from "./formats";
 import { setupPhotoshopTools } from "./photoshop_copy_paste";
 import { CustomPivotMarker, GroupPivotIndicator } from "./pivot_marker"
 import { setupTextureHandling } from "./texture";
+import { setupNameOverlap } from "./name_overlap";
 import { setupUVOutline } from "./uv_outline";
 
 BBPlugin.register('hytale_plugin', {
@@ -37,6 +38,7 @@ BBPlugin.register('hytale_plugin', {
         setupPhotoshopTools();
         setupUVCycling();
         setupTextureHandling();
+        setupNameOverlap();
         setupUVOutline();
 
         // Collections panel setting

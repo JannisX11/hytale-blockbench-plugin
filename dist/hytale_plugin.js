@@ -1306,40 +1306,7 @@
   }
 
   // src/element.ts
-  function setupStretchedCubeResizeFix() {
-    const originalResize = Cube.prototype.resize;
-    Cube.prototype.resize = function(val, axis, negative, allow_negative, bidirectional) {
-      if (!FORMAT_IDS.includes(Format?.id) || !this.isStretched() || this.stretch[axis] === 1) {
-        return originalResize.call(this, val, axis, negative, allow_negative, bidirectional);
-      }
-      const stretch = this.stretch[axis];
-      let fixedEdgePos = null;
-      if (!bidirectional) {
-        const center = (this.from[axis] + this.to[axis]) / 2;
-        const halfSize = Math.abs(this.to[axis] - this.from[axis]) / 2;
-        fixedEdgePos = negative ? center + halfSize * stretch : center - halfSize * stretch;
-      }
-      const adjustedVal = typeof val === "function" ? (n) => val(n * stretch) / stretch : val / stretch;
-      originalResize.call(this, adjustedVal, axis, negative, allow_negative, bidirectional);
-      if (fixedEdgePos !== null) {
-        const newCenter = (this.from[axis] + this.to[axis]) / 2;
-        const newHalfSize = Math.abs(this.to[axis] - this.from[axis]) / 2;
-        const currentEdgePos = negative ? newCenter + newHalfSize * stretch : newCenter - newHalfSize * stretch;
-        const drift = fixedEdgePos - currentEdgePos;
-        this.from[axis] += drift;
-        this.to[axis] += drift;
-        this.preview_controller.updateGeometry(this);
-      }
-      return this;
-    };
-    track({
-      delete() {
-        Cube.prototype.resize = originalResize;
-      }
-    });
-  }
   function setupElements() {
-    setupStretchedCubeResizeFix();
     let property_shading_mode = new Property(Cube, "enum", "shading_mode", {
       default: "flat",
       values: ["flat", "standard", "fullbright", "reflective"],

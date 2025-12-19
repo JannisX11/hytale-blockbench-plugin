@@ -65,7 +65,7 @@ function setupStretchedCubeResizeFix() {
 }
 
 export function setupElements() {
-	setupStretchedCubeResizeFix();
+	// setupStretchedCubeResizeFix();
 	let property_shading_mode = new Property(Cube, 'enum', 'shading_mode', {
 		default: 'flat',
 		values: ['flat', 'standard', 'fullbright', 'reflective'],

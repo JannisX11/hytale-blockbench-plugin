@@ -725,292 +725,136 @@
     return codec;
   }
 
-  // src/attachment_texture.ts
-  var attachmentMaterials = /* @__PURE__ */ new Map();
-  function getTextureFilePath(collection) {
-    if (!collection.texture_path) return "";
-    let fs = requireNativeModule("fs");
-    if (!fs.existsSync(collection.texture_path)) return "";
-    let stat = fs.statSync(collection.texture_path);
-    if (stat.isFile()) {
-      return collection.texture_path;
+  // src/texture.ts
+  function updateUVSize(texture) {
+    let size = [texture.width, texture.display_height];
+    let frames = texture.frameCount;
+    if (settings.detect_flipbook_textures.value == false || frames <= 2 || frames % 1) {
+      size[1] = texture.height;
     }
-    if (stat.isDirectory() && collection.selected_texture) {
-      return PathModule.join(collection.texture_path, collection.selected_texture);
-    }
-    return "";
+    texture.uv_width = size[0];
+    texture.uv_height = size[1];
   }
-  function isTextureSingleFile(collection) {
-    if (!collection.texture_path) return false;
-    let fs = requireNativeModule("fs");
-    if (!fs.existsSync(collection.texture_path)) return false;
-    return fs.statSync(collection.texture_path).isFile();
-  }
-  function scanTexturesAtPath(texturePath) {
-    let fs = requireNativeModule("fs");
-    let textures = [];
-    if (!texturePath || !fs.existsSync(texturePath)) return textures;
-    let stat = fs.statSync(texturePath);
-    if (stat.isFile() && texturePath.match(/\.png$/i)) {
-      textures.push({
-        name: PathModule.basename(texturePath),
-        path: texturePath,
-        dataUrl: texturePath
-      });
-    } else if (stat.isDirectory()) {
-      for (let fileName of fs.readdirSync(texturePath)) {
-        if (fileName.match(/\.png$/i)) {
-          let filePath = PathModule.join(texturePath, fileName);
-          textures.push({ name: fileName, path: filePath, dataUrl: filePath });
-        }
-      }
-    }
-    return textures;
-  }
-  function clearAttachmentMaterial(uuid) {
-    let cached = attachmentMaterials.get(uuid);
-    if (cached) {
-      cached.image.src = "";
-      cached.texture.dispose();
-      cached.material.dispose();
-      attachmentMaterials.delete(uuid);
-    }
-  }
-  function clearAllAttachmentMaterials() {
-    for (let [, data] of attachmentMaterials) {
-      data.image.src = "";
-      data.texture.dispose();
-      data.material.dispose();
-    }
-    attachmentMaterials.clear();
-  }
-  function getAttachmentMaterial(collection) {
-    let cached = attachmentMaterials.get(collection.uuid);
-    if (cached) return cached.material;
-    let texturePath = getTextureFilePath(collection);
-    if (!texturePath) return null;
-    let fs = requireNativeModule("fs");
-    if (!fs.existsSync(texturePath)) return null;
-    let canvas = document.createElement("canvas");
-    canvas.width = 64;
-    canvas.height = 64;
-    let tex = new THREE.Texture(canvas);
-    tex.magFilter = THREE.NearestFilter;
-    tex.minFilter = THREE.NearestFilter;
-    let mat = new THREE.ShaderMaterial({
-      uniforms: {
-        map: { type: "t", value: tex },
-        SHADE: { type: "bool", value: settings.shading.value },
-        LIGHTCOLOR: { type: "vec3", value: new THREE.Color().copy(Canvas.global_light_color).multiplyScalar(settings.brightness.value / 50) },
-        LIGHTSIDE: { type: "int", value: Canvas.global_light_side },
-        EMISSIVE: { type: "bool", value: false }
-      },
-      vertexShader: Texture.all[0]?.getMaterial()?.vertexShader || "",
-      fragmentShader: Texture.all[0]?.getMaterial()?.fragmentShader || "",
-      side: THREE.DoubleSide,
-      transparent: true
+  function setupTextureHandling() {
+    let setting = new Setting("preview_selected_texture", {
+      name: "Preview Selected Texture",
+      description: "When selecting a texture in a Hytale format, preview the texture on the model instantly",
+      category: "preview",
+      type: "toggle",
+      value: true
     });
-    mat.map = tex;
-    let img = new Image();
-    img.onload = () => {
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      let ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.drawImage(img, 0, 0);
-        tex.needsUpdate = true;
-        Canvas.updateAllFaces();
+    track(setting);
+    let handler = Blockbench.on("select_texture", (arg) => {
+      if (!isHytaleFormat()) return;
+      if (setting.value == false) return;
+      let texture = arg.texture;
+      let texture_group = texture.getGroup();
+      if (texture_group) {
+        let collection = Collection.all.find((c) => c.name == texture_group.name);
+        if (collection) {
+          collection.texture = texture.uuid;
+          Canvas.updateAllFaces(texture);
+        }
+      } else {
+        texture.setAsDefaultTexture();
       }
-    };
-    img.src = texturePath;
-    attachmentMaterials.set(collection.uuid, { material: mat, texture: tex, image: img });
-    return mat;
+    });
+    track(handler);
   }
+
+  // src/attachment_texture.ts
   function getCollection(cube) {
     return Collection.all.find((c) => c.contains(cube));
   }
-  function injectTextureSection(collection) {
-    let dialogEl = document.getElementById("collection_properties");
-    if (!dialogEl) return;
-    let dialogContent = dialogEl.querySelector(".dialog_content");
-    if (!dialogContent) return;
-    if (dialogEl.querySelector("#attachment_texture_section")) return;
-    let section = document.createElement("div");
-    section.id = "attachment_texture_section";
-    section.innerHTML = buildTextureSectionHTML(collection);
-    dialogContent.appendChild(section);
-    setupTextureSectionHandlers(section, collection);
-  }
-  function buildTextureSectionHTML(collection) {
-    let textures = scanTexturesAtPath(collection.texture_path);
-    let isSingleFile = isTextureSingleFile(collection);
-    let gridContent = textures.length === 0 ? '<div style="flex: 1; text-align: center; color: var(--color-subtle_text); padding: 16px;">No textures found</div>' : textures.map((tex) => {
-      let isSelected = isSingleFile || collection.selected_texture === tex.name;
-      return `
-				<div class="att_tex_item${isSelected ? " selected" : ""}" data-name="${tex.name}" data-path="${tex.path}">
-					<img src="${tex.dataUrl}">
-					<div class="att_tex_name">${tex.name}</div>
-				</div>
-			`;
-    }).join("");
-    return `
-		<div class="dialog_bar form_bar form_bar_file">
-			<label class="name_space_left">Texture Path</label>
-			<div class="input_wrapper">
-				<input type="text" class="dark_bordered" id="att_tex_path" value="${collection.texture_path || ""}">
-				<i class="material-icons" id="att_browse_btn" style="cursor: pointer;">folder_open</i>
-			</div>
-		</div>
-
-		<div id="att_tex_grid" style="display: flex; gap: 6px; margin-top: 8px; overflow-x: auto; padding-bottom: 4px;">
-			${gridContent}
-		</div>
-
-		<style>
-			#att_tex_grid .att_tex_item { cursor: pointer; text-align: center; padding: 6px; border-radius: 4px; background: var(--color-back); border: 2px solid transparent; flex-shrink: 0; width: 88px; }
-			#att_tex_grid .att_tex_item.selected { border-color: var(--color-accent); background: var(--color-selected); }
-			#att_tex_grid .att_tex_item:hover:not(.selected) { background: var(--color-button); }
-			#att_tex_grid .att_tex_item img { width: 76px; height: 76px; object-fit: contain; image-rendering: pixelated; }
-			#att_tex_grid .att_tex_name { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 76px; }
-		</style>
-	`;
-  }
-  function setupTextureSectionHandlers(section, collection) {
-    let pathInput = section.querySelector("#att_tex_path");
-    function refreshGrid() {
-      let grid = section.querySelector("#att_tex_grid");
-      if (!grid) return;
-      let textures = scanTexturesAtPath(collection.texture_path);
-      let isSingleFile = isTextureSingleFile(collection);
-      grid.innerHTML = textures.length === 0 ? '<div style="flex: 1; text-align: center; color: var(--color-subtle_text); padding: 16px;">No textures found</div>' : textures.map((tex) => {
-        let isSelected = isSingleFile || collection.selected_texture === tex.name;
-        return `
-					<div class="att_tex_item${isSelected ? " selected" : ""}" data-name="${tex.name}" data-path="${tex.path}">
-						<img src="${tex.dataUrl}">
-						<div class="att_tex_name">${tex.name}</div>
-					</div>
-				`;
-      }).join("");
-      attachGridClickHandlers();
+  function processAttachmentTextures(attachmentName, newTextures) {
+    let textureGroup = new TextureGroup({ name: attachmentName });
+    textureGroup.folded = true;
+    textureGroup.add();
+    if (newTextures.length === 0) return "";
+    for (let tex of newTextures) {
+      tex.group = textureGroup.uuid;
+      updateUVSize(tex);
     }
-    function attachGridClickHandlers() {
-      section.querySelectorAll("#att_tex_grid .att_tex_item").forEach((item) => {
-        item.addEventListener("click", () => {
-          section.querySelectorAll("#att_tex_grid .att_tex_item").forEach((i) => i.classList.remove("selected"));
-          item.classList.add("selected");
-          if (!isTextureSingleFile(collection)) {
-            collection.selected_texture = item.getAttribute("data-name") || "";
-          }
-          clearAttachmentMaterial(collection.uuid);
-          Canvas.updateAllFaces();
-        });
-      });
+    let texture = newTextures.find((t) => t.name.startsWith(attachmentName)) ?? newTextures[0];
+    return texture.uuid;
+  }
+  function clearAttachmentTextures(collectionName) {
+    let textureGroup = TextureGroup.all.find((tg) => tg.name === collectionName);
+    if (textureGroup) {
+      for (let texture of [...Texture.all.filter((t) => t.group === textureGroup.uuid)]) {
+        texture.remove();
+      }
+      textureGroup.remove();
     }
-    attachGridClickHandlers();
-    section.querySelector("#att_browse_btn")?.addEventListener("click", () => {
-      let startPath = collection.texture_path || (collection.export_path ? PathModule.dirname(collection.export_path) : "");
-      let folderPath = Blockbench.pickDirectory({
-        title: "Select Texture Folder",
-        startpath: startPath,
-        resource_id: "texture"
-      });
-      if (folderPath) {
-        collection.texture_path = folderPath;
-        pathInput.value = folderPath;
-        clearAttachmentMaterial(collection.uuid);
-        let textures = scanTexturesAtPath(folderPath);
-        if (textures.length > 0) {
-          collection.selected_texture = textures[0].name;
-          getAttachmentMaterial(collection);
-        }
-        refreshGrid();
-        Canvas.updateAllFaces();
-      }
-    });
-    pathInput?.addEventListener("change", () => {
-      let fs = requireNativeModule("fs");
-      let newPath = pathInput.value;
-      if (!newPath || !fs.existsSync(newPath)) return;
-      collection.texture_path = newPath;
-      clearAttachmentMaterial(collection.uuid);
-      if (fs.statSync(newPath).isFile()) {
-        collection.selected_texture = "";
-      } else {
-        let textures = scanTexturesAtPath(newPath);
-        if (textures.length > 0) {
-          collection.selected_texture = textures[0].name;
-        }
-      }
-      getAttachmentMaterial(collection);
-      refreshGrid();
-      Canvas.updateAllFaces();
-    });
   }
   function setupAttachmentTextures() {
-    let texture_path_property = new Property(Collection, "string", "texture_path", {
+    let textureProperty = new Property(Collection, "string", "texture", {
       condition: { formats: FORMAT_IDS }
     });
-    track(texture_path_property);
-    let selected_texture_property = new Property(Collection, "string", "selected_texture", {
-      condition: { formats: FORMAT_IDS }
-    });
-    track(selected_texture_property);
+    track(textureProperty);
     let originalGetTexture = CubeFace.prototype.getTexture;
     CubeFace.prototype.getTexture = function(...args) {
       if (isHytaleFormat()) {
         if (this.texture == null) return null;
         let collection = getCollection(this.cube);
-        if (collection?.export_codec === "blockymodel") {
-          if (collection.texture_path) {
-            let material = getAttachmentMaterial(collection);
-            if (material) {
-              let cached = attachmentMaterials.get(collection.uuid);
-              let img = cached?.image;
-              let width = img?.naturalWidth || 64;
-              let height = img?.naturalHeight || 64;
-              return {
-                uuid: collection.uuid + "_tex",
-                getMaterial: () => material,
-                getOwnMaterial: () => material,
-                img,
-                width,
-                height,
-                uv_width: width,
-                uv_height: height,
-                display_height: height,
-                frameCount: 1,
-                currentFrame: 0,
-                getUVWidth: () => width,
-                getUVHeight: () => height,
-                source: cached?.image?.src || "",
-                selected: false,
-                show_icon: true,
-                particle: false,
-                use_as_default: false
-              };
-            }
+        if (collection && "texture" in collection) {
+          if (collection.texture) {
+            let texture = Texture.all.find((t) => t.uuid == collection.texture);
+            if (texture) return texture;
           }
           return null;
         }
       }
       return originalGetTexture.call(this, ...args);
     };
-    track({ delete() {
-      CubeFace.prototype.getTexture = originalGetTexture;
-    } });
-    let originalPropertiesDialog = Collection.prototype.propertiesDialog;
-    Collection.prototype.propertiesDialog = function() {
-      originalPropertiesDialog.call(this);
-      if (isHytaleFormat() && this.export_codec === "blockymodel") {
-        setTimeout(() => injectTextureSection(this), 10);
+    track({
+      delete() {
+        CubeFace.prototype.getTexture = originalGetTexture;
+      }
+    });
+    let assignTexture = {
+      id: "set_texture",
+      name: "menu.cube.texture",
+      icon: "collections",
+      condition: { formats: FORMAT_IDS },
+      children(context) {
+        function applyTexture(textureValue, undoMessage) {
+          Undo.initEdit({ collections: Collection.selected });
+          for (let collection of Collection.selected) {
+            collection.texture = textureValue;
+          }
+          Undo.finishEdit(undoMessage);
+          Canvas.updateAllFaces();
+        }
+        let arr = [
+          {
+            icon: "crop_square",
+            name: Format.single_texture_default ? "menu.cube.texture.default" : "menu.cube.texture.blank",
+            click() {
+              applyTexture("", "Unassign texture from collection");
+            }
+          }
+        ];
+        Texture.all.forEach((t) => {
+          arr.push({
+            name: t.name,
+            // @ts-expect-error
+            icon: t.img,
+            marked: t.uuid == context.texture,
+            click() {
+              applyTexture(t.uuid, "Apply texture to collection");
+            }
+          });
+        });
+        return arr;
       }
     };
-    track({ delete() {
-      Collection.prototype.propertiesDialog = originalPropertiesDialog;
-    } });
-    track({ delete() {
-      clearAllAttachmentMaterials();
-    } });
+    Collection.menu.addAction(assignTexture);
+    track({
+      delete() {
+        Collection.menu.removeAction("set_texture");
+      }
+    });
   }
 
   // src/attachments.ts
@@ -1029,7 +873,7 @@
               for (let child of collection.getChildren()) {
                 child.remove();
               }
-              clearAttachmentMaterial(collection.uuid);
+              clearAttachmentTextures(collection.name);
             }
           }
         }
@@ -1054,7 +898,6 @@
           multiple: true,
           startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, "") + osfs + "Attachments"
         }, (files) => {
-          let fs = requireNativeModule("fs");
           for (let file of files) {
             let json = autoParseJSON(file.content);
             let attachment_name = file.name.replace(/\.\w+$/, "");
@@ -1069,29 +912,18 @@
               visibility: true
             }).add();
             collection.export_path = file.path;
-            let createdTextures = content.new_textures;
-            for (let tex of createdTextures) {
-              tex.remove();
-            }
-            let dirname = PathModule.dirname(file.path);
-            let texturePaths = discoverTexturePaths(dirname, attachment_name);
-            if (texturePaths.length > 0) {
-              let texturesFolderPath = PathModule.join(dirname, `${attachment_name}_Textures`);
-              let hasTexturesFolder = fs.existsSync(texturesFolderPath) && fs.statSync(texturesFolderPath).isDirectory();
-              if (hasTexturesFolder) {
-                collection.texture_path = texturesFolderPath;
-                let folderTextures = texturePaths.filter((p) => p.startsWith(texturesFolderPath));
-                if (folderTextures.length > 0) {
-                  collection.selected_texture = PathModule.basename(folderTextures[0]);
-                }
-              } else if (texturePaths.length === 1) {
-                collection.texture_path = texturePaths[0];
-                collection.selected_texture = "";
-              } else {
-                collection.texture_path = dirname;
-                collection.selected_texture = PathModule.basename(texturePaths[0]);
+            let texturesToProcess = content.new_textures;
+            if (texturesToProcess.length === 0) {
+              let dirname = PathModule.dirname(file.path);
+              let texturePaths = discoverTexturePaths(dirname, attachment_name);
+              for (let texPath of texturePaths) {
+                let tex = new Texture().fromPath(texPath).add(false);
+                texturesToProcess.push(tex);
               }
-              getAttachmentMaterial(collection);
+            }
+            let textureUuid = processAttachmentTextures(attachment_name, texturesToProcess);
+            if (textureUuid) {
+              collection.texture = textureUuid;
             }
             Canvas.updateAllFaces();
           }
@@ -1105,23 +937,17 @@
       for (let child of collection.getChildren()) {
         child.remove();
       }
-      clearAttachmentMaterial(collection.uuid);
       Filesystem.readFile([collection.export_path], {}, ([file]) => {
         let json = autoParseJSON(file.content);
         let content = Codecs.blockymodel.parse(json, file.path, { attachment: collection.name });
         let new_groups = content.new_groups;
         let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
-        let createdTextures = content.new_textures;
-        for (let tex of createdTextures) {
+        for (let tex of content.new_textures) {
           tex.remove();
         }
         collection.extend({
           children: root_groups.map((g) => g.uuid)
         }).add();
-        let attCollection = collection;
-        if (attCollection.texture_path) {
-          getAttachmentMaterial(attCollection);
-        }
         Canvas.updateAllFaces();
       });
     }
@@ -2261,28 +2087,6 @@
       Canvas.pivot_marker.add(...this.original_helpers);
     }
   };
-
-  // src/texture.ts
-  function setupTextureHandling() {
-    let setting = new Setting("preview_selected_texture", {
-      name: "Preview Selected Texture",
-      description: "When selecting a texture in a Hytale format, preview the texture on the model instantly",
-      category: "preview",
-      type: "toggle",
-      value: true
-    });
-    track(setting);
-    let handler = Blockbench.on("select_texture", (arg) => {
-      if (!isHytaleFormat()) return;
-      if (setting.value == false) return;
-      let texture = arg.texture;
-      let texture_group = texture.getGroup();
-      if (!texture_group) {
-        texture.setAsDefaultTexture();
-      }
-    });
-    track(handler);
-  }
 
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {

@@ -1,3 +1,4 @@
+import { copyAnimationToGroupsWithSameName } from "./name_overlap";
 import { track } from "./cleanup";
 import { Config } from "./config";
 import { FORMAT_IDS } from "./formats";
@@ -87,6 +88,9 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 				});
 			}
 		}
+
+		// Copy to others with same name
+		if (group) copyAnimationToGroupsWithSameName(animation, group);
 	}
 	animation.add(false);
 

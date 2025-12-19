@@ -1,3 +1,6 @@
+//! Copyright (C) 2025 Hypixel Studios Canada inc.
+//! Licensed under the GNU General Public License, see LICENSE.MD
+
 import { parseAnimationFile } from "./blockyanim"
 import { track } from "./cleanup"
 import { Config } from "./config"

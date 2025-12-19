@@ -1,3 +1,6 @@
+//! Copyright (C) 2025 Hypixel Studios Canada inc.
+//! Licensed under the GNU General Public License, see LICENSE.MD
+
 import { setupAnimationCodec } from "./blockyanim";
 import { setupAttachments } from "./attachments";
 import { setupAnimation } from "./animations";

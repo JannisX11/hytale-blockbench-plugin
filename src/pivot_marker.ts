@@ -81,6 +81,7 @@ export class CustomPivotMarker {
 export class GroupPivotIndicator {
 	dot: THREE.Mesh;
 	listener: Deletable;
+	cameraListener: Deletable;
 	setting: Setting;
 
 	constructor() {
@@ -106,7 +107,15 @@ export class GroupPivotIndicator {
 		Canvas.scene.add(this.dot);
 
 		this.listener = Blockbench.on('update_selection', () => this.update());
+		this.cameraListener = Blockbench.on('update_camera_position', () => this.updateScale());
 		this.update();
+	}
+
+	updateScale() {
+		if (!this.dot.visible) return;
+		// @ts-expect-error
+		let scale = Preview.selected.calculateControlScale(this.dot.position) || 0.8;
+		this.dot.scale.setScalar(scale * 0.7);
 	}
 
 	getAccentColor(): THREE.Color {
@@ -136,6 +145,7 @@ export class GroupPivotIndicator {
 			mesh.getWorldPosition(worldPos);
 			this.dot.position.copy(worldPos);
 			this.dot.visible = true;
+			this.updateScale();
 		} else {
 			this.dot.visible = false;
 		}
@@ -159,6 +169,7 @@ export class GroupPivotIndicator {
 		this.dot.geometry.dispose();
 		(this.dot.material as THREE.MeshBasicMaterial).dispose();
 		this.listener.delete();
+		this.cameraListener.delete();
 		this.setting.delete();
 	}
 }

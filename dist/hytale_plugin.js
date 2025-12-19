@@ -19,6 +19,17 @@
     }
   };
 
+  // src/util.ts
+  function qualifiesAsMainShape(object) {
+    return object instanceof Cube && (object.rotation.allEqual(0) || cubeIsQuad(object));
+  }
+  function cubeIsQuad(cube) {
+    return cube.size()[2] == 0;
+  }
+  function getMainShape(group) {
+    return group.children.find(qualifiesAsMainShape);
+  }
+
   // src/blockymodel.ts
   function discoverTexturePaths(dirname, modelName) {
     let fs = requireNativeModule("fs");
@@ -156,12 +167,6 @@
             z: input[2]
           });
         };
-        function qualifiesAsMainShape(object) {
-          return object instanceof Cube && (object.rotation.allEqual(0) || cubeIsQuad(object));
-        }
-        function cubeIsQuad(cube) {
-          return cube.size()[2] == 0;
-        }
         function turnNodeIntoBox(node, cube, original_element) {
           let size = cube.size();
           let stretch = cube.stretch.slice();
@@ -290,7 +295,7 @@
           }
         }
         function getNodeOffset(group) {
-          let cube = group.children.find(qualifiesAsMainShape);
+          let cube = getMainShape(group);
           if (cube) {
             let center_pos = cube.from.slice().V3_add(cube.to).V3_divide(2, 2, 2);
             center_pos.V3_subtract(group.origin);
@@ -410,11 +415,11 @@
             Math.radToDeg(rotation_euler.z)
           ];
           if (args.attachment && !parent_node && parent_group instanceof Group) {
-            let reference_node = parent_group.children.find((c) => c instanceof Cube) ?? parent_group;
+            let reference_node = getMainShape(parent_group) ?? parent_group;
             origin = reference_node.origin.slice();
             rotation = reference_node.rotation.slice();
           } else if (parent_group instanceof Group) {
-            let parent_geo_origin = parent_group.children.find((cube) => cube instanceof Cube)?.origin ?? parent_group.origin;
+            let parent_geo_origin = getMainShape(parent_group)?.origin ?? parent_group.origin;
             if (parent_geo_origin) {
               origin.V3_add(parent_geo_origin);
               if (parent_offset) origin.V3_add(parent_offset);
@@ -1201,6 +1206,7 @@
         { type: "h3", text: tl("mode.start.format.informations") },
         {
           text: `* One texture can be applied to a model at a time
+                    * UV sizes are linked to the size of each cube and cannot be modified, except by stretching the cube
                     * Models can have a maximum of 255 nodes`.replace(/(\t| {4,4})+/g, "")
         },
         { type: "h3", text: tl("mode.start.format.resources") },
@@ -1434,7 +1440,7 @@
     let original_save = Animation.prototype.save;
     Animation.prototype.save = function(...args) {
       if (!FORMAT_IDS.includes(Format.id)) {
-        return original_save(...args);
+        return original_save.call(this, ...args);
       }
       let animation;
       animation = Animation.selected;
@@ -1544,7 +1550,7 @@
     BoneAnimator.prototype.displayScale = function displayScale(array, multiplier = 1) {
       if (!array) return this;
       if (isHytaleFormat()) {
-        let target_shape = this.group.children.find((c) => c instanceof Cube);
+        let target_shape = getMainShape(this.group);
         if (target_shape) {
           let initial_stretch = target_shape.stretch.slice();
           target_shape.stretch.V3_set([
@@ -1758,7 +1764,7 @@
 
   // src/uv_cycling.ts
   var cycleState = null;
-  var CLICK_THRESHOLD = 5;
+  var CLICK_THRESHOLD = 0;
   function screenToUV(event) {
     return UVEditor.getBrushCoordinates(event, UVEditor.texture);
   }
@@ -1826,7 +1832,7 @@
       function handleMouseUp(event) {
         if (!pendingClick) return;
         if (event.button !== 0) return;
-        const uvPos = pendingClick.uvPos;
+        const uvPos = screenToUV(event);
         pendingClick = null;
         const isSamePosition = cycleState !== null && Math.abs(uvPos.x - cycleState.lastClickX) <= CLICK_THRESHOLD && Math.abs(uvPos.y - cycleState.lastClickY) <= CLICK_THRESHOLD;
         if (isSamePosition && cycleState) {
@@ -1880,11 +1886,11 @@
       if (group.export == false) return;
       if (Collection.all.find((c) => c.contains(group))) continue;
       node_count++;
-      let cube_count = 0;
+      let main_shape = getMainShape(group);
       for (let cube of group.children) {
         if (cube instanceof Cube == false || cube.export == false) continue;
-        cube_count++;
-        if (cube_count > 1) node_count++;
+        if (cube == main_shape) continue;
+        node_count++;
       }
     }
     return node_count;
@@ -2179,6 +2185,7 @@
   var GroupPivotIndicator = class {
     dot;
     listener;
+    cameraListener;
     setting;
     constructor() {
       this.setting = new Setting("show_group_pivot_indicator", {
@@ -2200,7 +2207,13 @@
       this.dot.visible = false;
       Canvas.scene.add(this.dot);
       this.listener = Blockbench.on("update_selection", () => this.update());
+      this.cameraListener = Blockbench.on("update_camera_position", () => this.updateScale());
       this.update();
+    }
+    updateScale() {
+      if (!this.dot.visible) return;
+      let scale = Preview.selected.calculateControlScale(this.dot.position) || 0.8;
+      this.dot.scale.setScalar(scale * 0.7);
     }
     getAccentColor() {
       let cssColor = getComputedStyle(document.body).getPropertyValue("--color-accent").trim();
@@ -2223,6 +2236,7 @@
         mesh.getWorldPosition(worldPos);
         this.dot.position.copy(worldPos);
         this.dot.visible = true;
+        this.updateScale();
       } else {
         this.dot.visible = false;
       }
@@ -2243,6 +2257,7 @@
       this.dot.geometry.dispose();
       this.dot.material.dispose();
       this.listener.delete();
+      this.cameraListener.delete();
       this.setting.delete();
     }
   };
@@ -2706,15 +2721,12 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     background-color: transparent;
 }
 `;
-  var STYLE_ID = "hytale_uv_outline_style";
   function updateHytaleFormatClass() {
     document.body.classList.toggle("hytale-format", isHytaleFormat());
   }
   function setupUVOutline() {
-    const style = document.createElement("style");
-    style.id = STYLE_ID;
-    style.textContent = UV_OUTLINE_CSS;
-    document.head.appendChild(style);
+    const style = Blockbench.addCSS(UV_OUTLINE_CSS);
+    track(style);
     const setting = new Setting("uv_outline_only", {
       name: "UV Outline Only",
       description: "Show only outlines for UV faces instead of filled overlays",
@@ -2729,13 +2741,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     track(selectProjectListener);
     document.body.classList.toggle("hytale-uv-outline-only", settings.uv_outline_only?.value ?? true);
     updateHytaleFormatClass();
-    track({
-      delete() {
-        document.getElementById(STYLE_ID)?.remove();
-        document.body.classList.remove("hytale-uv-outline-only");
-        document.body.classList.remove("hytale-format");
-      }
-    });
   }
 
   // src/plugin.ts
@@ -2766,6 +2771,34 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupUVFill();
       setupAltDuplicate();
       setupUVOutline();
+      let panel_setup_listener;
+      function showCollectionPanel() {
+        const local_storage_key = "hytale_plugin:collection_panel_setup";
+        if (localStorage.getItem(local_storage_key)) return true;
+        if (!Modes.edit) return false;
+        if (Panels.collections.slot == "hidden") {
+          Panels.collections.moveTo("right_bar");
+        }
+        if (Panels.collections.folded) {
+          Panels.collections.fold();
+        }
+        if (panel_setup_listener) {
+          panel_setup_listener.delete();
+          panel_setup_listener = void 0;
+        }
+        localStorage.setItem(local_storage_key, "true");
+        return true;
+      }
+      if (!showCollectionPanel()) {
+        panel_setup_listener = Blockbench.on("select_mode", showCollectionPanel);
+      }
+      let on_finish_edit = Blockbench.on("generate_texture_template", (arg) => {
+        for (let element of arg.elements) {
+          if (typeof element.autouv != "number") continue;
+          element.autouv = 1;
+        }
+      });
+      track(on_finish_edit);
       let pivot_marker = new CustomPivotMarker();
       track(pivot_marker);
       let group_pivot_indicator = new GroupPivotIndicator();

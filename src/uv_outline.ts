@@ -70,17 +70,13 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
 }
 `;
 
-const STYLE_ID = 'hytale_uv_outline_style';
-
 function updateHytaleFormatClass() {
     document.body.classList.toggle('hytale-format', isHytaleFormat());
 }
 
 export function setupUVOutline() {
-    const style = document.createElement('style');
-    style.id = STYLE_ID;
-    style.textContent = UV_OUTLINE_CSS;
-    document.head.appendChild(style);
+    const style = Blockbench.addCSS(UV_OUTLINE_CSS);
+    track(style);
 
     const setting = new Setting('uv_outline_only', {
         name: 'UV Outline Only',
@@ -96,14 +92,7 @@ export function setupUVOutline() {
     const selectProjectListener = Blockbench.on('select_project', updateHytaleFormatClass);
     track(selectProjectListener);
 
-    document.body.classList.toggle('hytale-uv-outline-only', settings.uv_outline_only?.value ?? true);
+    document.body.classList.toggle('hytale-uv-outline-only', (settings.uv_outline_only?.value as boolean) ?? true);
     updateHytaleFormatClass();
 
-    track({
-        delete() {
-            document.getElementById(STYLE_ID)?.remove();
-            document.body.classList.remove('hytale-uv-outline-only');
-            document.body.classList.remove('hytale-format');
-        }
-    });
 }

@@ -302,7 +302,7 @@
             return center_pos;
           }
         }
-        function compileNode(element) {
+        function compileNode(element, name = element.name) {
           if (!options.attachment) {
             let collection = Collection.all.find((c) => c.contains(element));
             if (collection) return;
@@ -330,7 +330,7 @@
           }
           let node = {
             id: node_id.toString(),
-            name: element.name.replace(/^.+:/, ""),
+            name: name.replace(/^.+:/, ""),
             position: formatVector(origin),
             orientation,
             shape: {
@@ -352,13 +352,15 @@
             turnNodeIntoBox(node, element, element);
           } else if ("children" in element) {
             let shape_count = 0;
+            let child_cube_count = 0;
             for (let child of element.children ?? []) {
               let result;
               if (qualifiesAsMainShape(child) && shape_count == 0) {
                 turnNodeIntoBox(node, child, element);
                 shape_count++;
               } else if (child instanceof Cube) {
-                result = compileNode(child);
+                child_cube_count++;
+                result = compileNode(child, child.name + "--C" + child_cube_count);
               } else if (child instanceof Group) {
                 result = compileNode(child);
               }
@@ -444,6 +446,8 @@
               // @ts-ignore
               is_piece: node.shape?.settings?.isPiece ?? false
             });
+          } else {
+            name = name.replace(/--C\d+$/, "");
           }
           if (node.shape.type != "none") {
             let switchIndices = function(arr, i1, i2) {

@@ -391,7 +391,7 @@ export function setupBlockymodelCodec(): Codec {
 				}
 			}
 
-			function compileNode(element: Group | Cube): BlockymodelNode | undefined {
+			function compileNode(element: Group | Cube, name: string = element.name): BlockymodelNode | undefined {
 				// Filter attachment
 				if (!options.attachment) {
 					let collection = Collection.all.find(c => c.contains(element));
@@ -421,7 +421,7 @@ export function setupBlockymodelCodec(): Codec {
 				}
 				let node: BlockymodelNode = {
 					id: node_id.toString(),
-					name: element.name.replace(/^.+:/, ''),
+					name: name.replace(/^.+:/, ''),
 					position: formatVector(origin),
 					orientation,
 					shape: {
@@ -444,6 +444,7 @@ export function setupBlockymodelCodec(): Codec {
 					turnNodeIntoBox(node, element as CubeHytale, element as CubeHytale);
 				} else if ('children' in element) {
 					let shape_count = 0;
+					let child_cube_count = 0;
 					for (let child of element.children ?? []) {
 						let result: BlockymodelNode;
 						if (qualifiesAsMainShape(child) && shape_count == 0) {
@@ -451,7 +452,8 @@ export function setupBlockymodelCodec(): Codec {
 							shape_count++;
 
 						} else if (child instanceof Cube) {
-							result = compileNode(child);
+							child_cube_count++;
+							result = compileNode(child, child.name + '--C'+child_cube_count);
 						} else if (child instanceof Group) {
 							result = compileNode(child)
 						}
@@ -547,6 +549,8 @@ export function setupBlockymodelCodec(): Codec {
 						// @ts-ignore
 						is_piece: node.shape?.settings?.isPiece ?? false,
 					});
+				} else {
+					name = name.replace(/--C\d+$/, '');
 				}
 
 

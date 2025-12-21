@@ -374,7 +374,7 @@ export function setupBlockymodelCodec(): Codec {
 					}
 
 					let layout_face: IUvFace = {
-						offset: new oneLiner({x: Math.trunc(uv_x), y: Math.trunc(uv_y)}),
+						offset: new oneLiner({x: Math.round(uv_x), y: Math.round(uv_y)}),
 						mirror: new oneLiner({x: mirror_x, y: mirror_y}),
 						angle: uv_rot,
 					};

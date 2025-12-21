@@ -9,7 +9,7 @@ Select a Hytale format from the start screen and click Create New Model to get s
 * A customized workspace and validation to ensure models are created in a compatible way
 * Automatic UV sizes that are locked to face dimensions to ensure UV consistency
 * The stretch tool and sliders can be used to adjust cube sizes without affecting UV
-* Attachment support built on collections. Attachments are anything from hairstyles to clothing items and weapons that can alter the design of a character.
+* Attachment support built on collections. Attachments are anything from hairstyles to clothing items and weapons that can alter the design of a character. Use the isPiece flag on attachment groups to mark them for proper export.
 
 ### Hytale animation support
 * Support for animations for Hytale models
@@ -18,8 +18,9 @@ Select a Hytale format from the start screen and click Create New Model to get s
 * Keyframe-wrapping for looping animations
 
 ### Quality-of-life features that the Hytale team uses!
-* A thicker and always visible pivot marker to ensure the pivot point is well visible
+* A thicker and always visible pivot marker to ensure the pivot point is well visible. The group pivot is also shown when editing child cubes, so you always know where geometry will rotate from when animating.
 * UV Cycling: Click in the UV editor multiple times to cycle between overlapping faces at that spot
+* Improved UV editor clarity and visibility to make texture mapping easier to work with
 * Copy-Paste with Magenta Alpha setting, to improve copy-pasting from and to Photoshop (which doesn't support copy pasting with transparency)
 
 ## Usage tips

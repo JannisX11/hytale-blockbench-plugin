@@ -2268,7 +2268,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       name: "UV Outline Only",
       description: "Show only outlines for UV faces instead of filled overlays",
       category: "edit",
-      value: true,
+      value: false,
       onChange(value) {
         document.body.classList.toggle("hytale-uv-outline-only", value);
       }

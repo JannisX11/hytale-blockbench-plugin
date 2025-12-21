@@ -82,7 +82,7 @@ export function setupUVOutline() {
         name: 'UV Outline Only',
         description: 'Show only outlines for UV faces instead of filled overlays',
         category: 'edit',
-        value: true,
+        value: false,
         onChange(value: boolean) {
             document.body.classList.toggle('hytale-uv-outline-only', value);
         }

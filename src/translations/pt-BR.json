@@ -1,24 +1,72 @@
 {
   "plugin": {
     "title": "Modelos Hytale",
-    "description": "Criar modelos e animações para Hytale"
+    "description": "Crie modelos e animações para o Hytale"
   },
   "menu": {
     "import_attachment": "Importar Anexo",
     "reload_all": "Recarregar Todos os Anexos"
+
   },
   "error": {
     "no_textures": "Nenhuma textura encontrada para este modelo."
   },
   "actions": {
     "reload_attachments": "Recarregar Anexos",
-    "reload_all_attachments": "Recarregar Todos os Anexos"
+    "reload_all_attachments": "Recarregar Todos os Anexos",
+    "hytale_add_quad": "Adicionar Quad",
+    "cut_selection": "Recortar seleção da textura",
+    "paste_texture": "Colar na textura",
+    "pasted_layer_name": "colado"
   },
-  "textures":{
+  "textures": {
     "import": "Importar Texturas",
-    "message":"Nenhuma textura foi encontrada para este modelo. Como você gostaria de importar texturas?",
+    "message": "Nenhuma textura foi encontrada para este modelo. Como você deseja importar as texturas?",
     "select_files": "Selecionar Arquivos",
     "select_folder": "Selecionar Pasta",
     "skip": "Pular"
+  },
+  "directory": {
+    "select_texture_folder": "Selecionar Pasta de Texturas",
+    "file_not_found": "Arquivo não encontrado",
+    "export_blockymodel": "Exportar BlockyModel do Hytale",
+    "export_blockymodel_desc": "Exportar um arquivo BlockyModel"
+  },
+  "formats": {
+    "character": {
+      "name": "Personagem Hytale",
+      "description": "Crie modelos de personagens e anexos usando o formato blockymodel do Hytale"
+    },
+
+    "prop": {
+      "name": "Objeto Hytale",
+      "description": "Crie modelos de objetos usando o formato blockymodel do Hytale"
+    },
+    "page": {
+      "informations": "Informações",
+      "resources": "Recursos",
+      "info_list": "* Apenas uma textura pode ser aplicada ao modelo por vez\n* Os tamanhos de UV são vinculados ao tamanho de cada cubo e não podem ser modificados, exceto esticando o cubo\n* Os modelos podem ter no máximo 255 nós",
+      "resource_list": "* [Tutorial de Modelagem](https://hytale.com/)\n* [Tutorial de Animação](https://hytale.com/)"
+    },
+    "category": "Hytale"
+  },
+  "settings": {
+    "duplicate_bones": {
+      "name": "Duplicar Nomes de Ossos",
+      "description": "Permite criar grupos com nomes duplicados nos formatos do Hytale. Vários grupos com o mesmo nome podem ser usados para aplicar animações a vários nós ao mesmo tempo."
+    },
+    "photoshop_copy": {
+      "name": "Copiar e Colar com Alpha Magenta",
+      "description": "Copia seleções de imagem com fundo magenta e remove o magenta ao colar, ajudando a transferir transparência para o Photoshop"
+    },
+    "group_pivot": {
+      "name": "Mostrar Indicador de Pivô do Grupo",
+      "description": "Mostra um ponto no modo de Edição indicando o ponto de pivô de rotação para animações"
+    },
+    "preview_texture": {
+      "name": "Pré-visualizar Textura Selecionada",
+      "description": "Ao selecionar uma textura em um formato Hytale, a textura é exibida instantaneamente no modelo"
+    }
   }
+ 
 }

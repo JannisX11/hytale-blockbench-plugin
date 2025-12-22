@@ -14,7 +14,6 @@ import { setupFormats } from "./formats";
 import { setupPhotoshopTools } from "./photoshop_copy_paste";
 import { CustomPivotMarker, GroupPivotIndicator } from "./pivot_marker"
 import { setupOutlinerFilter } from "./outliner_filter";
-import { CustomPivotMarker } from "./pivot_marker"
 import { setupTextureHandling } from "./texture";
 import { setupNameOverlap } from "./name_overlap";
 import { setupUVOutline } from "./uv_outline";
@@ -31,6 +30,7 @@ BBPlugin.register('hytale_plugin', {
     min_version: '5.0.5',
     await_loading: true,
     has_changelog: true,
+	creation_date: "2025-12-22",
     repository: 'https://github.com/JannisX11/hytale-blockbench-plugin',
     bug_tracker: 'https://github.com/JannisX11/hytale-blockbench-plugin/issues',
     onload() {

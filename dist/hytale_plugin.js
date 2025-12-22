@@ -2568,6 +2568,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     min_version: "5.0.5",
     await_loading: true,
     has_changelog: true,
+    creation_date: "2025-12-22",
     repository: "https://github.com/JannisX11/hytale-blockbench-plugin",
     bug_tracker: "https://github.com/JannisX11/hytale-blockbench-plugin/issues",
     onload() {

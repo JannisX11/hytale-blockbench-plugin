@@ -158,19 +158,6 @@ export function setupAttachments() {
 	Collection.menu.addAction(reload_attachment_action, 10);
 	track(reload_attachment_action);
 
-	let remove_attachment_action = new Action('remove_hytale_attachment', {
-		name: 'Remove Attachment',
-		icon: 'remove_selection',
-		condition: () => Collection.selected.length && Modes.edit,
-		click() {
-			for (let collection of [...Collection.selected]) {
-				Collection.all.remove(collection);
-			}
-		}
-	})
-	Collection.menu.addAction(remove_attachment_action, 11);
-	track(remove_attachment_action);
-
 	reload_all_attachments = new Action('reload_all_hytale_attachments', {
 		name: 'Reload All Attachments',
 		icon: 'sync',

@@ -2,6 +2,7 @@ import { parseAnimationFile } from "./blockyanim"
 import { track } from "./cleanup"
 import { Config } from "./config"
 import { FORMAT_IDS } from "./formats"
+import { cubeIsQuad, getMainShape, qualifiesAsMainShape } from "./util"
 
 type BlockymodelJSON = {
 	nodes: BlockymodelNode[]
@@ -53,7 +54,7 @@ type IUvFace = {
 type IVector = {x: number, y: number, z: number}
 type IQuaternion = {x: number, y: number, z: number, w: number}
 
-type CubeHytale = Cube & {
+export type CubeHytale = Cube & {
 	shading_mode: 'flat' |'standard' |'fullbright' |'reflective'
 	double_sided: boolean
 }
@@ -244,12 +245,6 @@ export function setupBlockymodelCodec(): Codec {
 				if child cube
 			*/
 
-			function qualifiesAsMainShape(object: OutlinerNode): boolean {
-				return object instanceof Cube && (object.rotation.allEqual(0) || cubeIsQuad(object as CubeHytale));
-			}
-			function cubeIsQuad(cube: CubeHytale): boolean {
-				return cube.size()[2] == 0;
-			}
 			function turnNodeIntoBox(node: BlockymodelNode, cube: CubeHytale, original_element: CubeHytale | Group) {
 				let size = cube.size();
 				let stretch = cube.stretch.slice() as ArrayVector3;
@@ -379,7 +374,7 @@ export function setupBlockymodelCodec(): Codec {
 					}
 
 					let layout_face: IUvFace = {
-						offset: new oneLiner({x: Math.trunc(uv_x), y: Math.trunc(uv_y)}),
+						offset: new oneLiner({x: Math.round(uv_x), y: Math.round(uv_y)}),
 						mirror: new oneLiner({x: mirror_x, y: mirror_y}),
 						angle: uv_rot,
 					};
@@ -388,7 +383,7 @@ export function setupBlockymodelCodec(): Codec {
 
 			}
 			function getNodeOffset(group: Group): ArrayVector3 | undefined {
-				let cube = group.children.find(qualifiesAsMainShape) as CubeHytale | undefined;
+				let cube = getMainShape(group);
 				if (cube) {
 					let center_pos = cube.from.slice().V3_add(cube.to).V3_divide(2, 2, 2);
 					center_pos.V3_subtract(group.origin);
@@ -396,7 +391,7 @@ export function setupBlockymodelCodec(): Codec {
 				}
 			}
 
-			function compileNode(element: Group | Cube): BlockymodelNode | undefined {
+			function compileNode(element: Group | Cube, name: string = element.name): BlockymodelNode | undefined {
 				// Filter attachment
 				if (!options.attachment) {
 					let collection = Collection.all.find(c => c.contains(element));
@@ -426,7 +421,7 @@ export function setupBlockymodelCodec(): Codec {
 				}
 				let node: BlockymodelNode = {
 					id: node_id.toString(),
-					name: element.name.replace(/^.+:/, ''),
+					name: name.replace(/^.+:/, ''),
 					position: formatVector(origin),
 					orientation,
 					shape: {
@@ -449,6 +444,7 @@ export function setupBlockymodelCodec(): Codec {
 					turnNodeIntoBox(node, element as CubeHytale, element as CubeHytale);
 				} else if ('children' in element) {
 					let shape_count = 0;
+					let child_cube_count = 0;
 					for (let child of element.children ?? []) {
 						let result: BlockymodelNode;
 						if (qualifiesAsMainShape(child) && shape_count == 0) {
@@ -456,7 +452,8 @@ export function setupBlockymodelCodec(): Codec {
 							shape_count++;
 
 						} else if (child instanceof Cube) {
-							result = compileNode(child);
+							child_cube_count++;
+							result = compileNode(child, child.name + '--C'+child_cube_count);
 						} else if (child instanceof Group) {
 							result = compileNode(child)
 						}
@@ -518,12 +515,12 @@ export function setupBlockymodelCodec(): Codec {
 					Math.radToDeg(rotation_euler.z),
 				];
 				if (args.attachment && !parent_node && parent_group instanceof Group) {
-					let reference_node = parent_group.children.find(c => c instanceof Cube) ?? parent_group;
+					let reference_node = getMainShape(parent_group) ?? parent_group;
 					origin = reference_node.origin.slice() as ArrayVector3;
 					rotation = reference_node.rotation.slice() as ArrayVector3;
 
 				} else if (parent_group instanceof Group) {
-					let parent_geo_origin = parent_group.children.find(cube => cube instanceof Cube)?.origin ?? parent_group.origin;
+					let parent_geo_origin = getMainShape(parent_group)?.origin ?? parent_group.origin;
 					if (parent_geo_origin) {
 						origin.V3_add(parent_geo_origin);
 						if (parent_offset) origin.V3_add(parent_offset);
@@ -552,6 +549,8 @@ export function setupBlockymodelCodec(): Codec {
 						// @ts-ignore
 						is_piece: node.shape?.settings?.isPiece ?? false,
 					});
+				} else {
+					name = name.replace(/--C\d+$/, '');
 				}
 
 

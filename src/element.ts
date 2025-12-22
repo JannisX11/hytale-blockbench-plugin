@@ -2,7 +2,70 @@ import { track } from "./cleanup";
 import { Config } from "./config";
 import { FORMAT_IDS } from "./formats";
 
+// TODO(Blockbench): Resizing a stretched cube causes it to drift. The gizmo's move_value
+// is in rendered space (stretch applied) but resize() applies it directly to from/to.
+// Fix: divide val by stretch, then shift from/to to restore the fixed edge position.
+function setupStretchedCubeResizeFix() {
+	const originalResize = Cube.prototype.resize;
+
+	Cube.prototype.resize = function(
+		val: number | ((n: number) => number),
+		axis: number,
+		negative?: boolean,
+		allow_negative?: boolean,
+		bidirectional?: boolean
+	) {
+		if (!FORMAT_IDS.includes(Format?.id) || !this.isStretched() || this.stretch[axis] === 1) {
+			return originalResize.call(this, val, axis, negative, allow_negative, bidirectional);
+		}
+
+		const stretch = this.stretch[axis];
+
+		// Save fixed edge position: center (+-) halfSize * stretch
+		// (see adjustFromAndToForInflateAndStretch in cube.js)
+		let fixedEdgePos: number | null = null;
+		if (!bidirectional) {
+			const center = (this.from[axis] + this.to[axis]) / 2;
+			const halfSize = Math.abs(this.to[axis] - this.from[axis]) / 2;
+			fixedEdgePos = negative
+				? center + halfSize * stretch
+				: center - halfSize * stretch;
+		}
+
+		// Convert gizmo's rendered distance to from/to distance
+		const adjustedVal = (typeof val === 'function')
+			? (n: number) => (val as (n: number) => number)(n * stretch) / stretch
+			: val / stretch;
+
+		originalResize.call(this, adjustedVal, axis, negative, allow_negative, bidirectional);
+
+		// Counter resize() moving center
+		if (fixedEdgePos !== null) {
+			const newCenter = (this.from[axis] + this.to[axis]) / 2;
+			const newHalfSize = Math.abs(this.to[axis] - this.from[axis]) / 2;
+			const currentEdgePos = negative
+				? newCenter + newHalfSize * stretch
+				: newCenter - newHalfSize * stretch;
+
+			const drift = fixedEdgePos - currentEdgePos;
+			this.from[axis] += drift;
+			this.to[axis] += drift;
+
+			this.preview_controller.updateGeometry(this);
+		}
+
+		return this;
+	};
+
+	track({
+		delete() {
+			Cube.prototype.resize = originalResize;
+		}
+	});
+}
+
 export function setupElements() {
+	// setupStretchedCubeResizeFix();
 	let property_shading_mode = new Property(Cube, 'enum', 'shading_mode', {
 		default: 'flat',
 		values: ['flat', 'standard', 'fullbright', 'reflective'],

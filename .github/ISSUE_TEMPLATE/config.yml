@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Blockbench Feedback
+    url: https://github.com/jannisx11/blockbench
+    about: If you have an issue or a suggestion for Blockbench itself that is not related to Hytale, you can post it in `jannisx11/blockbench`
+  - name: Modeling Help / Support
+    url: https://discord.gg/blockbench
+    about: If you need help with modeling or implementing models into hytale, please ask on the Discord server instead of opening an issue.

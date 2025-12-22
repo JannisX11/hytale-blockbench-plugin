@@ -1,3 +1,4 @@
+import { copyAnimationToGroupsWithSameName } from "./name_overlap";
 import { track } from "./cleanup";
 import { Config } from "./config";
 import { FORMAT_IDS } from "./formats";
@@ -87,6 +88,9 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 				});
 			}
 		}
+
+		// Copy to others with same name
+		if (group) copyAnimationToGroupsWithSameName(animation, group);
 	}
 	animation.add(false);
 
@@ -229,7 +233,7 @@ export function setupAnimationCodec() {
 	let original_save = Animation.prototype.save;
 	Animation.prototype.save = function(...args) {
 		if (!FORMAT_IDS.includes(Format.id)) {
-			return original_save(...args);
+			return original_save.call(this, ...args);
 		}
 
 		let animation: _Animation;

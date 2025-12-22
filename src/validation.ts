@@ -1,5 +1,6 @@
 import { track } from "./cleanup";
 import { FORMAT_IDS } from "./formats";
+import { getMainShape } from "./util";
 
 const MAX_NODE_COUNT = 255;
 function getNodeCount() {
@@ -8,11 +9,11 @@ function getNodeCount() {
         if (group.export == false) return;
         if (Collection.all.find(c => c.contains(group))) continue;
         node_count++;
-        let cube_count = 0;
+        let main_shape = getMainShape(group);
         for (let cube of group.children) {
             if (cube instanceof Cube == false || cube.export == false) continue;
-            cube_count++;
-            if (cube_count > 1) node_count++;
+            if (cube == main_shape) continue;
+            node_count++;
         }
     }
     return node_count;

@@ -1,5 +1,6 @@
 import { track } from "./cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
+import { getMainShape } from "./util";
 
 
 export function setupAnimation() {
@@ -83,7 +84,7 @@ export function setupAnimation() {
 		if (!array) return this;
 
         if (isHytaleFormat()) {
-            let target_shape: Cube = this.group.children.find((c: OutlinerNode) => c instanceof Cube);
+            let target_shape: Cube = getMainShape(this.group);
             if (target_shape) {
                 let initial_stretch = target_shape.stretch.slice() as ArrayVector3;
                 target_shape.stretch.V3_set([

@@ -26,7 +26,6 @@
 			{
 				"title": "Features",
 				"list": [
-					"Initial public release",
 					"Blockymodel file format support (.blockymodel)",
 					"Animation import and export with 60 FPS support (.blockyanim)",
 					"Auto import textures and animations when opening models",
@@ -61,7 +60,7 @@
 			{
 				"title": "Features",
 				"list": [
-					"Added multiple model formats (Hytale Model, Hytale Piece)",
+					"Added multiple model formats (Hytale Character, Hytale Prop)",
 					"Added visibility keyframe support for animating element visibility",
 					"Added node count validation with 255 node limit warning",
 					"Added custom always-visible pivot marker",

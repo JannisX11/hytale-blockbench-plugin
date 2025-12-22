@@ -1,13 +1,15 @@
 {
     "compilerOptions": {
-        "target": "es2023",
-        "module": "es2022",
-        "moduleResolution": "node",
-        "allowUmdGlobalAccess": true,
-        "lib": ["ES2023", "DOM", "DOM.Iterable"],
-        "types": ["blockbench-types"],
-        "rootDir": "src",
-        "strictNullChecks": false
+      "target": "es2023",
+      "module": "es2022",
+      "moduleResolution": "node",
+      "allowUmdGlobalAccess": true,
+      "lib": ["ES2023", "DOM", "DOM.Iterable"],
+      "types": ["blockbench-types"],
+      "rootDir": "src",
+      "strictNullChecks": false,
+      "resolveJsonModule": true,
+     // "esModuleInterop": true
     },
     "exclude": [
         "node_modules"

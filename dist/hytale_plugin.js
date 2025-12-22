@@ -734,268 +734,6 @@
     return codec;
   }
 
-  // src/texture.ts
-  function updateUVSize(texture) {
-    let size = [texture.width, texture.display_height];
-    let frames = texture.frameCount;
-    if (settings.detect_flipbook_textures.value == false || frames <= 2 || frames % 1) {
-      size[1] = texture.height;
-    }
-    texture.uv_width = size[0];
-    texture.uv_height = size[1];
-  }
-  function setupTextureHandling() {
-    let setting = new Setting("preview_selected_texture", {
-      name: "Preview Selected Texture",
-      description: "When selecting a texture in a Hytale format, preview the texture on the model instantly",
-      category: "preview",
-      type: "toggle",
-      value: true
-    });
-    track(setting);
-    let handler = Blockbench.on("select_texture", (arg) => {
-      if (!isHytaleFormat()) return;
-      if (setting.value == false) return;
-      let texture = arg.texture;
-      let texture_group = texture.getGroup();
-      if (texture_group) {
-        let collection = Collection.all.find((c) => c.name == texture_group.name);
-        if (collection) {
-          collection.texture = texture.uuid;
-          Canvas.updateAllFaces(texture);
-        }
-      } else {
-        texture.setAsDefaultTexture();
-      }
-    });
-    track(handler);
-  }
-
-  // src/attachment_texture.ts
-  function getCollection(cube) {
-    return Collection.all.find((c) => c.contains(cube));
-  }
-  function processAttachmentTextures(attachmentName, newTextures) {
-    let textureGroup = new TextureGroup({ name: attachmentName });
-    textureGroup.folded = true;
-    textureGroup.add();
-    if (newTextures.length === 0) return "";
-    for (let tex of newTextures) {
-      tex.group = textureGroup.uuid;
-      updateUVSize(tex);
-    }
-    let texture = newTextures.find((t) => t.name.startsWith(attachmentName)) ?? newTextures[0];
-    return texture.uuid;
-  }
-  function setupAttachmentTextures() {
-    let textureProperty = new Property(Collection, "string", "texture", {
-      condition: { formats: FORMAT_IDS }
-    });
-    track(textureProperty);
-    let originalGetTexture = CubeFace.prototype.getTexture;
-    CubeFace.prototype.getTexture = function(...args) {
-      if (isHytaleFormat()) {
-        if (this.texture == null) return null;
-        let collection = getCollection(this.cube);
-        if (collection && "texture" in collection) {
-          if (collection.texture) {
-            let texture = Texture.all.find((t) => t.uuid == collection.texture);
-            if (texture) return texture;
-          }
-          return null;
-        }
-      }
-      return originalGetTexture.call(this, ...args);
-    };
-    track({
-      delete() {
-        CubeFace.prototype.getTexture = originalGetTexture;
-      }
-    });
-    let assignTexture = {
-      id: "set_texture",
-      name: "menu.cube.texture",
-      icon: "collections",
-      condition: { formats: FORMAT_IDS },
-      children(context) {
-        function applyTexture(textureValue, undoMessage) {
-          Undo.initEdit({ collections: Collection.selected });
-          for (let collection of Collection.selected) {
-            collection.texture = textureValue;
-          }
-          Undo.finishEdit(undoMessage);
-          Canvas.updateAllFaces();
-        }
-        let arr = [
-          {
-            icon: "crop_square",
-            name: Format.single_texture_default ? "menu.cube.texture.default" : "menu.cube.texture.blank",
-            click() {
-              applyTexture("", "Unassign texture from collection");
-            }
-          }
-        ];
-        Texture.all.forEach((t) => {
-          arr.push({
-            name: t.name,
-            // @ts-expect-error
-            icon: t.img,
-            marked: t.uuid == context.texture,
-            click() {
-              applyTexture(t.uuid, "Apply texture to collection");
-            }
-          });
-        });
-        return arr;
-      }
-    };
-    Collection.menu.addAction(assignTexture);
-    track({
-      delete() {
-        Collection.menu.removeAction("set_texture");
-      }
-    });
-  }
-
-  // src/attachments.ts
-  var reload_all_attachments;
-  function setupAttachments() {
-    setupAttachmentTextures();
-    let shared_delete = SharedActions.add("delete", {
-      subject: "collection",
-      priority: 1,
-      condition: () => Prop.active_panel == "collections" && isHytaleFormat() && Collection.selected.find((c) => c.export_codec === "blockymodel"),
-      run() {
-        let collections = Collection.selected.slice();
-        let remove_elements = [];
-        let remove_groups = [];
-        let textures = [];
-        let texture_groups = [];
-        for (let collection of collections) {
-          if (collection.export_codec === "blockymodel") {
-            for (let child of collection.getAllChildren()) {
-              child = child;
-              (child instanceof Group ? remove_groups : remove_elements).safePush(child);
-            }
-            let texture_group = TextureGroup.all.find((tg) => tg.name === collection.name);
-            if (texture_group) {
-              let textures2 = Texture.all.filter((t) => t.group === texture_group.uuid);
-              textures.safePush(...textures2);
-              texture_groups.push(texture_group);
-            }
-          }
-        }
-        Undo.initEdit({
-          collections,
-          groups: remove_groups,
-          elements: remove_elements,
-          outliner: true,
-          // @ts-expect-error
-          texture_groups,
-          textures
-        });
-        collections.forEach((c) => Collection.all.remove(c));
-        collections.empty();
-        textures.forEach((t) => t.remove(true));
-        textures.empty();
-        texture_groups.forEach((t) => t.remove());
-        texture_groups.empty();
-        remove_groups.forEach((group) => group.remove());
-        remove_groups.empty();
-        remove_elements.forEach((element) => element.remove());
-        remove_elements.empty();
-        updateSelection();
-        Undo.finishEdit("Remove attachment");
-      }
-    });
-    track(shared_delete);
-    let import_as_attachment = new Action("import_as_hytale_attachment", {
-      name: "Import Attachment",
-      icon: "fa-hat-cowboy",
-      condition: { formats: FORMAT_IDS },
-      click() {
-        Filesystem.importFile({
-          extensions: ["blockymodel"],
-          type: "Blockymodel",
-          multiple: true,
-          startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, "") + osfs + "Attachments"
-        }, (files) => {
-          for (let file of files) {
-            let json = autoParseJSON(file.content);
-            let attachment_name = file.name.replace(/\.\w+$/, "");
-            let content = Codecs.blockymodel.parse(json, file.path, { attachment: attachment_name });
-            let name = file.name.split(".")[0];
-            let new_groups = content.new_groups;
-            let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
-            let collection = new Collection({
-              name,
-              children: root_groups.map((g) => g.uuid),
-              export_codec: "blockymodel",
-              visibility: true
-            }).add();
-            collection.export_path = file.path;
-            let texturesToProcess = content.new_textures;
-            if (texturesToProcess.length === 0) {
-              let dirname = PathModule.dirname(file.path);
-              let texturePaths = discoverTexturePaths(dirname, attachment_name);
-              for (let texPath of texturePaths) {
-                let tex = new Texture().fromPath(texPath).add(false);
-                texturesToProcess.push(tex);
-              }
-            }
-            let textureUuid = processAttachmentTextures(attachment_name, texturesToProcess);
-            if (textureUuid) {
-              collection.texture = textureUuid;
-            }
-            Canvas.updateAllFaces();
-          }
-        });
-      }
-    });
-    track(import_as_attachment);
-    let toolbar = Panels.collections.toolbars[0];
-    toolbar.add(import_as_attachment);
-    function reloadAttachment(collection) {
-      for (let child of collection.getChildren()) {
-        child.remove();
-      }
-      Filesystem.readFile([collection.export_path], {}, ([file]) => {
-        let json = autoParseJSON(file.content);
-        let content = Codecs.blockymodel.parse(json, file.path, { attachment: collection.name });
-        let new_groups = content.new_groups;
-        let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
-        collection.extend({
-          children: root_groups.map((g) => g.uuid)
-        }).add();
-        Canvas.updateAllFaces();
-      });
-    }
-    let reload_attachment_action = new Action("reload_hytale_attachment", {
-      name: "Reload Attachment",
-      icon: "refresh",
-      condition: () => Collection.selected.length && Modes.edit,
-      click() {
-        for (let collection of Collection.selected) {
-          reloadAttachment(collection);
-        }
-      }
-    });
-    Collection.menu.addAction(reload_attachment_action, 10);
-    track(reload_attachment_action);
-    reload_all_attachments = new Action("reload_all_hytale_attachments", {
-      name: "Reload All Attachments",
-      icon: "sync",
-      condition: { formats: FORMAT_IDS },
-      click() {
-        for (let collection of Collection.all.filter((c) => c.export_path)) {
-          reloadAttachment(collection);
-        }
-      }
-    });
-    track(reload_all_attachments);
-    toolbar.add(reload_all_attachments);
-  }
-
   // src/formats.ts
   var FORMAT_IDS = [
     "hytale_character",
@@ -1052,11 +790,14 @@
       icon: "icon-format_hytale",
       format_page,
       block_size: 64,
-      ...common,
+      ...common
+      // TODO: Auto-reload attachments on tab switch. Needs dirty tracking and setting toggle to avoid losing unsaved changes
+      /*
       onActivation() {
-        common.onActivation?.();
-        setTimeout(() => reload_all_attachments?.click(), 0);
+          common.onActivation?.();
+          setTimeout(() => reload_all_attachments?.click(), 0);
       }
+      */
     });
     let format_prop = new ModelFormat("hytale_prop", {
       name: "Hytale Prop",
@@ -1401,6 +1142,268 @@
         BarItems.export_animation_file.condition = original_condition;
       }
     });
+  }
+
+  // src/texture.ts
+  function updateUVSize(texture) {
+    let size = [texture.width, texture.display_height];
+    let frames = texture.frameCount;
+    if (settings.detect_flipbook_textures.value == false || frames <= 2 || frames % 1) {
+      size[1] = texture.height;
+    }
+    texture.uv_width = size[0];
+    texture.uv_height = size[1];
+  }
+  function setupTextureHandling() {
+    let setting = new Setting("preview_selected_texture", {
+      name: "Preview Selected Texture",
+      description: "When selecting a texture in a Hytale format, preview the texture on the model instantly",
+      category: "preview",
+      type: "toggle",
+      value: true
+    });
+    track(setting);
+    let handler = Blockbench.on("select_texture", (arg) => {
+      if (!isHytaleFormat()) return;
+      if (setting.value == false) return;
+      let texture = arg.texture;
+      let texture_group = texture.getGroup();
+      if (texture_group) {
+        let collection = Collection.all.find((c) => c.name == texture_group.name);
+        if (collection) {
+          collection.texture = texture.uuid;
+          Canvas.updateAllFaces(texture);
+        }
+      } else {
+        texture.setAsDefaultTexture();
+      }
+    });
+    track(handler);
+  }
+
+  // src/attachment_texture.ts
+  function getCollection(cube) {
+    return Collection.all.find((c) => c.contains(cube));
+  }
+  function processAttachmentTextures(attachmentName, newTextures) {
+    let textureGroup = new TextureGroup({ name: attachmentName });
+    textureGroup.folded = true;
+    textureGroup.add();
+    if (newTextures.length === 0) return "";
+    for (let tex of newTextures) {
+      tex.group = textureGroup.uuid;
+      updateUVSize(tex);
+    }
+    let texture = newTextures.find((t) => t.name.startsWith(attachmentName)) ?? newTextures[0];
+    return texture.uuid;
+  }
+  function setupAttachmentTextures() {
+    let textureProperty = new Property(Collection, "string", "texture", {
+      condition: { formats: FORMAT_IDS }
+    });
+    track(textureProperty);
+    let originalGetTexture = CubeFace.prototype.getTexture;
+    CubeFace.prototype.getTexture = function(...args) {
+      if (isHytaleFormat()) {
+        if (this.texture == null) return null;
+        let collection = getCollection(this.cube);
+        if (collection && "texture" in collection) {
+          if (collection.texture) {
+            let texture = Texture.all.find((t) => t.uuid == collection.texture);
+            if (texture) return texture;
+          }
+          return null;
+        }
+      }
+      return originalGetTexture.call(this, ...args);
+    };
+    track({
+      delete() {
+        CubeFace.prototype.getTexture = originalGetTexture;
+      }
+    });
+    let assignTexture = {
+      id: "set_texture",
+      name: "menu.cube.texture",
+      icon: "collections",
+      condition: { formats: FORMAT_IDS },
+      children(context) {
+        function applyTexture(textureValue, undoMessage) {
+          Undo.initEdit({ collections: Collection.selected });
+          for (let collection of Collection.selected) {
+            collection.texture = textureValue;
+          }
+          Undo.finishEdit(undoMessage);
+          Canvas.updateAllFaces();
+        }
+        let arr = [
+          {
+            icon: "crop_square",
+            name: Format.single_texture_default ? "menu.cube.texture.default" : "menu.cube.texture.blank",
+            click() {
+              applyTexture("", "Unassign texture from collection");
+            }
+          }
+        ];
+        Texture.all.forEach((t) => {
+          arr.push({
+            name: t.name,
+            // @ts-expect-error
+            icon: t.img,
+            marked: t.uuid == context.texture,
+            click() {
+              applyTexture(t.uuid, "Apply texture to collection");
+            }
+          });
+        });
+        return arr;
+      }
+    };
+    Collection.menu.addAction(assignTexture);
+    track({
+      delete() {
+        Collection.menu.removeAction("set_texture");
+      }
+    });
+  }
+
+  // src/attachments.ts
+  var reload_all_attachments;
+  function setupAttachments() {
+    setupAttachmentTextures();
+    let shared_delete = SharedActions.add("delete", {
+      subject: "collection",
+      priority: 1,
+      condition: () => Prop.active_panel == "collections" && isHytaleFormat() && Collection.selected.find((c) => c.export_codec === "blockymodel"),
+      run() {
+        let collections = Collection.selected.slice();
+        let remove_elements = [];
+        let remove_groups = [];
+        let textures = [];
+        let texture_groups = [];
+        for (let collection of collections) {
+          if (collection.export_codec === "blockymodel") {
+            for (let child of collection.getAllChildren()) {
+              child = child;
+              (child instanceof Group ? remove_groups : remove_elements).safePush(child);
+            }
+            let texture_group = TextureGroup.all.find((tg) => tg.name === collection.name);
+            if (texture_group) {
+              let textures2 = Texture.all.filter((t) => t.group === texture_group.uuid);
+              textures.safePush(...textures2);
+              texture_groups.push(texture_group);
+            }
+          }
+        }
+        Undo.initEdit({
+          collections,
+          groups: remove_groups,
+          elements: remove_elements,
+          outliner: true,
+          // @ts-expect-error
+          texture_groups,
+          textures
+        });
+        collections.forEach((c) => Collection.all.remove(c));
+        collections.empty();
+        textures.forEach((t) => t.remove(true));
+        textures.empty();
+        texture_groups.forEach((t) => t.remove());
+        texture_groups.empty();
+        remove_groups.forEach((group) => group.remove());
+        remove_groups.empty();
+        remove_elements.forEach((element) => element.remove());
+        remove_elements.empty();
+        updateSelection();
+        Undo.finishEdit("Remove attachment");
+      }
+    });
+    track(shared_delete);
+    let import_as_attachment = new Action("import_as_hytale_attachment", {
+      name: "Import Attachment",
+      icon: "fa-hat-cowboy",
+      condition: { formats: FORMAT_IDS },
+      click() {
+        Filesystem.importFile({
+          extensions: ["blockymodel"],
+          type: "Blockymodel",
+          multiple: true,
+          startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, "") + osfs + "Attachments"
+        }, (files) => {
+          for (let file of files) {
+            let json = autoParseJSON(file.content);
+            let attachment_name = file.name.replace(/\.\w+$/, "");
+            let content = Codecs.blockymodel.parse(json, file.path, { attachment: attachment_name });
+            let name = file.name.split(".")[0];
+            let new_groups = content.new_groups;
+            let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
+            let collection = new Collection({
+              name,
+              children: root_groups.map((g) => g.uuid),
+              export_codec: "blockymodel",
+              visibility: true
+            }).add();
+            collection.export_path = file.path;
+            let texturesToProcess = content.new_textures;
+            if (texturesToProcess.length === 0) {
+              let dirname = PathModule.dirname(file.path);
+              let texturePaths = discoverTexturePaths(dirname, attachment_name);
+              for (let texPath of texturePaths) {
+                let tex = new Texture().fromPath(texPath).add(false);
+                texturesToProcess.push(tex);
+              }
+            }
+            let textureUuid = processAttachmentTextures(attachment_name, texturesToProcess);
+            if (textureUuid) {
+              collection.texture = textureUuid;
+            }
+            Canvas.updateAllFaces();
+          }
+        });
+      }
+    });
+    track(import_as_attachment);
+    let toolbar = Panels.collections.toolbars[0];
+    toolbar.add(import_as_attachment);
+    function reloadAttachment(collection) {
+      for (let child of collection.getChildren()) {
+        child.remove();
+      }
+      Filesystem.readFile([collection.export_path], {}, ([file]) => {
+        let json = autoParseJSON(file.content);
+        let content = Codecs.blockymodel.parse(json, file.path, { attachment: collection.name });
+        let new_groups = content.new_groups;
+        let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
+        collection.extend({
+          children: root_groups.map((g) => g.uuid)
+        }).add();
+        Canvas.updateAllFaces();
+      });
+    }
+    let reload_attachment_action = new Action("reload_hytale_attachment", {
+      name: "Reload Attachment",
+      icon: "refresh",
+      condition: () => Collection.selected.length && Modes.edit,
+      click() {
+        for (let collection of Collection.selected) {
+          reloadAttachment(collection);
+        }
+      }
+    });
+    Collection.menu.addAction(reload_attachment_action, 10);
+    track(reload_attachment_action);
+    reload_all_attachments = new Action("reload_all_hytale_attachments", {
+      name: "Reload All Attachments",
+      icon: "sync",
+      condition: { formats: FORMAT_IDS },
+      click() {
+        for (let collection of Collection.all.filter((c) => c.export_path)) {
+          reloadAttachment(collection);
+        }
+      }
+    });
+    track(reload_all_attachments);
+    toolbar.add(reload_all_attachments);
   }
 
   // src/animations.ts

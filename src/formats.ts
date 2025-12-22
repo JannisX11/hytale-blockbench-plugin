@@ -1,4 +1,3 @@
-import { reload_all_attachments } from "./attachments";
 import { setupBlockymodelCodec } from "./blockymodel";
 import { track } from "./cleanup";
 
@@ -57,11 +56,14 @@ export function setupFormats() {
         icon: 'icon-format_hytale',
         format_page,
         block_size: 64,
-        ...common,
+        ...common
+        // TODO: Auto-reload attachments on tab switch. Needs dirty tracking and setting toggle to avoid losing unsaved changes
+        /*
         onActivation() {
             common.onActivation?.();
             setTimeout(() => reload_all_attachments?.click(), 0);
         }
+        */
     });
     let format_prop = new ModelFormat('hytale_prop', {
         name: 'Hytale Prop',

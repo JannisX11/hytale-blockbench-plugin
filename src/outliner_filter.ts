@@ -123,6 +123,27 @@ export function setupOutlinerFilter() {
 		.outliner_node.${HIDDEN_CLASS} {
 			display: none !important;
 		}
+		/* Lock overlay on attachment toggle when active */
+		.tool[toolbar_item="toggle_attachment_editing"].enabled .fa-paperclip::after {
+			content: "lock";
+			font-family: "Material Icons";
+			font-size: 14px;
+			position: absolute;
+			bottom: -1px;
+			right: -3px;
+			text-shadow:
+				-1.5px -1.5px 0 var(--color-accent),
+				1.5px -1.5px 0 var(--color-accent),
+				-1.5px 1.5px 0 var(--color-accent),
+				1.5px 1.5px 0 var(--color-accent),
+				0px -1.5px 0 var(--color-accent),
+				0px 1.5px 0 var(--color-accent),
+				-1.5px 0px 0 var(--color-accent),
+				1.5px 0px 0 var(--color-accent);
+		}
+		.tool[toolbar_item="toggle_attachment_editing"] .fa-paperclip {
+			position: relative;
+		}
 	`);
 
 	// Initialize state from StateMemory
@@ -130,9 +151,9 @@ export function setupOutlinerFilter() {
 	attachmentsHidden = StateMemory.get('hytale_attachments_hidden') ?? false;
 
 	// Create toggle for outliner toolbar
-	let toggle = new Toggle('toggle_attachments_in_outliner', {
-		name: 'Toggle Attachments',
-		description: 'Show or hide attachments in the outliner',
+	let toggle = new Toggle('toggle_attachment_editing', {
+		name: 'Toggle Attachment Editing',
+		description: 'Lock or unlock attachment elements for editing',
 		icon: 'fa-paperclip',
 		category: 'view',
 		condition: {formats: FORMAT_IDS},

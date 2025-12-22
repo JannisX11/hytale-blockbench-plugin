@@ -22,6 +22,8 @@ Select a Hytale format from the start screen and click Create New Model to get s
 * UV Cycling: Click in the UV editor multiple times to cycle between overlapping faces at that spot
 * Clear, outline-only UV editor mode to make it easier to work with overlapping UVs. Enable UV Outline Only in the settings
 * Copy-Paste with Magenta Alpha setting, to improve copy-pasting from and to Photoshop (which doesn't support copy pasting with transparency)
+* Toggle to lock attachments from editing, hiding them from the outliner and viewport selection
+* Reload all attachments action to quickly refresh attachment geometry from disk
 
 ## Usage tips
 

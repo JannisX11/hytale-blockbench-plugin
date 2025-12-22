@@ -143,5 +143,43 @@
 				]
 			}
 		]
+	},
+	"0.4.0": {
+		"title": "0.4.0 - Early Access",
+		"date": "2025-12-22",
+		"author": "JannisX11 & Kanno",
+		"categories": [
+			{
+				"title": "This plugin is now Open Source and in Early Access 🎉",
+				"list": [
+					"Licensed under the GNU General Public License",
+					"Copyright © 2025 Hypixel Studios Canada inc."
+				]
+			},
+			{
+				"title": "Features",
+				"list": [
+					"Toggle to lock attachments from editing",
+					"Reload all attachments action",
+					"Deleting a collection now removes its attachment"
+				]
+			},
+			{
+				"title": "Improvements",
+				"list": [
+					"Hide pivot marker in paint mode",
+					"UV outline only now defaults to off",
+					"Static box naming to avoid duplicate animations"
+				]
+			},
+			{
+				"title": "Fixes",
+				"list": [
+					"Fixed UV export rounding issue",
+					"Fixed Auto UV boundary clamping",
+					"Fixed unique name handling when grouping"
+				]
+			}
+		]
 	}
 }

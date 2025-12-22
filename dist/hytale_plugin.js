@@ -1811,7 +1811,7 @@
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.3.2",
+    version: "0.4.0",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",

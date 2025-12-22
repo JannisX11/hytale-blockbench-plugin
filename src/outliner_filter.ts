@@ -1,3 +1,6 @@
+//! Copyright (C) 2025 Hypixel Studios Canada inc.
+//! Licensed under the GNU General Public License, see LICENSE.MD
+
 import { track } from "./cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
 

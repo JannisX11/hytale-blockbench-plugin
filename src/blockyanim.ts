@@ -1,3 +1,6 @@
+//! Copyright (C) 2025 Hypixel Studios Canada inc.
+//! Licensed under the GNU General Public License, see LICENSE.MD
+
 import { copyAnimationToGroupsWithSameName } from "./name_overlap";
 import { track } from "./cleanup";
 import { Config } from "./config";

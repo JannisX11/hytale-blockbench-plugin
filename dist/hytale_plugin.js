@@ -2622,3 +2622,5 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     }
   });
 })();
+//! Copyright (C) 2025 Hypixel Studios Canada inc.
+//! Licensed under the GNU General Public License, see LICENSE.MD

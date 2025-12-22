@@ -76,55 +76,69 @@ export function setupAttachments() {
 	});
 	track(shared_delete);
 
-	let import_as_attachment = new Action('import_as_hytale_attachment', {
-		name: 'Import Attachment',
-		icon: 'fa-hat-cowboy',
-		condition: {formats: FORMAT_IDS},
-		click() {
-			Filesystem.importFile({
-				extensions: ['blockymodel'],
-				type: 'Blockymodel',
-				multiple: true,
-				startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, '') + osfs + 'Attachments'
-			}, (files) => {
-				for (let file of files) {
-					let json = autoParseJSON(file.content as string);
-					let attachment_name = file.name.replace(/\.\w+$/, '');
-					let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: attachment_name});
-					let name = file.name.split('.')[0]
+	let import_as_attachment = new Action("import_as_hytale_attachment", {
+    name: t("menu.import_attachment"),
+    icon: "fa-hat-cowboy",
+    condition: { formats: FORMAT_IDS },
+    click() {
+      Filesystem.importFile(
+        {
+          extensions: ["blockymodel"],
+          type: "Blockymodel",
+          multiple: true,
+          startpath:
+            Project.export_path.replace(/[\\\/]\w+.\w+$/, "") +
+            osfs +
+            "Attachments",
+        },
+        (files) => {
+          for (let file of files) {
+            let json = autoParseJSON(file.content as string);
+            let attachment_name = file.name.replace(/\.\w+$/, "");
+            let content: any = Codecs.blockymodel.parse(json, file.path, {
+              attachment: attachment_name,
+            });
+            let name = file.name.split(".")[0];
 
-					let new_groups = content.new_groups as Group[];
-					let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));
+            let new_groups = content.new_groups as Group[];
+            let root_groups = new_groups.filter(
+              (group) => !new_groups.includes(group.parent as Group)
+            );
 
-					let collection = new Collection({
-						name,
-						children: root_groups.map(g => g.uuid),
-						export_codec: 'blockymodel',
-						visibility: true,
-					}).add() as AttachmentCollection;
-					collection.export_path = file.path;
+            let collection = new Collection({
+              name,
+              children: root_groups.map((g) => g.uuid),
+              export_codec: "blockymodel",
+              visibility: true,
+            }).add() as AttachmentCollection;
+            collection.export_path = file.path;
 
-					let texturesToProcess: Texture[] = content.new_textures as Texture[];
+            let texturesToProcess: Texture[] =
+              content.new_textures as Texture[];
 
-					if (texturesToProcess.length === 0) {
-						let dirname = PathModule.dirname(file.path);
-						let texturePaths = discoverTexturePaths(dirname, attachment_name);
-						for (let texPath of texturePaths) {
-							let tex = new Texture().fromPath(texPath).add(false);
-							texturesToProcess.push(tex);
-						}
-					}
+            if (texturesToProcess.length === 0) {
+              let dirname = PathModule.dirname(file.path);
+              let texturePaths = discoverTexturePaths(dirname, attachment_name);
+              for (let texPath of texturePaths) {
+                let tex = new Texture().fromPath(texPath).add(false);
+                texturesToProcess.push(tex);
+              }
+            }
 
-					let textureUuid = processAttachmentTextures(attachment_name, texturesToProcess);
-					if (textureUuid) {
-						collection.texture = textureUuid;
-					}
+            let textureUuid = processAttachmentTextures(
+              attachment_name,
+              texturesToProcess
+            );
+            if (textureUuid) {
+              collection.texture = textureUuid;
+            }
 
-					Canvas.updateAllFaces();
-				}
-			})
-		}
-	});
+            Canvas.updateAllFaces();
+          }
+        }
+      );
+    },
+  });
 	track(import_as_attachment);
 	let toolbar = Panels.collections.toolbars[0];
 	toolbar.add(import_as_attachment);

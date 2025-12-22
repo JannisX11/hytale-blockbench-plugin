@@ -128,6 +128,10 @@ export class GroupPivotIndicator {
 			this.dot.visible = false;
 			return;
 		}
+		if (Modes.paint) {
+			this.dot.visible = false;
+			return;
+		}
 
 		let group = this.getRelevantGroup();
 		if (!group) {

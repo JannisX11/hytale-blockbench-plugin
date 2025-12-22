@@ -1898,6 +1898,7 @@
     }
   }
   function applyOutlinerVisibility() {
+    if (!isHytaleFormat()) return;
     const outlinerNode = Panels.outliner?.node;
     if (!outlinerNode) return;
     if (!attachmentsHidden) {

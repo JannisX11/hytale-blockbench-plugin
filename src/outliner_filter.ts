@@ -1,5 +1,5 @@
 import { track } from "./cleanup";
-import { FORMAT_IDS } from "./formats";
+import { FORMAT_IDS, isHytaleFormat } from "./formats";
 
 /**
  * Outliner filtering system for hiding attachment elements from the outliner panel
@@ -45,6 +45,8 @@ function collectChildUUIDs(parent: Group, uuids: string[]) {
  * and lock/unlock them for viewport selection
  */
 function applyOutlinerVisibility() {
+	if (!isHytaleFormat()) return;
+
 	const outlinerNode = Panels.outliner?.node;
 	if (!outlinerNode) return;
 

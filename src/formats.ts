@@ -17,7 +17,6 @@ export function setupFormats() {
         category: 'hytale',
         target: 'Hytale',
         codec,
-
         forward_direction: '+z',
         single_texture_default: true,
         animation_files: true,
@@ -42,7 +41,6 @@ export function setupFormats() {
     }
     let format_page: FormatPage = {
       content: [
-        // Substituído tl() e strings hardcoded por t()
         { type: "h3", text: t("formats.page.informations") },
         { text: t("formats.page.info_list") },
         { type: "h3", text: t("formats.page.resources") },
@@ -50,15 +48,15 @@ export function setupFormats() {
       ],
     };
 
-    let format_character = new ModelFormat('hytale_character', {
-        name: 'Hytale Character',
-        description: 'Create character and attachment models using Hytale\'s blockymodel format',
-        icon: 'icon-format_hytale',
-        format_page,
-        block_size: 64,
-        ...common
-        // TODO: Auto-reload attachments on tab switch. Needs dirty tracking and setting toggle to avoid losing unsaved changes
-        /*
+    let format_character = new ModelFormat("hytale_character", {
+      name: t("formats.prop.name"),
+      description: t("formats.prop.description"),
+      icon: "icon-format_hytale",
+      format_page,
+      block_size: 64,
+      ...common,
+      // TODO: Auto-reload attachments on tab switch. Needs dirty tracking and setting toggle to avoid losing unsaved changes
+      /*
         onActivation() {
             common.onActivation?.();
             setTimeout(() => reload_all_attachments?.click(), 0);

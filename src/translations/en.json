@@ -65,5 +65,8 @@
       "name": "Preview Selected Texture",
       "description": "When selecting a texture in a Hytale format, preview the texture on the model instantly"
     }
+  },
+  "toggle": {
+    "toggle_attachment_editing": "Toggle Attachment Editing"
   }
 }

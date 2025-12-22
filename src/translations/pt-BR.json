@@ -6,7 +6,6 @@
   "menu": {
     "import_attachment": "Importar Anexo",
     "reload_all": "Recarregar Todos os Anexos"
-
   },
   "error": {
     "no_textures": "Nenhuma textura encontrada para este modelo."
@@ -67,6 +66,8 @@
       "name": "Pré-visualizar Textura Selecionada",
       "description": "Ao selecionar uma textura em um formato Hytale, a textura é exibida instantaneamente no modelo"
     }
+  },
+  "toggle": {
+    "toggle_attachment_editing": "Alternar Edição de Anexos"
   }
- 
 }

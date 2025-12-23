@@ -49,8 +49,8 @@ export function setupFormats() {
     };
 
     let format_character = new ModelFormat("hytale_character", {
-      name: t("formats.prop.name"),
-      description: t("formats.prop.description"),
+      name: t("formats.character.name"),
+      description: t("formats.character.description"),
       icon: "icon-format_hytale",
       format_page,
       block_size: 64,
@@ -64,8 +64,8 @@ export function setupFormats() {
         */
     });
     let format_prop = new ModelFormat("hytale_prop", {
-      name: t("formats.character.name"), 
-      description: t("formats.character.description"), 
+      name: t("formats.prop.name"), 
+      description: t("formats.prop.description"), 
       icon: "icon-format_hytale",
       format_page,
       block_size: 64,

@@ -32,7 +32,6 @@ export function setupTextureHandling() {
         if (setting.value == false) return;
 
         let texture = arg.texture as Texture;
-        // @ts-expect-error - getGroup not in types
         let texture_group = texture.getGroup() as TextureGroup;
         if (texture_group) {
             let collection = Collection.all.find(c => c.name == texture_group.name) as AttachmentCollection;

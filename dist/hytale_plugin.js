@@ -2039,7 +2039,7 @@
       dev: "esbuild src/plugin.ts --bundle --outfile=dist/hytale_plugin.js --watch"
     },
     author: "JannisX11, Kanno",
-    license: "GNU GENERAL PUBLICGNU GENERAL PUBLIC LICENSE v3.0",
+    license: "GPL-3.0",
     dependencies: {
       "blockbench-types": "^5.0.5"
     },

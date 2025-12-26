@@ -4,6 +4,7 @@
 import { track } from "./cleanup";
 import { Config } from "./config";
 import { FORMAT_IDS } from "./formats";
+import { t } from "./i18n";
 
 // TODO(Blockbench): Resizing a stretched cube causes it to drift. The gizmo's move_value
 // is in rendered space (stretch applied) but resize() applies it directly to from/to.
@@ -115,7 +116,7 @@ export function setupElements() {
 	track(is_piece_property);
 
 	let add_quad_action = new Action('hytale_add_quad', {
-		name: 'Add Quad',
+		name: t('action.hytale_add_quad.name'),
 		icon: 'highlighter_size_5',
 		category: 'edit',
 		condition: {formats: FORMAT_IDS, modes: ['edit']},
@@ -175,7 +176,7 @@ export function setupElements() {
 
 				base_quad.select();
 				Canvas.updateView({elements: [base_quad], element_aspects: {transform: true, geometry: true, faces: true}})
-				Undo.finishEdit('Add quad', {outliner: true, elements: selected, selection: true});
+				Undo.finishEdit(t('action.hytale_add_quad.name'), {outliner: true, elements: selected, selection: true});
 
 				Vue.nextTick(function() {
 					if (settings.create_rename.value) {

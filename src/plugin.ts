@@ -18,13 +18,14 @@ import { setupTextureHandling } from "./texture";
 import { setupNameOverlap } from "./name_overlap";
 import { setupUVOutline } from "./uv_outline";
 import { setupTempFixes } from './temp_fixes'
+import { t } from "./i18n";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
     author: 'JannisX11, Kanno',
     icon: 'icon.png',
     version: Package.version,
-    description: 'Create models and animations for Hytale',
+    description: t('plugin.description'),
     tags: ['Hytale'],
     variant: 'both',
     min_version: '5.0.5',

@@ -4,6 +4,7 @@
 import { AttachmentCollection } from "./attachments";
 import { track } from "./cleanup";
 import { isHytaleFormat } from "./formats";
+import { t } from "./i18n";
 
 export function updateUVSize(texture: Texture) {
     let size = [texture.width, texture.display_height];
@@ -17,13 +18,13 @@ export function updateUVSize(texture: Texture) {
 
 export function setupTextureHandling() {
 
-    let setting = new Setting('preview_selected_texture', {
-        name: 'Preview Selected Texture',
-        description: 'When selecting a texture in a Hytale format, preview the texture on the model instantly',
-        category: 'preview',
-        type: 'toggle',
-        value: true
-    })
+    let setting = new Setting("preview_selected_texture", {
+      name: t("settings.preview_texture.name"), 
+      description: t("settings.preview_texture.description"), 
+      category: "preview",
+      type: "toggle",
+      value: true,
+    });
     track(setting);
 
     // Auto-set selected texture: for grouped textures update the collection, otherwise set as default

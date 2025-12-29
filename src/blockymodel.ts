@@ -829,11 +829,15 @@ export function setupBlockymodelCodec(): Codec {
 			}, path => this.afterDownload(path))
 		},
 		async exportCollection(collection: Collection) {
+			this.context = collection;
 			await this.export({attachment: collection});
+			this.context = null;
 		},
 		async writeCollection(collection: Collection) {
+			this.context = collection;
 			this.write(this.compile({attachment: collection}), collection.export_path);
-		}
+			this.context = null;
+		},
 	})
 	let export_action = new Action('export_blockymodel', {
 		name: 'Export Hytale Blockymodel',

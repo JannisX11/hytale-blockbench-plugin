@@ -704,10 +704,14 @@
         }, (path) => this.afterDownload(path));
       },
       async exportCollection(collection) {
+        this.context = collection;
         await this.export({ attachment: collection });
+        this.context = null;
       },
       async writeCollection(collection) {
+        this.context = collection;
         this.write(this.compile({ attachment: collection }), collection.export_path);
+        this.context = null;
       }
     });
     let export_action = new Action("export_blockymodel", {

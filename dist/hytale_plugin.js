@@ -21,10 +21,13 @@
 
   // src/util.ts
   function qualifiesAsMainShape(object) {
-    return object instanceof Cube && (object.rotation.allEqual(0) || cubeIsQuad(object));
+    return object instanceof Cube && object.rotation.allEqual(0);
   }
   function cubeIsQuad(cube) {
-    return cube.size()[2] == 0;
+    if (!cube.size().some((val) => val == 0)) return false;
+    let faces = Object.keys(cube.faces).filter((fkey) => cube.faces[fkey].texture !== null);
+    if (faces.length > 1) return false;
+    return true;
   }
   function getMainShape(group) {
     return group.children.find(qualifiesAsMainShape);
@@ -178,30 +181,36 @@
           node.shape.type = "box";
           node.shape.settings.size = formatVector(size);
           node.shape.offset = formatVector(offset);
-          let temp;
-          function switchIndices(arr, i1, i2) {
-            temp = arr[i1];
-            arr[i1] = arr[i2];
-            arr[i2] = temp;
-          }
           if (cubeIsQuad(cube)) {
             node.shape.type = "quad";
-            if (cube.rotation[0] == -90) {
-              node.shape.settings.normal = "+Y";
-              switchIndices(stretch, 1, 2);
-            } else if (cube.rotation[0] == 90) {
-              node.shape.settings.normal = "-Y";
-              switchIndices(stretch, 1, 2);
-            } else if (cube.rotation[1] == 90) {
-              node.shape.settings.normal = "+X";
-              switchIndices(stretch, 0, 2);
-            } else if (cube.rotation[1] == -90) {
-              node.shape.settings.normal = "-X";
-              switchIndices(stretch, 0, 2);
-            } else if (cube.rotation[1] == 180) {
-              node.shape.settings.normal = "-Z";
-            } else {
-              node.shape.settings.normal = "+Z";
+            let used_face = Object.keys(cube.faces).find((fkey) => cube.faces[fkey].texture != null);
+            let normal = "+Z";
+            switch (used_face) {
+              case "west":
+                normal = "-X";
+                break;
+              case "east":
+                normal = "+X";
+                break;
+              case "down":
+                normal = "-Y";
+                break;
+              case "up":
+                normal = "+Y";
+                break;
+              case "north":
+                normal = "-Z";
+                break;
+              case "south":
+                normal = "+Z";
+                break;
+            }
+            node.shape.settings.normal = normal;
+            delete node.shape.settings.size.z;
+            if (normal.endsWith("X")) {
+              node.shape.settings.size.x = size[2];
+            } else if (normal.endsWith("Y")) {
+              node.shape.settings.size.y = size[2];
             }
           }
           node.shape.stretch = formatVector(stretch);
@@ -220,8 +229,7 @@
             up: "top",
             down: "bottom"
           };
-          let faces = node.shape.type == "quad" ? ["south", "north"] : Object.keys(cube.faces);
-          for (let fkey of faces) {
+          for (let fkey in cube.faces) {
             let flipMinMax = function(axis) {
               if (axis == 0 /* X */) {
                 flip_x = !flip_x;
@@ -242,6 +250,7 @@
             let face = cube.faces[fkey];
             if (face.texture == null) continue;
             let direction = BBToHytaleDirection[fkey];
+            if (node.shape.type == "quad") direction = "front";
             let flip_x = false;
             let flip_y = false;
             let uv_x = Math.min(face.uv[0], face.uv[2]);
@@ -454,11 +463,21 @@
               temp = arr[i1];
               arr[i1] = arr[i2];
               arr[i2] = temp;
+            }, resetFace = function(face_name) {
+              cube.faces[face_name].texture = null;
+              cube.faces[face_name].uv = [0, 0, 0, 0];
             };
             let size = parseVector(node.shape.settings.size);
             let stretch = parseVector(node.shape.stretch, [1, 1, 1]);
             if (node.shape.type == "quad") {
-              size[2] = 0;
+              let axis = node.shape.settings.normal?.substring(1) ?? "Z";
+              if (axis == "X") {
+                size = [0, size[1], size[0]];
+              } else if (axis == "Y") {
+                size.splice("XYZ".indexOf(axis), 0, 0);
+              } else if (axis == "Z") {
+                size[2] = 0;
+              }
             }
             let cube = new Cube({
               name,
@@ -494,34 +513,6 @@
               double_sided: node.shape.doubleSided
             });
             let temp;
-            if (node.shape.settings?.normal && node.shape.settings.normal != "+Z") {
-              switch (node.shape.settings.normal) {
-                case "+Y": {
-                  cube.rotation[0] -= 90;
-                  switchIndices(cube.stretch, 1, 2);
-                  break;
-                }
-                case "-Y": {
-                  cube.rotation[0] += 90;
-                  switchIndices(cube.stretch, 1, 2);
-                  break;
-                }
-                case "+X": {
-                  cube.rotation[1] += 90;
-                  switchIndices(cube.stretch, 0, 2);
-                  break;
-                }
-                case "-X": {
-                  cube.rotation[1] -= 90;
-                  switchIndices(cube.stretch, 0, 2);
-                  break;
-                }
-                case "-Z": {
-                  cube.rotation[1] += 180;
-                  break;
-                }
-              }
-            }
             let HytaleDirection;
             ((HytaleDirection2) => {
               HytaleDirection2["back"] = "back";
@@ -539,17 +530,29 @@
               top: "up",
               bottom: "down"
             };
+            const normal_faces = {
+              "-X": "west",
+              "+X": "east",
+              "-Y": "down",
+              "+Y": "up",
+              "-Z": "north",
+              "+Z": "south"
+            };
             if (node.shape.settings.size) {
               let parseUVVector = function(vec, fallback = [0, 0]) {
                 if (!vec) return fallback;
                 return Object.values(vec).slice(0, 2);
               };
+              let normal_face = node.shape.type == "quad" && normal_faces[node.shape.settings.normal];
               for (let key in HytaleDirection) {
-                let uv_source = node.shape.textureLayout[key];
                 let face_name = HytaleToBBDirection[key];
+                let uv_source = node.shape.textureLayout[key];
+                if (normal_face == face_name) {
+                  if (face_name != "south") resetFace("south");
+                  uv_source = node.shape.textureLayout["front"];
+                }
                 if (!uv_source) {
-                  cube.faces[face_name].texture = null;
-                  cube.faces[face_name].uv = [0, 0, 0, 0];
+                  resetFace(face_name);
                   continue;
                 }
                 let uv_offset = parseUVVector(uv_source.offset);
@@ -1566,6 +1569,8 @@
           Undo.initEdit({ outliner: true, elements: [], selection: true }, amended);
           let base_quad = new Cube({
             autouv: settings.autouv.value ? 1 : 0,
+            // @ts-ignore
+            double_sided: true,
             color
           }).init();
           if (!base_quad.box_uv) base_quad.mapAutoUV();

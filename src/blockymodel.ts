@@ -261,31 +261,24 @@ export function setupBlockymodelCodec(): Codec {
 				node.shape.offset = formatVector(offset);
 
 				
-				let temp: number;
-				function switchIndices(arr: ArrayVector3 | ArrayVector2, i1: number, i2: number) {
-					temp = arr[i1];
-					arr[i1] = arr[i2];
-					arr[i2] = temp;
-				}
 				if (cubeIsQuad(cube)) {
 					node.shape.type = 'quad';
-					// Detect normal
-					if (cube.rotation[0] == -90) {
-						node.shape.settings.normal = '+Y';
-						switchIndices(stretch, 1, 2);
-					} else if (cube.rotation[0] == 90) {
-						node.shape.settings.normal = '-Y';
-						switchIndices(stretch, 1, 2);
-					} else if (cube.rotation[1] == 90) {
-						node.shape.settings.normal = '+X';
-						switchIndices(stretch, 0, 2);
-					} else if (cube.rotation[1] == -90) {
-						node.shape.settings.normal = '-X';
-						switchIndices(stretch, 0, 2);
-					} else if (cube.rotation[1] == 180) {
-						node.shape.settings.normal = '-Z';
-					} else {
-						node.shape.settings.normal = '+Z';
+					let used_face = Object.keys(cube.faces).find(fkey => cube.faces[fkey].texture != null);
+					let normal: QuadNormal = '+Z';
+					switch (used_face) {
+						case 'west': normal = '-X'; break;
+						case 'east': normal = '+X'; break;
+						case 'down': normal = '-Y'; break;
+						case 'up': normal = '+Y'; break;
+						case 'north': normal = '-Z'; break;
+						case 'south': normal = '+Z'; break;
+					}
+					node.shape.settings.normal = normal;
+					delete node.shape.settings.size.z;
+					if (normal.endsWith('X')) {
+						node.shape.settings.size.x = size[2];
+					} else if (normal.endsWith('Y')) {
+						node.shape.settings.size.y = size[2];
 					}
 				}
 				node.shape.stretch = formatVector(stretch);
@@ -308,11 +301,11 @@ export function setupBlockymodelCodec(): Codec {
 					up: "top",
 					down: "bottom",
 				}
-				let faces = node.shape.type == 'quad' ? ['south', 'north'] : Object.keys(cube.faces);
-				for (let fkey of faces) {
+				for (let fkey in cube.faces) {
 					let face = cube.faces[fkey];
 					if (face.texture == null) continue;
 					let direction = BBToHytaleDirection[fkey];
+					if (node.shape.type == 'quad') direction = 'front';
 
 
 					let flip_x = false;
@@ -561,7 +554,14 @@ export function setupBlockymodelCodec(): Codec {
 					let size = parseVector(node.shape.settings.size);
 					let stretch = parseVector(node.shape.stretch, [1, 1, 1]);
 					if (node.shape.type == 'quad') {
-						size[2] = 0;
+						let axis = node.shape.settings.normal?.substring(1) ?? 'Z';
+						if (axis == 'X') {
+							size = [0, size[1], size[0]];
+						} else if (axis == 'Y') {
+							size.splice('XYZ'.indexOf(axis), 0, 0);
+						} else if (axis == 'Z') {
+							size[2] = 0;
+						}
 					}
 
 					let cube = new Cube({
@@ -606,35 +606,6 @@ export function setupBlockymodelCodec(): Codec {
 						arr[i1] = arr[i2];
 						arr[i2] = temp;
 					}
-					// Plane normal
-					if (node.shape.settings?.normal && node.shape.settings.normal != '+Z') {
-						switch (node.shape.settings.normal) {
-							case '+Y': {
-								cube.rotation[0] -= 90;
-								switchIndices(cube.stretch, 1, 2);
-								break;
-							}
-							case '-Y': {
-								cube.rotation[0] += 90;
-								switchIndices(cube.stretch, 1, 2);
-								break;
-							}
-							case '+X': {
-								cube.rotation[1] += 90;
-								switchIndices(cube.stretch, 0, 2);
-								break;
-							}
-							case '-X': {
-								cube.rotation[1] -= 90;
-								switchIndices(cube.stretch, 0, 2);
-								break;
-							}
-							case '-Z': {
-								cube.rotation[1] += 180;
-								break;
-							}
-						}
-					}
 					enum HytaleDirection {
 						back = "back",
 						front = "front",
@@ -651,19 +622,35 @@ export function setupBlockymodelCodec(): Codec {
 						top: "up",
 						bottom: "down",
 					}
+					const normal_faces: Record<QuadNormal, string> = {
+						'-X': 'west',
+						'+X': 'east',
+						'-Y': 'down',
+						'+Y': 'up',
+						'-Z': 'north',
+						'+Z': 'south',
+					}
 
 					// UV
+					function resetFace(face_name: string) {
+						cube.faces[face_name].texture = null;
+						cube.faces[face_name].uv = [0, 0, 0, 0];
+					}
 					if (node.shape.settings.size) {
 						function parseUVVector(vec: {x: number, y: number}, fallback: ArrayVector2 = [0, 0]): ArrayVector2 {
 							if (!vec) return fallback;
 							return Object.values(vec).slice(0, 2) as ArrayVector2;
 						}
+						let normal_face = node.shape.type == 'quad' && normal_faces[node.shape.settings.normal];
 						for (let key in HytaleDirection) {
-							let uv_source = node.shape.textureLayout[key];
 							let face_name = HytaleToBBDirection[key];
+							let uv_source = node.shape.textureLayout[key];
+							if (normal_face == face_name) {
+								if (face_name != 'south') resetFace('south');
+								uv_source = node.shape.textureLayout['front'];
+							}
 							if (!uv_source) {
-								cube.faces[face_name].texture = null;
-								cube.faces[face_name].uv = [0, 0, 0, 0];
+								resetFace(face_name);
 								continue;
 							}
 							let uv_offset = parseUVVector(uv_source.offset) as ArrayVector2;

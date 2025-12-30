@@ -126,6 +126,8 @@ export function setupElements() {
 				Undo.initEdit({outliner: true, elements: [], selection: true}, amended);
 				let base_quad = new Cube({
 					autouv: (settings.autouv.value ? 1 : 0),
+					// @ts-ignore
+					double_sided: true,
 					color
 				}).init()
 				if (!base_quad.box_uv) base_quad.mapAutoUV()

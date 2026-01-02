@@ -2318,10 +2318,10 @@
 
   // src/uv_outline.ts
   var UV_OUTLINE_CSS = `
-body.hytale-format #uv_frame .uv_resize_corner,
-body.hytale-format #uv_frame .uv_resize_side,
-body.hytale-format #uv_frame #uv_scale_handle,
-body.hytale-format #uv_frame #uv_selection_frame {
+body.hytale-format[mode=edit] #uv_frame .uv_resize_corner,
+body.hytale-format[mode=edit] #uv_frame .uv_resize_side,
+body.hytale-format[mode=edit] #uv_frame #uv_scale_handle,
+body.hytale-format[mode=edit] #uv_frame #uv_selection_frame {
     display: none;
 }
 

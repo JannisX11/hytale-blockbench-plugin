@@ -21,12 +21,12 @@ export function setupPreviewScenes() {
 		name: 'Hytale Default',
         category: 'hytale',
         cubemap: [
-            base_path + "skybox_0.png",
-            base_path + "skybox_1.png",
-            base_path + "skybox_2.png",
-            base_path + "skybox_3.png",
-            base_path + "skybox_4.png",
-            base_path + "skybox_5.png"
+            base_path + "skybox_0.webp",
+            base_path + "skybox_1.webp",
+            base_path + "skybox_2.webp",
+            base_path + "skybox_3.webp",
+            base_path + "skybox_4.webp",
+            base_path + "skybox_5.webp"
         ]
     });
 	

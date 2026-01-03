@@ -8,7 +8,6 @@ import { cleanup, track } from "./cleanup";
 import { setupElements } from "./element";
 import { setupUVCycling } from "./uv_cycling";
 import { setupChecks } from "./validation";
-// @ts-expect-error
 import Package from './../package.json'
 import { FORMAT_IDS, setupFormats } from "./formats";
 import { setupPhotoshopTools } from "./photoshop_copy_paste";
@@ -18,6 +17,7 @@ import { setupTextureHandling } from "./texture";
 import { setupNameOverlap } from "./name_overlap";
 import { setupUVOutline } from "./uv_outline";
 import { setupTempFixes } from './temp_fixes'
+import { setupPreviewScenes } from "./preview_scenes";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -51,6 +51,7 @@ BBPlugin.register('hytale_plugin', {
         setupNameOverlap();
         setupUVOutline();
         setupTempFixes();
+        setupPreviewScenes();
 
         // Collections panel setting
         let panel_setup_listener: Deletable;

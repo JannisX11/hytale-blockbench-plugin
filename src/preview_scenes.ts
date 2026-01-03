@@ -14,11 +14,11 @@ export function setupPreviewScenes() {
 		_label: 'Hytale'
     };
     
-    let base_path = 'C:\\Users\\janni\\Documents\\Arcanite Games\\hytale-blockbench-plugin\\src\\references\\default\\';
+    let base_path = 'https://cdn.jsdelivr.net/gh/JannisX11/hytale-blockbench-plugin/src/references/default/';
 	DefaultScene.preview_models.forEach(model => model.texture = DefaultTexture);
     new PreviewScene('hytale_default', {
 		...DefaultScene,
-		name: 'Hytale Default',
+		name: 'Hytale',
         category: 'hytale',
         cubemap: [
             base_path + "skybox_0.webp",
@@ -36,7 +36,7 @@ export function setupPreviewScenes() {
 		...PlayerModelJSON,
 		texture: PlayerTexture,
     });
-	track(player_model);
+	// track(player_model); // Currently has an unloading bug in Blockbench
 
 	ViewOptionsDialog.form_config.hytale_player = {
 		label: 'Hytale Player',

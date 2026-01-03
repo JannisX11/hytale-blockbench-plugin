@@ -6,7 +6,11 @@
   }
   function cleanup() {
     for (let deletable of list) {
-      deletable.delete();
+      try {
+        deletable.delete();
+      } catch (error) {
+        console.error(error);
+      }
     }
     list.empty();
   }
@@ -1825,6 +1829,7 @@
         }
       }
     });
+    check.name = "Hytale Node Count";
     track(check);
     let listener = Blockbench.on("display_model_stats", ({ stats }) => {
       if (!FORMAT_IDS.includes(Format.id)) return;
@@ -1837,7 +1842,7 @@
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.4.1",
+    version: "0.5.0",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
@@ -3038,11 +3043,11 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     PreviewScene.menu_categories.hytale = {
       _label: "Hytale"
     };
-    let base_path = "C:\\Users\\janni\\Documents\\Arcanite Games\\hytale-blockbench-plugin\\src\\references\\default\\";
+    let base_path = "https://cdn.jsdelivr.net/gh/JannisX11/hytale-blockbench-plugin/src/references/default/";
     default_default.preview_models.forEach((model) => model.texture = default_default2);
     new PreviewScene("hytale_default", {
       ...default_default,
-      name: "Hytale Default",
+      name: "Hytale",
       category: "hytale",
       cubemap: [
         base_path + "skybox_0.webp",
@@ -3057,7 +3062,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       ...player_default,
       texture: player_default2
     });
-    track(player_model);
     ViewOptionsDialog.form_config.hytale_player = {
       label: "Hytale Player",
       type: "checkbox",

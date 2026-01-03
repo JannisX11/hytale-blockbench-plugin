@@ -35,6 +35,7 @@ export function setupChecks() {
             }
         }
     })
+    check.name = 'Hytale Node Count';
     track(check);
 
 	let listener = Blockbench.on('display_model_stats', ({stats}) => {

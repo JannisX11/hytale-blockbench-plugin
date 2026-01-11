@@ -3,6 +3,7 @@
 
 import { track } from "./cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
+import { cubeIsQuad } from "./util";
 
 // TODO(Blockbench): Resizing a stretched cube causes it to drift. The gizmo's move_value
 // is in rendered space (stretch applied) but resize() applies it directly to from/to.
@@ -128,9 +129,10 @@ export function setupElements() {
 					autouv: (settings.autouv.value ? 1 : 0),
 					// @ts-ignore
 					double_sided: true,
+					box_uv: false,
 					color
 				}).init()
-				if (!base_quad.box_uv) base_quad.mapAutoUV()
+				base_quad.mapAutoUV();
 				let group = getCurrentGroup();
 				if (group) {
 					base_quad.addTo(group)
@@ -206,6 +208,20 @@ export function setupElements() {
 	track(add_quad_action);
 	let add_element_menu = ((BarItems.add_element as Action).side_menu as Menu);
 	add_element_menu.addAction(add_quad_action);
+	
+	// Box UV on quads
+	let set_uv_mode_original = Cube.prototype.setUVMode;
+	Cube.prototype.setUVMode = function (box_uv, ...args) {
+		if (isHytaleFormat()) {
+			if (cubeIsQuad(this) && box_uv) return;
+		}
+		return set_uv_mode_original.call(this, box_uv, ...args);
+	}
+	track({
+		delete() {
+			Cube.prototype.setUVMode = set_uv_mode_original;
+		}
+	});
 
 	// Inflate
 	let inflate_condition_original = BarItems.slider_inflate.condition;

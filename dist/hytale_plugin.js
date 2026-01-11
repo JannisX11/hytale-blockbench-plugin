@@ -1610,9 +1610,10 @@
             autouv: settings.autouv.value ? 1 : 0,
             // @ts-ignore
             double_sided: true,
+            box_uv: false,
             color
           }).init();
-          if (!base_quad.box_uv) base_quad.mapAutoUV();
+          base_quad.mapAutoUV();
           let group = getCurrentGroup();
           if (group) {
             base_quad.addTo(group);
@@ -1682,6 +1683,18 @@
     track(add_quad_action);
     let add_element_menu = BarItems.add_element.side_menu;
     add_element_menu.addAction(add_quad_action);
+    let set_uv_mode_original = Cube.prototype.setUVMode;
+    Cube.prototype.setUVMode = function(box_uv, ...args) {
+      if (isHytaleFormat()) {
+        if (cubeIsQuad(this) && box_uv) return;
+      }
+      return set_uv_mode_original.call(this, box_uv, ...args);
+    };
+    track({
+      delete() {
+        Cube.prototype.setUVMode = set_uv_mode_original;
+      }
+    });
     let inflate_condition_original = BarItems.slider_inflate.condition;
     BarItems.slider_inflate.condition = () => {
       if (isHytaleFormat()) return false;
@@ -1901,7 +1914,7 @@
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.5.0",
+    version: "0.6.0",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",

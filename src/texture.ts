@@ -44,4 +44,10 @@ export function setupTextureHandling() {
         }
     });
     track(handler);
+
+    /*let on_update_select = Blockbench.on('update_texture_selection', (arg) => {
+        if (Texture.getDefault()) updateUVSize(Texture.getDefault());
+    })
+    track(on_update_select);
+    */
 }

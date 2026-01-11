@@ -766,6 +766,7 @@
       box_uv: false,
       optional_box_uv: true,
       box_uv_float_size: true,
+      integer_size: true,
       uv_rotation: true,
       rotate_cubes: true,
       per_texture_uv_size: true,
@@ -819,6 +820,20 @@
       block_size: 32,
       ...common
     });
+    let int_setting = new Setting("hytale_integer_size", {
+      name: "Hytale Integer Size",
+      category: "edit",
+      description: "Restrict cube sizes in hytale formats to full integers. Float values are technically supported but make UV mapping more difficult. Using stretch is recommended instead.",
+      type: "toggle",
+      value: true
+    });
+    track(int_setting);
+    const integer_size = { get: () => int_setting.value };
+    Object.defineProperty(format_character, "integer_size", integer_size);
+    Object.defineProperty(format_prop, "integer_size", integer_size);
+    const single_texture = { get: () => Collection.all.length == 0 };
+    Object.defineProperty(format_character, "single_texture", single_texture);
+    Object.defineProperty(format_prop, "single_texture", single_texture);
     codec.format = format_character;
     track(format_character);
     track(format_prop);
@@ -1850,6 +1865,31 @@
     });
     check.name = "Hytale Node Count";
     track(check);
+    let uv_check = new ValidatorCheck("hytale_uv_size", {
+      update_triggers: ["update_selection"],
+      condition: { formats: FORMAT_IDS },
+      run() {
+        for (let texture of Texture.all) {
+          if (texture.uv_width != texture.width || texture.uv_height != texture.height) {
+            this.fail({
+              message: `The texture ${texture.name} has a resolution (${texture.width}x${texture.height}) that does not match its UV size (${texture.uv_width}x${texture.uv_height}). Ensure that your pixel density is 64 for characters and 32 for props.`,
+              buttons: [
+                {
+                  name: "Fix UV Size",
+                  icon: "build",
+                  click() {
+                    updateUVSize(texture);
+                    texture.select();
+                  }
+                }
+              ]
+            });
+          }
+        }
+      }
+    });
+    uv_check.name = "Hytale UV Size";
+    track(uv_check);
     let listener = Blockbench.on("display_model_stats", ({ stats }) => {
       if (!FORMAT_IDS.includes(Format.id)) return;
       let node_count = getNodeCount();
@@ -3166,6 +3206,9 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         panel_setup_listener = Blockbench.on("select_mode", showCollectionPanel);
       }
       let on_finish_edit = Blockbench.on("generate_texture_template", (arg) => {
+        if (arg.texture) {
+          updateUVSize(arg.texture);
+        }
         for (let element of arg.elements) {
           if (typeof element.autouv != "number") continue;
           element.autouv = 1;

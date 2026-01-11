@@ -27,6 +27,7 @@ export function setupFormats() {
         box_uv: false,
         optional_box_uv: true,
         box_uv_float_size: true,
+        integer_size: true,
         uv_rotation: true,
         rotate_cubes: true,
         per_texture_uv_size: true,
@@ -77,6 +78,23 @@ export function setupFormats() {
         block_size: 32,
         ...common
     });
+
+    // Integer size
+    let int_setting = new Setting('hytale_integer_size', {
+        name: 'Hytale Integer Size',
+        category: 'edit',
+        description: 'Restrict cube sizes in hytale formats to full integers. Float values are technically supported but make UV mapping more difficult. Using stretch is recommended instead.',
+        type: 'toggle',
+        value: true
+    })
+    track(int_setting);
+    const integer_size = {get: () => int_setting.value};
+    Object.defineProperty(format_character, 'integer_size', integer_size);
+    Object.defineProperty(format_prop, 'integer_size', integer_size);
+
+    const single_texture = {get: () => Collection.all.length == 0};
+    Object.defineProperty(format_character, 'single_texture', single_texture);
+    Object.defineProperty(format_prop, 'single_texture', single_texture);
 
     codec.format = format_character;
     track(format_character);

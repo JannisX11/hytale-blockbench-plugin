@@ -962,7 +962,8 @@
         { channel: "rotation", keyframes: anim_data.orientation },
         { channel: "position", keyframes: anim_data.position },
         { channel: "scale", keyframes: anim_data.shapeStretch },
-        { channel: "visibility", keyframes: anim_data.shapeVisible }
+        { channel: "visibility", keyframes: anim_data.shapeVisible },
+        { channel: "uv_offset", keyframes: anim_data.shapeUvOffset }
       ];
       for (let { channel, keyframes } of anim_channels) {
         if (!keyframes || keyframes.length == 0) continue;
@@ -971,6 +972,12 @@
           if (channel == "visibility") {
             data_point = {
               visibility: kf_data.delta
+            };
+          } else if (channel == "uv_offset") {
+            let delta = kf_data.delta;
+            data_point = {
+              x: delta.x,
+              y: -delta.y
             };
           } else {
             let delta = kf_data.delta;
@@ -1017,7 +1024,8 @@
       position: "position",
       rotation: "orientation",
       scale: "shapeStretch",
-      visibility: "shapeVisible"
+      visibility: "shapeVisible",
+      uv_offset: "shapeUvOffset"
     };
     for (let uuid in animation.animators) {
       let animator = animation.animators[uuid];
@@ -1036,6 +1044,12 @@
           let delta;
           if (channel == "visibility") {
             delta = data_point.visibility;
+          } else if (channel == "uv_offset") {
+            delta = {
+              x: parseFloat(data_point.x),
+              y: -parseFloat(data_point.y)
+            };
+            delta = new oneLiner(delta);
           } else {
             delta = {
               x: parseFloat(data_point.x),
@@ -1064,12 +1078,15 @@
             delta,
             interpolationType: kf.interpolation == "catmullrom" ? "smooth" : "linear"
           };
+          if (channel == "uv_offset") console.log(kf_output);
           timeline.push(kf_output);
           has_data = true;
         }
       }
       if (has_data) {
-        node_data.shapeUvOffset = [];
+        if (!node_data.shapeUvOffset) {
+          node_data.shapeUvOffset = [];
+        }
         nodeAnimations[name] = node_data;
       }
     }
@@ -1468,12 +1485,73 @@
         displayVisibility(animator);
       }
     });
-    let property = new Property(KeyframeDataPoint, "boolean", "visibility", {
+    let vis_property = new Property(KeyframeDataPoint, "boolean", "visibility", {
       label: "Visibility",
       condition: (point) => point.keyframe.channel == "visibility",
       default: true
     });
-    track(property);
+    track(vis_property);
+    function displayUVOffset(animator) {
+      let group = animator.getGroup();
+      let cube = getMainShape(group);
+      if (!cube) return;
+      let updateUV = (offset) => {
+        if (!offset || !offset[0] && !offset[1]) {
+          if (!cube.mesh.userData.uv_anim_offset) {
+            return;
+          } else {
+            cube.mesh.userData.uv_anim_offset = false;
+          }
+        } else {
+          cube.mesh.userData.uv_anim_offset = true;
+        }
+        offset = offset ?? [0, 0];
+        let fix_uvs = {};
+        for (let fkey in cube.faces) {
+          fix_uvs[fkey] = cube.faces[fkey].uv.slice();
+          cube.faces[fkey].uv[0] += offset[0];
+          cube.faces[fkey].uv[1] += offset[1];
+          cube.faces[fkey].uv[2] += offset[0];
+          cube.faces[fkey].uv[3] += offset[1];
+        }
+        Cube.preview_controller.updateUV(cube);
+        for (let fkey in cube.faces) {
+          cube.faces[fkey].uv.replace(fix_uvs[fkey]);
+        }
+      };
+      if (animator.muted.uv_offset) {
+        updateUV();
+        return;
+      }
+      let previous_keyframe;
+      let previous_time = -Infinity;
+      for (let keyframe of animator.uv_offset) {
+        if (keyframe.time <= Timeline.time && keyframe.time > previous_time) {
+          previous_keyframe = keyframe;
+          previous_time = keyframe.time;
+        }
+      }
+      if (previous_keyframe) {
+        updateUV(previous_keyframe.getArray());
+      } else if (true) {
+        updateUV();
+      }
+    }
+    BoneAnimator.addChannel("uv_offset", {
+      name: "UV Offset",
+      mutable: true,
+      transform: true,
+      max_data_points: 1,
+      condition: { formats: FORMAT_IDS },
+      displayFrame(animator, multiplier) {
+        displayUVOffset(animator);
+      }
+    });
+    let original_condition = KeyframeDataPoint.properties.z.condition;
+    KeyframeDataPoint.properties.z.condition = (point) => {
+      if (point.keyframe.channel == "uv_offset") return false;
+      return Condition(original_condition, point);
+    };
     function weightedCubicBezier(t) {
       let P0 = 0, P1 = 0.05, P2 = 0.95, P3 = 1;
       let W0 = 2, W1 = 1, W2 = 2, W3 = 1;

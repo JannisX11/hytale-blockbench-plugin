@@ -5,13 +5,13 @@
   "main": "src/plugin.ts",
   "type": "module",
   "scripts": {
-    "build": "esbuild src/plugin.ts --bundle --outfile=dist/hytale_plugin.js",
-    "dev": "esbuild src/plugin.ts --bundle --outfile=dist/hytale_plugin.js --watch"
+    "build": "esbuild src/plugin.ts --bundle --loader:.png=dataurl --outfile=dist/hytale_plugin.js",
+    "dev": "esbuild src/plugin.ts --bundle --loader:.png=dataurl --outfile=dist/hytale_plugin.js --watch"
   },
   "author": "JannisX11, Kanno",
   "license": "GPL-3.0",
   "dependencies": {
-    "blockbench-types": "^5.0.5"
+    "blockbench-types": "^5.0.6"
   },
   "devDependencies": {
     "esbuild": "^0.25.9"

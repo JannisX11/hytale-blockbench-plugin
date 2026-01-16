@@ -7,10 +7,10 @@ import { isHytaleFormat } from "./formats";
 // Blockbench positions UV faces assuming 2px borders. Changing border-width directly causes gaps.
 // Fix: keep 2px transparent border for correct positioning, draw visible 1px line via ::before.
 const UV_OUTLINE_CSS = `
-body.hytale-format #uv_frame .uv_resize_corner,
-body.hytale-format #uv_frame .uv_resize_side,
-body.hytale-format #uv_frame #uv_scale_handle,
-body.hytale-format #uv_frame #uv_selection_frame {
+body.hytale-format[mode=edit] #uv_frame .uv_resize_corner,
+body.hytale-format[mode=edit] #uv_frame .uv_resize_side,
+body.hytale-format[mode=edit] #uv_frame #uv_scale_handle,
+body.hytale-format[mode=edit] #uv_frame #uv_selection_frame {
     display: none;
 }
 

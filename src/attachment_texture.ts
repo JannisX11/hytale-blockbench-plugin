@@ -21,7 +21,6 @@ export function processAttachmentTextures(attachmentName: string, newTextures: T
 	if (newTextures.length === 0) return '';
 
 	for (let tex of newTextures) {
-		// @ts-expect-error
 		tex.group = textureGroup.uuid;
 		updateUVSize(tex);
 	}
@@ -49,6 +48,7 @@ export function setupAttachmentTextures() {
 				}
 				return null;
 			}
+			return Texture.getDefault();
 		}
 		return originalGetTexture.call(this, ...args);
 	};

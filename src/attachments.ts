@@ -37,7 +37,6 @@ export function setupAttachments() {
 					
 					let texture_group = TextureGroup.all.find(tg => tg.name === collection.name);
 					if (texture_group) {
-						// @ts-expect-error
 						let textures2 = Texture.all.filter(t => t.group === texture_group.uuid);
 						textures.safePush(...textures2);
 						texture_groups.push(texture_group);

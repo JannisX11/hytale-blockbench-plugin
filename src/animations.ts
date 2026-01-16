@@ -82,6 +82,7 @@ export function setupAnimation() {
     track(on_interpolate);
 
     let original_display_scale = BoneAnimator.prototype.displayScale;
+    let original_display_rotation = BoneAnimator.prototype.displayRotation;
     let original_show_default_pose = Animator.showDefaultPose;
     BoneAnimator.prototype.displayScale = function displayScale(array, multiplier = 1) {
 		if (!array) return this;
@@ -98,10 +99,26 @@ export function setupAnimation() {
                 Cube.preview_controller.updateGeometry(target_shape);
                 target_shape.stretch.V3_set(initial_stretch);
             }
-            return;
+            return this;
         }
         
-        original_display_scale.call(this, array, multiplier);
+        return original_display_scale.call(this, array, multiplier);
+    }
+    BoneAnimator.prototype.displayRotation = function displayRotation(array, multiplier = 1) {
+        if (isHytaleFormat() && array) {
+		    let bone = this.group.scene_object;
+			let euler = Reusable.euler1.set(
+				Math.degToRad(array[0]) * multiplier,
+				Math.degToRad(array[1]) * multiplier,
+				Math.degToRad(array[2]) * multiplier,
+				bone.rotation.order
+			)
+			let q2 = Reusable.quat2.setFromEuler(euler);
+			bone.quaternion.multiply(q2);
+			return this;
+        }
+        
+        return original_display_rotation.call(this, array, multiplier);
     }
     Animator.showDefaultPose = function(reduced_updates, ...args) {
         original_show_default_pose(reduced_updates, ...args);
@@ -114,6 +131,7 @@ export function setupAnimation() {
     track({
         delete() {
             BoneAnimator.prototype.displayScale = original_display_scale;
+            BoneAnimator.prototype.displayRotation = original_display_rotation;
             Animator.showDefaultPose = original_show_default_pose;
         }
     })

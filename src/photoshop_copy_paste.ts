@@ -5,6 +5,10 @@ import { track } from "./cleanup";
 import { FORMAT_IDS } from "./formats";
 import { t } from "./i18n";
 
+declare global {
+	const Clipbench: any
+}
+
 export function setupPhotoshopTools() {
   let setting = new Setting("copy_paste_magenta_alpha", {
     name: t("settings.photoshop_copy.name"),

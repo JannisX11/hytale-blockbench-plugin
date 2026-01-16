@@ -180,5 +180,69 @@
 				]
 			}
 		]
+	},
+	"0.4.1": {
+		"title": "0.4.1",
+		"date": "2025-12-31",
+		"author": "JannisX11",
+		"categories": [
+			{
+				"title": "Fixes",
+				"list": [
+					"Fixed an issue with cubes that are not in a group not being exported",
+					"Fixed import and export of quads",
+					"Disabled inflate slider in Hytale projects",
+					"Fixed issue where project name changes to attachment name when saving collection",
+					"Improved rotation euler rounding",
+					"Fixed textures assigned per face having an effect on the model. Textures can only be assigned per model or attachment.",
+					"Added metadata to let Blockbench recommend the plugin for specific file types"
+				]
+			}
+		]
+	},
+	"0.5.0": {
+		"title": "0.5.0",
+		"date": "2026-01-03",
+		"author": "JannisX11",
+		"categories": [
+			{
+				"title": "Features",
+				"list": [
+					"Added Hytale preview scene, can be selected from Preview Options",
+					"Added Hytale Player as a size reference, can be switched on from Preview Options"
+				]
+			},
+			{
+				"title": "Fixes",
+				"list": [
+					"Fix missing resize handles for transforming layers",
+					"Update tutorial links on format page",
+					"Fix typo in about page"
+				]
+			}
+		]
+	},
+	"0.6.0": {
+		"title": "0.6.0",
+		"date": "2026-01-11",
+		"author": "JannisX11",
+		"categories": [
+			{
+				"title": "Features",
+				"list": [
+					"Cube sizes are now limited to full integers by default. This can be disabled in the settings, however it is recommended to leave it on and use stretch instead.",
+					"Added a validator to flag textures with the wrong pixel density. In the future, UV size will automatically adapt to texture size.",
+					"Added info about scale keyframes to about page"
+				]
+			},
+			{
+				"title": "Fixes",
+				"list": [
+					"Unless attachments are loaded, UI will now adapt single-texture workflow",
+					"Fixed a preview issue with rotation keyframes",
+					"Fixed settings categories"
+				]
+			}
+		]
 	}
 }

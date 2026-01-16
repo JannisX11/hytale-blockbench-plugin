@@ -8,13 +8,12 @@ import { cleanup, track } from "./cleanup";
 import { setupElements } from "./element";
 import { setupUVCycling } from "./uv_cycling";
 import { setupChecks } from "./validation";
-// @ts-expect-error
 import Package from './../package.json'
-import { setupFormats } from "./formats";
+import { FORMAT_IDS, setupFormats } from "./formats";
 import { setupPhotoshopTools } from "./photoshop_copy_paste";
 import { CustomPivotMarker, GroupPivotIndicator } from "./pivot_marker"
 import { setupOutlinerFilter } from "./outliner_filter";
-import { setupTextureHandling } from "./texture";
+import { setupTextureHandling, updateUVSize } from "./texture";
 import { setupNameOverlap } from "./name_overlap";
 import { setupUVOutline } from "./uv_outline";
 import { setupTempFixes } from './temp_fixes'
@@ -33,6 +32,9 @@ BBPlugin.register('hytale_plugin', {
     await_loading: true,
     has_changelog: true,
 	creation_date: "2025-12-22",
+    contributes: {
+        formats: FORMAT_IDS
+    },
     repository: 'https://github.com/JannisX11/hytale-blockbench-plugin',
     bug_tracker: 'https://github.com/JannisX11/hytale-blockbench-plugin/issues',
     onload() {
@@ -50,6 +52,7 @@ BBPlugin.register('hytale_plugin', {
         setupNameOverlap();
         setupUVOutline();
         setupTempFixes();
+        setupPreviewScenes();
 
         // Collections panel setting
         let panel_setup_listener: Deletable;
@@ -75,7 +78,10 @@ BBPlugin.register('hytale_plugin', {
             panel_setup_listener = Blockbench.on('select_mode', showCollectionPanel);
         }
 
-        let on_finish_edit = Blockbench.on('generate_texture_template', (arg) => {
+        let on_finish_edit = Blockbench.on('generate_texture_template', (arg: {texture: Texture, elements: Cube[]}) => {
+            if (arg.texture) {
+                updateUVSize(arg.texture);
+            }
             for (let element of arg.elements) {
                 if (typeof element.autouv != 'number') continue;
                 element.autouv = 1;

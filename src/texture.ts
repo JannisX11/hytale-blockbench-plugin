@@ -33,7 +33,6 @@ export function setupTextureHandling() {
         if (setting.value == false) return;
 
         let texture = arg.texture as Texture;
-        // @ts-expect-error - getGroup not in types
         let texture_group = texture.getGroup() as TextureGroup;
         if (texture_group) {
             let collection = Collection.all.find(c => c.name == texture_group.name) as AttachmentCollection;
@@ -46,4 +45,10 @@ export function setupTextureHandling() {
         }
     });
     track(handler);
+
+    /*let on_update_select = Blockbench.on('update_texture_selection', (arg) => {
+        if (Texture.getDefault()) updateUVSize(Texture.getDefault());
+    })
+    track(on_update_select);
+    */
 }

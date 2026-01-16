@@ -81,10 +81,10 @@
       description: "Create prop models using Hytale's blockymodel format"
     },
     page: {
-      informations: "Informations",
+      informations: "Information",
       resources: "Resources",
       info_list: "* One texture can be applied to a model at a time\n* UV sizes are linked to the size of each cube and cannot be modified, except by stretching the cube\n* Models can have a maximum of 255 nodes",
-      resource_list: "* [Modeling Tutorial](https://hytale.com/)\n* [Animation Tutorial](https://hytale.com/)"
+      resource_list: "* [Modeling Overview and Style Guide](https://hytale.com/news/2025/12/an-introduction-to-making-models-for-hytale)\n* [Modeling Tutorial](https://youtu.be/Q07i3wmGy0Y)"
     },
     category: "Hytale"
   };
@@ -179,8 +179,8 @@
     page: {
       informations: "Informa\xE7\xF5es",
       resources: "Recursos",
-      info_list: "* Apenas uma textura pode ser aplicada ao modelo por vez\n* Os tamanhos de UV s\xE3o vinculados ao tamanho de cada cubo e n\xE3o podem ser modificados, exceto esticando o cubo\n* Os modelos podem ter no m\xE1ximo 255 n\xF3s",
-      resource_list: "* [Tutorial de Modelagem](https://hytale.com/)\n* [Tutorial de Anima\xE7\xE3o](https://hytale.com/)"
+      info_list: "* Apenas uma textura pode ser aplicada a um modelo por vez\n* Os tamanhos de UV s\xE3o vinculados ao tamanho de cada cubo e n\xE3o podem ser modificados, exceto esticando o cubo\n* Os modelos podem ter no m\xE1ximo 255 n\xF3s",
+      resource_list: "* [Guia de Modelagem e Estilo](https://hytale.com/news/2025/12/an-introduction-to-making-models-for-hytale)\n* [Tutorial de Modelagem](https://youtu.be/Q07i3wmGy0Y)"
     },
     category: "Hytale"
   };
@@ -1104,6 +1104,7 @@
     });
     let setting = new Setting("hytale_duplicate_bone_names", {
       name: t("settings.duplicate_bones.name"),
+      category: "edit",
       description: t("settings.duplicate_bones.description"),
       type: "toggle",
       value: false
@@ -2053,6 +2054,7 @@
     let setting = new Setting("copy_paste_magenta_alpha", {
       name: t("settings.photoshop_copy.name"),
       description: t("settings.photoshop_copy.description"),
+      category: "paint",
       type: "toggle",
       value: false
     });

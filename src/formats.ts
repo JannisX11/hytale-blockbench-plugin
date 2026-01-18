@@ -32,7 +32,6 @@ export function setupFormats() {
         rotate_cubes: true,
         per_texture_uv_size: true,
         stretch_cubes: true,
-        confidential: true,
         model_identifier: false,
         animation_loop_wrapping: true,
         quaternion_interpolation: true,

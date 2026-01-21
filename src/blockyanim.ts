@@ -106,7 +106,7 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 	const nodeAnimations: Record<string, IAnimationObject> = {};
 	const file: IBlockyAnimJSON = {
 		formatVersion: 1,
-		duration: animation.length * FPS,
+		duration: Math.round(animation.length * FPS),
 		holdLastKeyframe: animation.loop == 'hold',
 		nodeAnimations,
 	}

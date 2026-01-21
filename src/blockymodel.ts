@@ -567,6 +567,7 @@ export function setupBlockymodelCodec(): Codec {
 					let cube = new Cube({
 						name,
 						autouv: 1,
+						box_uv: false,
 						rotation: [0, 0, 0],
 						stretch,
 						from: [

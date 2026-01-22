@@ -486,6 +486,7 @@
             let cube = new Cube({
               name,
               autouv: 1,
+              box_uv: false,
               rotation: [0, 0, 0],
               stretch,
               from: [
@@ -771,7 +772,6 @@
       rotate_cubes: true,
       per_texture_uv_size: true,
       stretch_cubes: true,
-      confidential: true,
       model_identifier: false,
       animation_loop_wrapping: true,
       quaternion_interpolation: true,
@@ -1009,7 +1009,7 @@
     const nodeAnimations = {};
     const file = {
       formatVersion: 1,
-      duration: animation.length * FPS,
+      duration: Math.round(animation.length * FPS),
       holdLastKeyframe: animation.loop == "hold",
       nodeAnimations
     };
@@ -1205,6 +1205,7 @@
       } else {
         texture.setAsDefaultTexture();
       }
+      UVEditor.vue.updateTexture();
     });
     track(handler);
   }
@@ -1914,7 +1915,7 @@
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.6.0",
+    version: "0.6.2",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
@@ -3219,9 +3220,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         panel_setup_listener = Blockbench.on("select_mode", showCollectionPanel);
       }
       let on_finish_edit = Blockbench.on("generate_texture_template", (arg) => {
-        if (arg.texture) {
-          updateUVSize(arg.texture);
-        }
         for (let element of arg.elements) {
           if (typeof element.autouv != "number") continue;
           element.autouv = 1;

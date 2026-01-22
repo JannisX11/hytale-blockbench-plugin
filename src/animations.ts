@@ -5,6 +5,9 @@ import { track } from "./cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
 import { getMainShape } from "./util";
 
+declare global {
+    const DefaultCameraPresets: any[]
+}
 
 export function setupAnimation() {
 
@@ -135,4 +138,93 @@ export function setupAnimation() {
             Animator.showDefaultPose = original_show_default_pose;
         }
     })
+
+    Blockbench.addCSS(`
+        #reset_camera_button {
+            position: absolute;
+            margin: auto;
+            right: 0;
+            left: 0;
+            bottom: 7px;
+            width: fit-content;
+            z-index: 2;
+        }
+        #hytale_first_person_frame {
+            position: absolute;
+            pointer-events: none;
+            border: 1px solid red;
+            margin: auto;
+            top: 0;
+            bottom: 0;
+            right: -800px;
+            left: -800px;
+            aspect-ratio: 16 / 9;
+            max-height: 100%;
+            box-shadow: 0 0 45px rgba(0, 0, 0, 0.5);
+            border: 2px solid var(--color-grid);
+            border-radius: 3px;
+        }
+        div#hytale_first_person_frame::after {
+            content: "";
+            top: 0;
+            bottom: 0;
+            right: 0;
+            left: 0;
+            margin: auto;
+            width: 6px;
+            height: 6px;
+            background-color: #ffffff;
+            opacity: 0.6;
+            position: absolute;
+            border-radius: 3px;
+            z-index: 2;
+        }
+    `);
+    let resetCamera: () => void | undefined;
+    let hytale_first_person_camera = new Action('hytale_first_person_camera', {
+        name: 'Hytale First Person Camera',
+        icon: 'video_camera_front',
+        condition: {formats: FORMAT_IDS},
+        keybind: new Keybind({key: 96}),
+        click() {
+            if (resetCamera) resetCamera();
+
+            let preview = Preview.selected;
+            preview.loadAnglePreset({
+                position: [0, 0, 0],
+                target: [0, 0, -64],
+                projection: 'perspective'
+            });
+            preview.setFOV(80);
+            preview.controls.enableRotate = false;
+            preview.controls.enablePan = false;
+            preview.controls.enableZoom = false;
+
+            let reset_camera_button = Interface.createElement('button', {id: 'reset_camera_button'}, 'Reset View');
+            let first_person_frame = Interface.createElement('div', {id: 'hytale_first_person_frame'});
+            reset_camera_button.addEventListener('click', event => resetCamera());
+			Interface.preview.append(reset_camera_button);
+			document.querySelector('.clamped_reference_images')?.append(first_person_frame);
+            
+            resetCamera = () => {
+                resetCamera = undefined;
+                preview.loadAnglePreset(DefaultCameraPresets[0])
+                preview.controls.enableRotate = true;
+                preview.controls.enablePan = true;
+                preview.controls.enableZoom = true;
+                reset_camera_button.remove();
+                first_person_frame.remove();
+            }
+        }
+    });
+    track(hytale_first_person_camera);
+    MenuBar.menus.view.addAction(hytale_first_person_camera, '#model');
+
+    let original_setLockedAngle = Preview.prototype.setLockedAngle;
+    Preview.prototype.setLockedAngle = function(angle: number | undefined): Preview {
+        if (resetCamera && angle == undefined) {
+            resetCamera();
+        }
+        return original_setLockedAngle.call(this, angle);
+    };
 }

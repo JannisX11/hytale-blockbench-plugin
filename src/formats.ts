@@ -3,6 +3,7 @@
 
 import { setupBlockymodelCodec } from "./blockymodel";
 import { track } from "./cleanup";
+import { t } from "./i18n";
 
 export const FORMAT_IDS = [
     'hytale_character',
@@ -16,7 +17,6 @@ export function setupFormats() {
         category: 'hytale',
         target: 'Hytale',
         codec,
-
         forward_direction: '+z',
         single_texture_default: true,
         animation_files: true,
@@ -41,41 +41,36 @@ export function setupFormats() {
         }
     }
     let format_page: FormatPage = {
-        content: [
-            {type: 'h3', text: tl('mode.start.format.informations')},
-            {text: `* One texture can be applied to a model at a time
-                    * UV sizes are linked to the size of each cube and cannot be modified, except by stretching the cube
-                    * Models can have a maximum of 255 nodes`.replace(/(\t| {4,4})+/g, '')
-            },
-            {type: 'h3', text: tl('mode.start.format.resources')},
-            {text: ['* [Modeling Overview and Style Guide](https://hytale.com/news/2025/12/an-introduction-to-making-models-for-hytale)',
-                    '* [Modeling Tutorial](https://youtu.be/Q07i3wmGy0Y)'].join('\n')
-            }
-        ]
+      content: [
+        { type: "h3", text: t("formats.page.informations") },
+        { text: t("formats.page.info_list") },
+        { type: "h3", text: t("formats.page.resources") },
+        { text: t("formats.page.resource_list") },
+      ],
     };
 
-    let format_character = new ModelFormat('hytale_character', {
-        name: 'Hytale Character',
-        description: 'Create character and attachment models using Hytale\'s blockymodel format',
-        icon: 'icon-format_hytale',
-        format_page,
-        block_size: 64,
-        ...common
-        // TODO: Auto-reload attachments on tab switch. Needs dirty tracking and setting toggle to avoid losing unsaved changes
-        /*
+    let format_character = new ModelFormat("hytale_character", {
+      name: t("formats.character.name"),
+      description: t("formats.character.description"),
+      icon: "icon-format_hytale",
+      format_page,
+      block_size: 64,
+      ...common,
+      // TODO: Auto-reload attachments on tab switch. Needs dirty tracking and setting toggle to avoid losing unsaved changes
+      /*
         onActivation() {
             common.onActivation?.();
             setTimeout(() => reload_all_attachments?.click(), 0);
         }
         */
     });
-    let format_prop = new ModelFormat('hytale_prop', {
-        name: 'Hytale Prop',
-        description: 'Create prop models using Hytale\'s blockymodel format',
-        icon: 'icon-format_hytale',
-        format_page,
-        block_size: 32,
-        ...common
+    let format_prop = new ModelFormat("hytale_prop", {
+      name: t("formats.prop.name"), 
+      description: t("formats.prop.description"), 
+      icon: "icon-format_hytale",
+      format_page,
+      block_size: 64,
+      ...common,
     });
 
     // Integer size
@@ -99,9 +94,9 @@ export function setupFormats() {
     track(format_character);
     track(format_prop);
 
-    Language.addTranslations('en', {
-        'format_category.hytale': 'Hytale'
-    })
+    Language.addTranslations("en", {
+      "format_category.hytale": t("formats.category"),
+    });
 }
 
 export function isHytaleFormat() {

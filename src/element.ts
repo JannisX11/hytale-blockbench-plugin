@@ -2,6 +2,8 @@
 //! Licensed under the GNU General Public License, see LICENSE.MD
 
 import { track } from "./cleanup";
+
+import { t } from "./i18n";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
 import { cubeIsQuad } from "./util";
 
@@ -115,7 +117,7 @@ export function setupElements() {
 	track(is_piece_property);
 
 	let add_quad_action = new Action('hytale_add_quad', {
-		name: 'Add Quad',
+		name: t('action.hytale_add_quad.name'),
 		icon: 'highlighter_size_5',
 		category: 'edit',
 		condition: {formats: FORMAT_IDS, modes: ['edit']},
@@ -178,7 +180,7 @@ export function setupElements() {
 
 				base_quad.select();
 				Canvas.updateView({elements: [base_quad], element_aspects: {transform: true, geometry: true, faces: true}})
-				Undo.finishEdit('Add quad', {outliner: true, elements: selected, selection: true});
+				Undo.finishEdit(t('action.hytale_add_quad.name'), {outliner: true, elements: selected, selection: true});
 
 				Vue.nextTick(function() {
 					if (settings.create_rename.value) {

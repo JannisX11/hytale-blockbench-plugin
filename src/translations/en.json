@@ -1,0 +1,72 @@
+{
+  "plugin": {
+    "title": "Hytale Models",
+    "description": "Create models and animations for Hytale"
+  },
+  "menu": {
+    "import_attachment": "Import Attachment",
+    "reload_all": "Reload All Attachments"
+  },
+  "error": {
+    "no_textures": "No textures found for this model."
+  },
+  "actions": {
+    "reload_attachments": "Reload Attachments",
+    "reload_all_attachments": "Reload All Attachments",
+    "hytale_add_quad": "Add  Quad",
+    "cut_selection": "Cut texture selection",
+    "paste_texture": "Paste into texture",
+    "pasted_layer_name": "pasted"
+  },
+  "textures": {
+    "import": "Import Textures",
+    "message": "No textures were found for this model. How would you like to import textures?",
+    "select_files": "Select Files",
+    "select_folder": "Select Folder",
+    "skip": "Skip"
+  },
+  "directory": {
+    "select_texture_folder": "Select Texture Folder",
+    "file_not_found": "File not found",
+    "export_blockymodel": "Export Hytale BlockyModel",
+    "export_blockymodel_desc": "Export a BlockyModel file"
+  },
+  "formats": {
+    "character": {
+      "name": "Hytale Character",
+      "description": "Create character and attachment models using Hytale's blockymodel format"
+    },
+    "prop": {
+      "name": "Hytale Prop",
+      "description": "Create prop models using Hytale's blockymodel format"
+    },
+    "page": {
+      "informations": "Information",
+      "resources": "Resources",
+      "info_list": "* One texture can be applied to a model at a time\n* UV sizes are linked to the size of each cube and cannot be modified, except by stretching the cube\n* Models can have a maximum of 255 nodes",
+      "resource_list": "* [Modeling Overview and Style Guide](https://hytale.com/news/2025/12/an-introduction-to-making-models-for-hytale)\n* [Modeling Tutorial](https://youtu.be/Q07i3wmGy0Y)"
+    },
+    "category": "Hytale"
+  },
+  "settings": {
+    "duplicate_bones": {
+      "name": "Duplicate Bone Names",
+      "description": "Allow creating duplicate groups names in Hytale formats. Multiple groups with the same name can be used to apply animations to multiple nodes at once."
+    },
+    "photoshop_copy": {
+      "name": "Copy-Paste with Magenta Alpha",
+      "description": "Copy image selections with magenta background and remove magenta when pasting to help transfer transparency to Photoshop"
+    },
+    "group_pivot": {
+      "name": "Show Group Pivot Indicator",
+      "description": "Show a dot in Edit mode indicating the rotation pivot point for animations"
+    },
+    "preview_texture": {
+      "name": "Preview Selected Texture",
+      "description": "When selecting a texture in a Hytale format, preview the texture on the model instantly"
+    }
+  },
+  "toggle": {
+    "toggle_attachment_editing": "Toggle Attachment Editing"
+  }
+}

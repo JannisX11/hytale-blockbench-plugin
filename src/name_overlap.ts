@@ -3,6 +3,7 @@
 
 import { track } from "./cleanup";
 import { isHytaleFormat } from "./formats";
+import { t } from "./i18n";
 
 // @ts-expect-error
 const Animation = window.Animation as typeof _Animation;
@@ -89,13 +90,13 @@ export function setupNameOverlap() {
         }
     })
 
-    let setting = new Setting('hytale_duplicate_bone_names', {
-        name: 'Duplicate Bone Names',
-        category: 'edit',
-        description: 'Allow creating duplicate groups names in Hytale formats. Multiple groups with the same name can be used to apply animations to multiple nodes at once.',
-        type: 'toggle',
-        value: false
-    })
+    let setting = new Setting("hytale_duplicate_bone_names", {
+      name: t("settings.duplicate_bones.name"),
+      category: "edit",
+      description: t("settings.duplicate_bones.description"),
+      type: "toggle",
+      value: false,
+    });
     let override = Group.addBehaviorOverride({
         condition: () => isHytaleFormat() && setting.value == true,
         // @ts-ignore

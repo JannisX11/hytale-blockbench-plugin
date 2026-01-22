@@ -5,6 +5,7 @@ import { parseAnimationFile } from "./blockyanim"
 import { track } from "./cleanup"
 import { Config } from "./config"
 import { FORMAT_IDS } from "./formats"
+import { t } from "./i18n"
 import { cubeIsQuad, getMainShape, qualifiesAsMainShape } from "./util"
 
 type BlockymodelJSON = {
@@ -131,9 +132,9 @@ function loadTexturesFromPaths(paths: string[], preferredName?: string): Texture
  */
 function promptForTextures(dirname: string) {
 	Blockbench.showMessageBox({
-		title: 'Import Textures',
-		message: 'No textures were found for this model. How would you like to import textures?',
-		buttons: ['Select Files', 'Select Folder', 'Skip'],
+		title: t('textures.import'),
+		message: t('textures.message'),
+		buttons: [t('textures.select_files'), t('textures.select_folder'), t('textures.skip')],
 	}, (choice) => {
 		let project = Project;
 		if (choice === 2 || !project) return;
@@ -155,17 +156,17 @@ function promptForTextures(dirname: string) {
 		} else if (choice === 1) {
 			// Select folder containing textures
 			let folderPath = Blockbench.pickDirectory({
-				title: 'Select Texture Folder',
-				startpath: dirname,
-				resource_id: 'texture'
-			});
+        title: t("directory.select_textures_folder"),
+        startpath: dirname,
+        resource_id: "texture",
+      });
 			if (folderPath && Project === project) {
 				let fs = requireNativeModule('fs');
 				let files = fs.readdirSync(folderPath);
 				let pngFiles = files.filter((f: string) => f.match(/\.png$/i));
 
 				if (pngFiles.length === 0) {
-					Blockbench.showQuickMessage('No PNG files found in selected folder');
+					Blockbench.showQuickMessage(t('textures.no_textures_found'), 3000);
 					return;
 				}
 
@@ -828,8 +829,8 @@ export function setupBlockymodelCodec(): Codec {
 		},
 	})
 	let export_action = new Action('export_blockymodel', {
-		name: 'Export Hytale Blockymodel',
-		description: 'Export a blockymodel file',
+		name: t('action.export_blockymodel'),
+		description: t('action.export_blockymodel_desc'),
 		icon: 'icon-format_hytale',
 		category: 'file',
 		condition: {formats: FORMAT_IDS},

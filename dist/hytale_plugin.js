@@ -1,4 +1,10 @@
 (() => {
+  var __defProp = Object.defineProperty;
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+
   // src/cleanup.ts
   var list = [];
   function track(...items) {
@@ -22,6 +28,218 @@
       final_newline: false
     }
   };
+
+  // src/translations/en.json
+  var en_exports = {};
+  __export(en_exports, {
+    actions: () => actions,
+    default: () => en_default,
+    directory: () => directory,
+    error: () => error,
+    formats: () => formats,
+    menu: () => menu,
+    plugin: () => plugin,
+    settings: () => settings2,
+    textures: () => textures,
+    toggle: () => toggle
+  });
+  var plugin = {
+    title: "Hytale Models",
+    description: "Create models and animations for Hytale"
+  };
+  var menu = {
+    import_attachment: "Import Attachment",
+    reload_all: "Reload All Attachments"
+  };
+  var error = {
+    no_textures: "No textures found for this model."
+  };
+  var actions = {
+    reload_attachments: "Reload Attachments",
+    reload_all_attachments: "Reload All Attachments",
+    hytale_add_quad: "Add  Quad",
+    cut_selection: "Cut texture selection",
+    paste_texture: "Paste into texture",
+    pasted_layer_name: "pasted"
+  };
+  var textures = {
+    import: "Import Textures",
+    message: "No textures were found for this model. How would you like to import textures?",
+    select_files: "Select Files",
+    select_folder: "Select Folder",
+    skip: "Skip"
+  };
+  var directory = {
+    select_texture_folder: "Select Texture Folder",
+    file_not_found: "File not found",
+    export_blockymodel: "Export Hytale BlockyModel",
+    export_blockymodel_desc: "Export a BlockyModel file"
+  };
+  var formats = {
+    character: {
+      name: "Hytale Character",
+      description: "Create character and attachment models using Hytale's blockymodel format"
+    },
+    prop: {
+      name: "Hytale Prop",
+      description: "Create prop models using Hytale's blockymodel format"
+    },
+    page: {
+      informations: "Information",
+      resources: "Resources",
+      info_list: "* One texture can be applied to a model at a time\n* UV sizes are linked to the size of each cube and cannot be modified, except by stretching the cube\n* Models can have a maximum of 255 nodes",
+      resource_list: "* [Modeling Overview and Style Guide](https://hytale.com/news/2025/12/an-introduction-to-making-models-for-hytale)\n* [Modeling Tutorial](https://youtu.be/Q07i3wmGy0Y)"
+    },
+    category: "Hytale"
+  };
+  var settings2 = {
+    duplicate_bones: {
+      name: "Duplicate Bone Names",
+      description: "Allow creating duplicate groups names in Hytale formats. Multiple groups with the same name can be used to apply animations to multiple nodes at once."
+    },
+    photoshop_copy: {
+      name: "Copy-Paste with Magenta Alpha",
+      description: "Copy image selections with magenta background and remove magenta when pasting to help transfer transparency to Photoshop"
+    },
+    group_pivot: {
+      name: "Show Group Pivot Indicator",
+      description: "Show a dot in Edit mode indicating the rotation pivot point for animations"
+    },
+    preview_texture: {
+      name: "Preview Selected Texture",
+      description: "When selecting a texture in a Hytale format, preview the texture on the model instantly"
+    }
+  };
+  var toggle = {
+    toggle_attachment_editing: "Toggle Attachment Editing"
+  };
+  var en_default = {
+    plugin,
+    menu,
+    error,
+    actions,
+    textures,
+    directory,
+    formats,
+    settings: settings2,
+    toggle
+  };
+
+  // src/translations/pt-BR.json
+  var pt_BR_exports = {};
+  __export(pt_BR_exports, {
+    actions: () => actions2,
+    default: () => pt_BR_default,
+    directory: () => directory2,
+    error: () => error2,
+    formats: () => formats2,
+    menu: () => menu2,
+    plugin: () => plugin2,
+    settings: () => settings3,
+    textures: () => textures2,
+    toggle: () => toggle2
+  });
+  var plugin2 = {
+    title: "Modelos Hytale",
+    description: "Crie modelos e anima\xE7\xF5es para o Hytale"
+  };
+  var menu2 = {
+    import_attachment: "Importar Anexo",
+    reload_all: "Recarregar Todos os Anexos"
+  };
+  var error2 = {
+    no_textures: "Nenhuma textura encontrada para este modelo."
+  };
+  var actions2 = {
+    reload_attachments: "Recarregar Anexos",
+    reload_all_attachments: "Recarregar Todos os Anexos",
+    hytale_add_quad: "Adicionar Quad",
+    cut_selection: "Recortar sele\xE7\xE3o da textura",
+    paste_texture: "Colar na textura",
+    pasted_layer_name: "colado"
+  };
+  var textures2 = {
+    import: "Importar Texturas",
+    message: "Nenhuma textura foi encontrada para este modelo. Como voc\xEA deseja importar as texturas?",
+    select_files: "Selecionar Arquivos",
+    select_folder: "Selecionar Pasta",
+    skip: "Pular"
+  };
+  var directory2 = {
+    select_texture_folder: "Selecionar Pasta de Texturas",
+    file_not_found: "Arquivo n\xE3o encontrado",
+    export_blockymodel: "Exportar BlockyModel do Hytale",
+    export_blockymodel_desc: "Exportar um arquivo BlockyModel"
+  };
+  var formats2 = {
+    character: {
+      name: "Personagem Hytale",
+      description: "Crie modelos de personagens e anexos usando o formato blockymodel do Hytale"
+    },
+    prop: {
+      name: "Objeto Hytale",
+      description: "Crie modelos de objetos usando o formato blockymodel do Hytale"
+    },
+    page: {
+      informations: "Informa\xE7\xF5es",
+      resources: "Recursos",
+      info_list: "* Apenas uma textura pode ser aplicada a um modelo por vez\n* Os tamanhos de UV s\xE3o vinculados ao tamanho de cada cubo e n\xE3o podem ser modificados, exceto esticando o cubo\n* Os modelos podem ter no m\xE1ximo 255 n\xF3s",
+      resource_list: "* [Guia de Modelagem e Estilo](https://hytale.com/news/2025/12/an-introduction-to-making-models-for-hytale)\n* [Tutorial de Modelagem](https://youtu.be/Q07i3wmGy0Y)"
+    },
+    category: "Hytale"
+  };
+  var settings3 = {
+    duplicate_bones: {
+      name: "Duplicar Nomes de Ossos",
+      description: "Permite criar grupos com nomes duplicados nos formatos do Hytale. V\xE1rios grupos com o mesmo nome podem ser usados para aplicar anima\xE7\xF5es a v\xE1rios n\xF3s ao mesmo tempo."
+    },
+    photoshop_copy: {
+      name: "Copiar e Colar com Alpha Magenta",
+      description: "Copia sele\xE7\xF5es de imagem com fundo magenta e remove o magenta ao colar, ajudando a transferir transpar\xEAncia para o Photoshop"
+    },
+    group_pivot: {
+      name: "Mostrar Indicador de Piv\xF4 do Grupo",
+      description: "Mostra um ponto no modo de Edi\xE7\xE3o indicando o ponto de piv\xF4 de rota\xE7\xE3o para anima\xE7\xF5es"
+    },
+    preview_texture: {
+      name: "Pr\xE9-visualizar Textura Selecionada",
+      description: "Ao selecionar uma textura em um formato Hytale, a textura \xE9 exibida instantaneamente no modelo"
+    }
+  };
+  var toggle2 = {
+    toggle_attachment_editing: "Alternar Edi\xE7\xE3o de Anexos"
+  };
+  var pt_BR_default = {
+    plugin: plugin2,
+    menu: menu2,
+    error: error2,
+    actions: actions2,
+    textures: textures2,
+    directory: directory2,
+    formats: formats2,
+    settings: settings3,
+    toggle: toggle2
+  };
+
+  // src/i18n.ts
+  var translations = {
+    en: en_exports,
+    pt: pt_BR_exports
+  };
+  function t(path) {
+    const langCode = Language.code.split("_")[0];
+    const currentLangObj = translations[langCode] || translations["en"];
+    const resolvePath = (obj, path2) => {
+      return path2.split(".").reduce((prev, curr) => {
+        return prev ? prev[curr] : null;
+      }, obj);
+    };
+    let result = resolvePath(currentLangObj, path);
+    if (!result && langCode !== "en") {
+      result = resolvePath(translations["en"], path);
+    }
+    return result || path;
+  }
 
   // src/util.ts
   function qualifiesAsMainShape(object) {
@@ -59,27 +277,27 @@
     return [...new Set(paths)];
   }
   function loadTexturesFromPaths(paths, preferredName) {
-    const textures = [];
+    const textures3 = [];
     for (let texturePath of paths) {
-      let texture = Texture.all.find((t) => t.path == texturePath);
+      let texture = Texture.all.find((t2) => t2.path == texturePath);
       if (!texture) {
         texture = new Texture().fromPath(texturePath).add(false, true);
       }
-      textures.push(texture);
+      textures3.push(texture);
     }
-    if (textures.length > 0) {
-      let primary = preferredName && textures.find((t) => t.name.startsWith(preferredName)) || textures[0];
-      if (!Texture.all.find((t) => t.use_as_default)) {
+    if (textures3.length > 0) {
+      let primary = preferredName && textures3.find((t2) => t2.name.startsWith(preferredName)) || textures3[0];
+      if (!Texture.all.find((t2) => t2.use_as_default)) {
         primary.use_as_default = true;
       }
     }
-    return textures;
+    return textures3;
   }
   function promptForTextures(dirname) {
     Blockbench.showMessageBox({
-      title: "Import Textures",
-      message: "No textures were found for this model. How would you like to import textures?",
-      buttons: ["Select Files", "Select Folder", "Skip"]
+      title: t("textures.import"),
+      message: t("textures.message"),
+      buttons: [t("textures.select_files"), t("textures.select_folder"), t("textures.skip")]
     }, (choice) => {
       let project = Project;
       if (choice === 2 || !project) return;
@@ -98,7 +316,7 @@
         });
       } else if (choice === 1) {
         let folderPath = Blockbench.pickDirectory({
-          title: "Select Texture Folder",
+          title: t("directory.select_textures_folder"),
           startpath: dirname,
           resource_id: "texture"
         });
@@ -107,7 +325,7 @@
           let files = fs.readdirSync(folderPath);
           let pngFiles = files.filter((f) => f.match(/\.png$/i));
           if (pngFiles.length === 0) {
-            Blockbench.showQuickMessage("No PNG files found in selected folder");
+            Blockbench.showQuickMessage(t("textures.no_textures_found"), 3e3);
             return;
           }
           let paths = pngFiles.map((f) => PathModule.join(folderPath, f));
@@ -723,8 +941,8 @@
       }
     });
     let export_action = new Action("export_blockymodel", {
-      name: "Export Hytale Blockymodel",
-      description: "Export a blockymodel file",
+      name: t("action.export_blockymodel"),
+      description: t("action.export_blockymodel_desc"),
       icon: "icon-format_hytale",
       category: "file",
       condition: { formats: FORMAT_IDS },
@@ -782,42 +1000,33 @@
     };
     let format_page = {
       content: [
-        { type: "h3", text: tl("mode.start.format.informations") },
-        {
-          text: `* One texture can be applied to a model at a time
-                    * UV sizes are linked to the size of each cube and cannot be modified, except by stretching the cube
-                    * Models can have a maximum of 255 nodes`.replace(/(\t| {4,4})+/g, "")
-        },
-        { type: "h3", text: tl("mode.start.format.resources") },
-        {
-          text: [
-            "* [Modeling Overview and Style Guide](https://hytale.com/news/2025/12/an-introduction-to-making-models-for-hytale)",
-            "* [Modeling Tutorial](https://youtu.be/Q07i3wmGy0Y)"
-          ].join("\n")
-        }
+        { type: "h3", text: t("formats.page.informations") },
+        { text: t("formats.page.info_list") },
+        { type: "h3", text: t("formats.page.resources") },
+        { text: t("formats.page.resource_list") }
       ]
     };
     let format_character = new ModelFormat("hytale_character", {
-      name: "Hytale Character",
-      description: "Create character and attachment models using Hytale's blockymodel format",
+      name: t("formats.character.name"),
+      description: t("formats.character.description"),
       icon: "icon-format_hytale",
       format_page,
       block_size: 64,
       ...common
       // TODO: Auto-reload attachments on tab switch. Needs dirty tracking and setting toggle to avoid losing unsaved changes
       /*
-      onActivation() {
-          common.onActivation?.();
-          setTimeout(() => reload_all_attachments?.click(), 0);
-      }
-      */
+        onActivation() {
+            common.onActivation?.();
+            setTimeout(() => reload_all_attachments?.click(), 0);
+        }
+        */
     });
     let format_prop = new ModelFormat("hytale_prop", {
-      name: "Hytale Prop",
-      description: "Create prop models using Hytale's blockymodel format",
+      name: t("formats.prop.name"),
+      description: t("formats.prop.description"),
       icon: "icon-format_hytale",
       format_page,
-      block_size: 32,
+      block_size: 64,
       ...common
     });
     let int_setting = new Setting("hytale_integer_size", {
@@ -838,7 +1047,7 @@
     track(format_character);
     track(format_prop);
     Language.addTranslations("en", {
-      "format_category.hytale": "Hytale"
+      "format_category.hytale": t("formats.category")
     });
   }
   function isHytaleFormat() {
@@ -921,9 +1130,9 @@
       }
     });
     let setting = new Setting("hytale_duplicate_bone_names", {
-      name: "Duplicate Bone Names",
+      name: t("settings.duplicate_bones.name"),
       category: "edit",
-      description: "Allow creating duplicate groups names in Hytale formats. Multiple groups with the same name can be used to apply animations to multiple nodes at once.",
+      description: t("settings.duplicate_bones.description"),
       type: "toggle",
       value: false
     });
@@ -1184,8 +1393,8 @@
   }
   function setupTextureHandling() {
     let setting = new Setting("preview_selected_texture", {
-      name: "Preview Selected Texture",
-      description: "When selecting a texture in a Hytale format, preview the texture on the model instantly",
+      name: t("settings.preview_texture.name"),
+      description: t("settings.preview_texture.description"),
       category: "preview",
       type: "toggle",
       value: true
@@ -1223,7 +1432,7 @@
       tex.group = textureGroup.uuid;
       updateUVSize(tex);
     }
-    let texture = newTextures.find((t) => t.name.startsWith(attachmentName)) ?? newTextures[0];
+    let texture = newTextures.find((t2) => t2.name.startsWith(attachmentName)) ?? newTextures[0];
     return texture.uuid;
   }
   function setupAttachmentTextures() {
@@ -1238,7 +1447,7 @@
         let collection = getCollection(this.cube);
         if (collection && "texture" in collection) {
           if (collection.texture) {
-            let texture = Texture.all.find((t) => t.uuid == collection.texture);
+            let texture = Texture.all.find((t2) => t2.uuid == collection.texture);
             if (texture) return texture;
           }
           return null;
@@ -1275,14 +1484,14 @@
             }
           }
         ];
-        Texture.all.forEach((t) => {
+        Texture.all.forEach((t2) => {
           arr.push({
-            name: t.name,
+            name: t2.name,
             // @ts-expect-error
-            icon: t.img,
-            marked: t.uuid == context.texture,
+            icon: t2.img,
+            marked: t2.uuid == context.texture,
             click() {
-              applyTexture(t.uuid, "Apply texture to collection");
+              applyTexture(t2.uuid, "Apply texture to collection");
             }
           });
         });
@@ -1309,7 +1518,7 @@
         let collections = Collection.selected.slice();
         let remove_elements = [];
         let remove_groups = [];
-        let textures = [];
+        let textures3 = [];
         let texture_groups = [];
         for (let collection of collections) {
           if (collection.export_codec === "blockymodel") {
@@ -1319,8 +1528,8 @@
             }
             let texture_group = TextureGroup.all.find((tg) => tg.name === collection.name);
             if (texture_group) {
-              let textures2 = Texture.all.filter((t) => t.group === texture_group.uuid);
-              textures.safePush(...textures2);
+              let textures22 = Texture.all.filter((t2) => t2.group === texture_group.uuid);
+              textures3.safePush(...textures22);
               texture_groups.push(texture_group);
             }
           }
@@ -1332,13 +1541,13 @@
           outliner: true,
           // @ts-expect-error
           texture_groups,
-          textures
+          textures: textures3
         });
         collections.forEach((c) => Collection.all.remove(c));
         collections.empty();
-        textures.forEach((t) => t.remove(true));
-        textures.empty();
-        texture_groups.forEach((t) => t.remove());
+        textures3.forEach((t2) => t2.remove(true));
+        textures3.empty();
+        texture_groups.forEach((t2) => t2.remove());
         texture_groups.empty();
         remove_groups.forEach((group) => group.remove());
         remove_groups.empty();
@@ -1350,46 +1559,56 @@
     });
     track(shared_delete);
     let import_as_attachment = new Action("import_as_hytale_attachment", {
-      name: "Import Attachment",
+      name: t("menu.import_attachment"),
       icon: "fa-hat-cowboy",
       condition: { formats: FORMAT_IDS },
       click() {
-        Filesystem.importFile({
-          extensions: ["blockymodel"],
-          type: "Blockymodel",
-          multiple: true,
-          startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, "") + osfs + "Attachments"
-        }, (files) => {
-          for (let file of files) {
-            let json = autoParseJSON(file.content);
-            let attachment_name = file.name.replace(/\.\w+$/, "");
-            let content = Codecs.blockymodel.parse(json, file.path, { attachment: attachment_name });
-            let name = file.name.split(".")[0];
-            let new_groups = content.new_groups;
-            let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
-            let collection = new Collection({
-              name,
-              children: root_groups.map((g) => g.uuid),
-              export_codec: "blockymodel",
-              visibility: true
-            }).add();
-            collection.export_path = file.path;
-            let texturesToProcess = content.new_textures;
-            if (texturesToProcess.length === 0) {
-              let dirname = PathModule.dirname(file.path);
-              let texturePaths = discoverTexturePaths(dirname, attachment_name);
-              for (let texPath of texturePaths) {
-                let tex = new Texture().fromPath(texPath).add(false);
-                texturesToProcess.push(tex);
+        Filesystem.importFile(
+          {
+            extensions: ["blockymodel"],
+            type: "Blockymodel",
+            multiple: true,
+            startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, "") + osfs + "Attachments"
+          },
+          (files) => {
+            for (let file of files) {
+              let json = autoParseJSON(file.content);
+              let attachment_name = file.name.replace(/\.\w+$/, "");
+              let content = Codecs.blockymodel.parse(json, file.path, {
+                attachment: attachment_name
+              });
+              let name = file.name.split(".")[0];
+              let new_groups = content.new_groups;
+              let root_groups = new_groups.filter(
+                (group) => !new_groups.includes(group.parent)
+              );
+              let collection = new Collection({
+                name,
+                children: root_groups.map((g) => g.uuid),
+                export_codec: "blockymodel",
+                visibility: true
+              }).add();
+              collection.export_path = file.path;
+              let texturesToProcess = content.new_textures;
+              if (texturesToProcess.length === 0) {
+                let dirname = PathModule.dirname(file.path);
+                let texturePaths = discoverTexturePaths(dirname, attachment_name);
+                for (let texPath of texturePaths) {
+                  let tex = new Texture().fromPath(texPath).add(false);
+                  texturesToProcess.push(tex);
+                }
               }
+              let textureUuid = processAttachmentTextures(
+                attachment_name,
+                texturesToProcess
+              );
+              if (textureUuid) {
+                collection.texture = textureUuid;
+              }
+              Canvas.updateAllFaces();
             }
-            let textureUuid = processAttachmentTextures(attachment_name, texturesToProcess);
-            if (textureUuid) {
-              collection.texture = textureUuid;
-            }
-            Canvas.updateAllFaces();
           }
-        });
+        );
       }
     });
     track(import_as_attachment);
@@ -1411,7 +1630,7 @@
       });
     }
     let reload_attachment_action = new Action("reload_hytale_attachment", {
-      name: "Reload Attachment",
+      name: t("actions.reload_attachments"),
       icon: "refresh",
       condition: () => Collection.selected.length && Modes.edit,
       click() {
@@ -1423,7 +1642,7 @@
     Collection.menu.addAction(reload_attachment_action, 10);
     track(reload_attachment_action);
     reload_all_attachments = new Action("reload_all_hytale_attachments", {
-      name: "Reload All Attachments",
+      name: t("actions.reload_all_attachments"),
       icon: "sync",
       condition: { formats: FORMAT_IDS },
       click() {
@@ -1475,13 +1694,13 @@
       default: true
     });
     track(property);
-    function weightedCubicBezier(t) {
+    function weightedCubicBezier(t2) {
       let P0 = 0, P1 = 0.05, P2 = 0.95, P3 = 1;
       let W0 = 2, W1 = 1, W2 = 2, W3 = 1;
-      let b0 = (1 - t) ** 3;
-      let b1 = 3 * (1 - t) ** 2 * t;
-      let b2 = 3 * (1 - t) * t ** 2;
-      let b3 = t ** 3;
+      let b0 = (1 - t2) ** 3;
+      let b1 = 3 * (1 - t2) ** 2 * t2;
+      let b2 = 3 * (1 - t2) * t2 ** 2;
+      let b3 = t2 ** 3;
       let w0 = b0 * W0;
       let w1 = b1 * W1;
       let w2 = b2 * W2;
@@ -1598,7 +1817,7 @@
     });
     track(is_piece_property);
     let add_quad_action = new Action("hytale_add_quad", {
-      name: "Add Quad",
+      name: t("action.hytale_add_quad.name"),
       icon: "highlighter_size_5",
       category: "edit",
       condition: { formats: FORMAT_IDS, modes: ["edit"] },
@@ -1654,7 +1873,7 @@
           UVEditor.getSelectedFaces(base_quad, true).replace([fkey]);
           base_quad.select();
           Canvas.updateView({ elements: [base_quad], element_aspects: { transform: true, geometry: true, faces: true } });
-          Undo.finishEdit("Add quad", { outliner: true, elements: selected, selection: true });
+          Undo.finishEdit(t("action.hytale_add_quad.name"), { outliner: true, elements: selected, selection: true });
           Vue.nextTick(function() {
             if (settings.create_rename.value) {
               base_quad.rename();
@@ -1936,8 +2155,9 @@
   // src/photoshop_copy_paste.ts
   function setupPhotoshopTools() {
     let setting = new Setting("copy_paste_magenta_alpha", {
-      name: "Copy-Paste with Magenta Alpha",
-      description: "Copy image selections with magenta background and remove magenta when pasting to help transfer transparency to Photoshop",
+      name: t("settings.photoshop_copy.name"),
+      description: t("settings.photoshop_copy.description"),
+      category: "paint",
       type: "toggle",
       category: "paint",
       value: false
@@ -1965,7 +2185,11 @@
           copy_canvas.width = rect.width;
           copy_canvas.height = rect.height;
           selection.maskCanvas(copy_ctx, [rect.start_x, rect.start_y]);
-          copy_ctx.drawImage(canvas, -rect.start_x + offset[0], -rect.start_y + offset[1]);
+          copy_ctx.drawImage(
+            canvas,
+            -rect.start_x + offset[0],
+            -rect.start_y + offset[1]
+          );
           Clipbench.image = {
             x: rect.start_x,
             y: rect.start_y,
@@ -1997,7 +2221,9 @@
           });
         }
         if (cut) {
-          SharedActions.runSpecific("delete", "image_content", event, { message: "Cut texture selection" });
+          SharedActions.runSpecific("delete", "image_content", event, {
+            message: t("actions.cut_selection")
+          });
         }
       }
     });
@@ -2018,7 +2244,10 @@
           }
           let offset;
           if (Clipbench.image) {
-            offset = [Math.clamp(Clipbench.image.x, 0, texture.width), Math.clamp(Clipbench.image.y, 0, texture.height)];
+            offset = [
+              Math.clamp(Clipbench.image.x, 0, texture.width),
+              Math.clamp(Clipbench.image.y, 0, texture.height)
+            ];
             offset[0] = Math.clamp(offset[0], 0, texture.width - frame.width);
             offset[1] = Math.clamp(offset[1], 0, texture.height - frame.height);
           }
@@ -2026,8 +2255,16 @@
           if (old_frame || texture.currentFrame) {
             offset[1] += texture.display_height * ((texture.currentFrame || 0) - old_frame);
           }
-          let layer = new TextureLayer({ name: "pasted", offset }, texture);
-          let image_data = frame.ctx.getImageData(0, 0, frame.width, frame.height);
+          let layer = new TextureLayer(
+            { name: t("actions.pasted_layer_name"), offset },
+            texture
+          );
+          let image_data = frame.ctx.getImageData(
+            0,
+            0,
+            frame.width,
+            frame.height
+          );
           for (let i = 0; i < image_data.data.length; i += 4) {
             if (image_data.data[i] == 255 && image_data.data[i + 1] == 0 && image_data.data[i + 2] == 255) {
               image_data.data[i + 0] = 0;
@@ -2042,8 +2279,9 @@
           layer.addForEditing();
           layer.setLimbo();
           texture.updateChangesAfterEdit();
-          Undo.finishEdit("Paste into texture");
-          if (Toolbox.selected.id != "selection_tool") BarItems.move_layer_tool.select();
+          Undo.finishEdit(t("actions.paste_texture"));
+          if (Toolbox.selected.id != "selection_tool")
+            BarItems.move_layer_tool.select();
           updateInterfacePanels();
           BARS.updateConditions();
         }
@@ -2128,7 +2366,10 @@
         size
       ];
       let geometry = new THREE.BufferGeometry();
-      geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+      geometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(vertices, 3)
+      );
       let material = new THREE.LineBasicMaterial({ vertexColors: true });
       super(geometry, material);
       this.updateColors();
@@ -2157,7 +2398,10 @@
         ...gizmo_colors.b.toArray(),
         ...gizmo_colors.b.toArray()
       ];
-      this.geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+      this.geometry.setAttribute(
+        "color",
+        new THREE.Float32BufferAttribute(colors, 3)
+      );
     }
   };
   ThickLineAxisHelper.prototype.constructor = ThickLineAxisHelper;
@@ -2185,8 +2429,8 @@
     setting;
     constructor() {
       this.setting = new Setting("show_group_pivot_indicator", {
-        name: "Show Group Pivot Indicator",
-        description: "Show a dot in Edit mode indicating the rotation pivot point for animations",
+        name: t("settings.group_pivot.name"),
+        description: t("settings.group_pivot.description"),
         category: "preview",
         type: "toggle",
         value: true
@@ -2203,7 +2447,10 @@
       this.dot.visible = false;
       Canvas.scene.add(this.dot);
       this.listener = Blockbench.on("update_selection", () => this.update());
-      this.cameraListener = Blockbench.on("update_camera_position", () => this.updateScale());
+      this.cameraListener = Blockbench.on(
+        "update_camera_position",
+        () => this.updateScale()
+      );
       this.update();
     }
     updateScale() {
@@ -2229,7 +2476,9 @@
         this.dot.visible = false;
         return;
       }
-      this.dot.material.color.copy(this.getAccentColor());
+      this.dot.material.color.copy(
+        this.getAccentColor()
+      );
       let mesh = group.mesh;
       if (mesh) {
         let worldPos = new THREE.Vector3();
@@ -2363,7 +2612,7 @@
 	`);
     StateMemory.init("hytale_attachments_hidden", "boolean");
     attachmentsHidden = StateMemory.get("hytale_attachments_hidden") ?? false;
-    let toggle = new Toggle("toggle_attachment_editing", {
+    let toggle3 = new Toggle("toggle_attachment_editing", {
       name: "Toggle Attachment Editing",
       description: "Lock or unlock attachment elements for editing",
       icon: "fa-paperclip",
@@ -2378,7 +2627,7 @@
     });
     let outlinerPanel = Panels.outliner;
     if (outlinerPanel && outlinerPanel.toolbars.length > 0) {
-      outlinerPanel.toolbars[0].add(toggle, -1);
+      outlinerPanel.toolbars[0].add(toggle3, -1);
     }
     let hookFinishedEdit = Blockbench.on("finished_edit", scheduleVisibilityUpdate);
     let hookSelectMode = Blockbench.on("select_mode", scheduleVisibilityUpdate);
@@ -2386,7 +2635,7 @@
     if (attachmentsHidden) {
       setTimeout(applyOutlinerVisibility, 100);
     }
-    track(toggle, hookFinishedEdit, hookSelectMode, hookSelection, style, {
+    track(toggle3, hookFinishedEdit, hookSelectMode, hookSelection, style, {
       delete() {
         Panels.outliner?.node?.querySelectorAll(`.${HIDDEN_CLASS}`).forEach((el) => {
           el.classList.remove(HIDDEN_CLASS);
@@ -3171,7 +3420,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     author: "JannisX11, Kanno",
     icon: "icon.png",
     version: package_default.version,
-    description: "Create models and animations for Hytale",
+    description: t("plugin.description"),
     tags: ["Hytale"],
     variant: "both",
     min_version: "5.0.5",

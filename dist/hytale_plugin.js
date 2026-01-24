@@ -1133,7 +1133,7 @@
         return original_save.call(this, ...args);
       }
       let animation;
-      animation = Animation2.selected;
+      animation = this;
       let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
       if (isApp && this.path) {
         Blockbench.writeFile(this.path, { content }, (real_path) => {
@@ -1161,6 +1161,14 @@
         Animation2.prototype.save = original_save;
       }
     });
+    let save_all_listener = BarItems.save_all_animations.on("use", () => {
+      if (!isHytaleFormat()) return;
+      Animation2.all.forEach((animation) => {
+        if (!animation.saved) animation.save();
+      });
+      return false;
+    });
+    track(save_all_listener);
     let original_condition = BarItems.export_animation_file.condition;
     BarItems.export_animation_file.condition = () => {
       return Condition(original_condition) && !FORMAT_IDS.includes(Format.id);

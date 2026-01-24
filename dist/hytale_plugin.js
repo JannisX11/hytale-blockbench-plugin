@@ -1440,7 +1440,9 @@
   function setupAnimation() {
     function displayVisibility(animator) {
       let group = animator.getGroup();
-      let scene_object = group.scene_object;
+      let main_shape = getMainShape(group);
+      if (!main_shape) return;
+      let scene_object = main_shape.scene_object;
       if (animator.muted.visibility) {
         scene_object.visible = group.visibility;
         return;
@@ -1474,7 +1476,12 @@
       condition: (point) => point.keyframe.channel == "visibility",
       default: true
     });
-    track(property);
+    let on_exit_anim_mode = Blockbench.on("unselect_mode", (arg) => {
+      if (isHytaleFormat() && arg.mode?.id == "animate") {
+        Canvas.updateVisibility();
+      }
+    });
+    track(property, on_exit_anim_mode);
     function weightedCubicBezier(t) {
       let P0 = 0, P1 = 0.05, P2 = 0.95, P3 = 1;
       let W0 = 2, W1 = 1, W2 = 2, W3 = 1;

@@ -2217,6 +2217,7 @@
       this.dot.renderOrder = 900;
       this.dot.visible = false;
       Canvas.scene.add(this.dot);
+      Canvas.gizmos.push(this.dot);
       this.listener = Blockbench.on("update_selection", () => this.update());
       this.cameraListener = Blockbench.on("update_camera_position", () => this.updateScale());
       this.update();

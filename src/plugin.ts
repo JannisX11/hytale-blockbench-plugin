@@ -18,6 +18,7 @@ import { setupNameOverlap } from "./name_overlap";
 import { setupUVOutline } from "./uv_outline";
 import { setupTempFixes } from './temp_fixes'
 import { setupPreviewScenes } from "./preview_scenes";
+import { setupUVCanvasResize } from "./uv_canvas_resize";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -52,6 +53,7 @@ BBPlugin.register('hytale_plugin', {
         setupUVOutline();
         setupTempFixes();
         setupPreviewScenes();
+        setupUVCanvasResize();
 
         // Collections panel setting
         let panel_setup_listener: Deletable;

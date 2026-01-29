@@ -277,5 +277,18 @@
 				]
 			}
 		]
+	},
+	"dev0.7.0": {
+		"title": "dev0.7.0",
+		"date": "2026-01-29",
+		"author": "Kanno",
+		"categories": [
+			{
+				"title": "Features",
+				"list": [
+					"Added UV Canvas Resize tool to crop and resize texture canvas"
+				]
+			}
+		]
 	}
 }

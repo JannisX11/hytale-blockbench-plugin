@@ -835,6 +835,8 @@
     Object.defineProperty(format_character, "single_texture", single_texture);
     Object.defineProperty(format_prop, "single_texture", single_texture);
     codec.format = format_character;
+    format_character.codec = codec;
+    format_prop.codec = codec;
     track(format_character);
     track(format_prop);
     Language.addTranslations("en", {

@@ -433,12 +433,9 @@
             let reference_node = getMainShape(parent_group) ?? parent_group;
             origin = reference_node.origin.slice();
             rotation = reference_node.rotation.slice();
-          } else if (parent_group instanceof Group) {
-            let parent_geo_origin = getMainShape(parent_group)?.origin ?? parent_group.origin;
-            if (parent_geo_origin) {
-              origin.V3_add(parent_geo_origin);
-              if (parent_offset) origin.V3_add(parent_offset);
-            }
+          } else if (parent_offset && parent_group instanceof Group) {
+            origin.V3_add(parent_offset);
+            origin.V3_add(parent_group.origin);
           }
           let group = null;
           if (!node.shape?.settings?.isStaticBox) {
@@ -643,7 +640,7 @@
           }
           if (node.children?.length && group instanceof Group) {
             for (let child of node.children) {
-              parseNode(child, node, group);
+              parseNode(child, node, group, offset);
             }
           }
         }

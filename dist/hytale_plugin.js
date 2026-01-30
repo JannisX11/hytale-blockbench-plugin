@@ -2262,6 +2262,9 @@
     getRelevantGroup() {
       let sel = Outliner.selected[0];
       if (!sel) return null;
+      while (sel.parent instanceof OutlinerNode && sel.parent.selected) {
+        sel = sel.parent;
+      }
       if (sel instanceof Group) {
         return sel;
       }

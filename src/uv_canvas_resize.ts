@@ -49,18 +49,17 @@ const CROP_CSS = `
     position: absolute;
     inset: 0;
     pointer-events: none;
+    overflow: hidden;
 }
 .uv_crop_grid_line {
     position: absolute;
-    background: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.2);
 }
-.uv_crop_grid_line.h1 { top: 33.33%; left: 0; right: 0; height: 1px; }
-.uv_crop_grid_line.h2 { top: 66.66%; left: 0; right: 0; height: 1px; }
-.uv_crop_grid_line.v1 { left: 33.33%; top: 0; bottom: 0; width: 1px; }
-.uv_crop_grid_line.v2 { left: 66.66%; top: 0; bottom: 0; width: 1px; }
+.uv_crop_grid_line.h { left: 0; right: 0; height: 1px; }
+.uv_crop_grid_line.v { top: 0; bottom: 0; width: 1px; }
 .uv_crop_width {
     position: absolute;
-    top: 0;
+    top: -4%;
     left: 50%;
     color: var(--color-light);
     font-size: 24px;
@@ -71,7 +70,7 @@ const CROP_CSS = `
 }
 .uv_crop_height {
     position: absolute;
-    left: 0;
+    left: -4%;
     top: 50%;
     color: var(--color-light);
     font-size: 24px;
@@ -94,9 +93,16 @@ class UVCropTool {
     private texture: Texture | null = null;
     private active = false;
     private unwatchers: (() => void)[] = [];
+    private onDeactivate: (() => void) | null = null;
+
+    constructor(onDeactivate?: () => void) {
+        this.onDeactivate = onDeactivate || null;
+    }
 
     activate() {
-        this.texture = Texture.getDefault();
+        // Get the texture currently displayed in the UV editor, not the project default
+        const uvVue = UVEditor.vue as any;
+        this.texture = uvVue?.texture || Texture.getDefault();
         if (!this.texture) {
             Blockbench.showQuickMessage('No texture selected', 2000);
             return;
@@ -122,6 +128,7 @@ class UVCropTool {
         this.removeOverlay();
         this.removeEventListeners();
         this.hideQuickMessage();
+        this.onDeactivate?.();
     }
 
     private createOverlay() {
@@ -139,12 +146,7 @@ class UVCropTool {
         this.cropBox = document.createElement('div');
         this.cropBox.className = 'uv_crop_box';
         this.cropBox.innerHTML = `
-            <div class="uv_crop_grid">
-                <div class="uv_crop_grid_line h1"></div>
-                <div class="uv_crop_grid_line h2"></div>
-                <div class="uv_crop_grid_line v1"></div>
-                <div class="uv_crop_grid_line v2"></div>
-            </div>
+            <div class="uv_crop_grid"></div>
             <div class="uv_crop_handle corner nw" data-handle="nw"></div>
             <div class="uv_crop_handle n" data-handle="n"></div>
             <div class="uv_crop_handle corner ne" data-handle="ne"></div>
@@ -159,7 +161,7 @@ class UVCropTool {
 
         this.overlay.appendChild(this.cropBox);
         this.uvFrame.appendChild(this.overlay);
-        Blockbench.showQuickMessage('Press Enter to crop\nPress Esc to cancel', 3600000);
+        Blockbench.showQuickMessage('Enter to apply, Esc to cancel, Shift for fine control', 3600000);
     }
 
     private hideQuickMessage() {
@@ -216,28 +218,73 @@ class UVCropTool {
             if (el) Object.assign(el.style, styles);
         }
 
-        // Dimension labels - inverse scale keeps them readable at any zoom
+        // Dimension labels - fixed screen size using direct font-size instead of scale transform
         const uvFactor = this.texture ? this.texture.width / this.texture.uv_width : 1;
         const pixelWidth = Math.round((this.bounds.right - this.bounds.left) * uvFactor);
         const pixelHeight = Math.round((this.bounds.bottom - this.bounds.top) * uvFactor);
-        const scale = this.getScale();
-        const inverseScale = 1 / scale;
 
         const widthEl = this.cropBox.querySelector('.uv_crop_width') as HTMLElement;
         if (widthEl) {
             widthEl.textContent = `${pixelWidth}px`;
-            widthEl.style.transform = `translateX(-50%) translateY(calc(-100% - 8px)) scale(${inverseScale})`;
+            widthEl.style.fontSize = '14px';
+            widthEl.style.transform = `translateX(-50%) translateY(calc(-100% - 4px))`;
         }
 
         const heightEl = this.cropBox.querySelector('.uv_crop_height') as HTMLElement;
         if (heightEl) {
             heightEl.textContent = `${pixelHeight}px`;
-            heightEl.style.transform = `translateX(calc(-100% - 8px)) translateY(-50%) scale(${inverseScale})`;
+            heightEl.style.fontSize = '14px';
+            heightEl.style.transform = `translateX(calc(-100% - 4px)) translateY(-50%)`;
+        }
+
+        // Update 32px snap grid
+        this.updateGrid(width, height);
+    }
+
+    private updateGrid(boxWidth: number, boxHeight: number) {
+        if (!this.cropBox || !this.texture) return;
+
+        const grid = this.cropBox.querySelector('.uv_crop_grid') as HTMLElement;
+        if (!grid) return;
+
+        // Clear existing lines
+        grid.innerHTML = '';
+
+        const uvFactor = this.texture.width / this.texture.uv_width;
+        const gridStep = 32 / uvFactor; // 32px in UV units
+        const scale = this.getScale();
+
+        // Calculate grid lines at absolute 32px positions
+        const cropWidth = this.bounds.right - this.bounds.left;
+        const cropHeight = this.bounds.bottom - this.bounds.top;
+
+        // Vertical lines (at 32px intervals from UV origin)
+        const firstV = Math.ceil(this.bounds.left / gridStep) * gridStep;
+        for (let uv = firstV; uv < this.bounds.right; uv += gridStep) {
+            if (uv <= this.bounds.left) continue;
+            const pct = ((uv - this.bounds.left) / cropWidth) * 100;
+            const line = document.createElement('div');
+            line.className = 'uv_crop_grid_line v';
+            line.style.left = `${pct}%`;
+            grid.appendChild(line);
+        }
+
+        // Horizontal lines (at 32px intervals from UV origin)
+        const firstH = Math.ceil(this.bounds.top / gridStep) * gridStep;
+        for (let uv = firstH; uv < this.bounds.bottom; uv += gridStep) {
+            if (uv <= this.bounds.top) continue;
+            const pct = ((uv - this.bounds.top) / cropHeight) * 100;
+            const line = document.createElement('div');
+            line.className = 'uv_crop_grid_line h';
+            line.style.top = `${pct}%`;
+            grid.appendChild(line);
         }
     }
 
     private handleMouseDown = (e: MouseEvent) => {
         if (!this.active) return;
+        // Let middle mouse button pass through for view panning
+        if (e.button === 1) return;
         const target = e.target as HTMLElement;
 
         if (target.classList.contains('uv_crop_handle')) {
@@ -280,9 +327,27 @@ class UVCropTool {
         };
 
         handlers[this.dragging]();
+        if (!e.shiftKey) {
+            this.snapToGrid();
+        }
         this.snapToEdges();
         this.updateDisplay();
     };
+
+    // Snap bounds to 32px grid increments
+    private snapToGrid() {
+        if (!this.texture) return;
+
+        const uvFactor = this.texture.width / this.texture.uv_width;
+        const gridStep = 32 / uvFactor; // 32px in UV units
+
+        const snap = (val: number) => Math.round(val / gridStep) * gridStep;
+
+        this.bounds.left = snap(this.bounds.left);
+        this.bounds.right = snap(this.bounds.right);
+        this.bounds.top = snap(this.bounds.top);
+        this.bounds.bottom = snap(this.bounds.bottom);
+    }
 
     // Magnetic snap to original canvas edges
     private snapToEdges() {
@@ -330,6 +395,8 @@ class UVCropTool {
             for (const prop of ['zoom', 'inner_left', 'inner_top']) {
                 this.unwatchers.push(vue.$watch(prop, () => this.updateDisplay()));
             }
+            // Cancel if texture changes (user clicked different element/attachment)
+            this.unwatchers.push(vue.$watch('texture', () => this.deactivate()));
         }
     }
 
@@ -348,26 +415,37 @@ class UVCropTool {
 
         const selectedTexture = this.texture;
 
-        // Determine context: if texture belongs to attachment, only affect that attachment
-        const collectionsUsingTexture = Collection.all.filter(c =>
-            (c as AttachmentCollection).texture === selectedTexture.uuid
-        );
-        const isAttachmentTexture = collectionsUsingTexture.length > 0;
+        // Check if this texture belongs to a TextureGroup (attachment textures are grouped)
+        const textureGroupUuid = (selectedTexture as any).group as string | undefined;
+        const isAttachmentTexture = !!textureGroupUuid;
 
         let texturesToCrop: Texture[];
         let elementsToAffect: OutlinerElement[];
 
         if (isAttachmentTexture) {
-            texturesToCrop = [selectedTexture];
+            // Get ALL textures in the same TextureGroup
+            texturesToCrop = Texture.all.filter(t => (t as any).group === textureGroupUuid);
+
+            // Find collections that use any of these textures
+            const relatedCollections = Collection.all.filter(c => {
+                const collectionTexUuid = (c as AttachmentCollection).texture;
+                return texturesToCrop.some(t => t.uuid === collectionTexUuid);
+            });
+
+            // Get elements in those collections
             elementsToAffect = Outliner.elements.filter(el =>
-                collectionsUsingTexture.some(c => c.contains(el))
+                relatedCollections.some(c => c.contains(el))
             );
         } else {
-            // Main model: affect all textures not assigned to any collection
+            // Not in a texture group - crop all textures that are also not in any collection
+            // A texture is "in a collection" if it's in a TextureGroup OR assigned to a Collection
             const collectionTextureUuids = new Set(
                 Collection.all.map(c => (c as AttachmentCollection).texture).filter(Boolean)
             );
-            texturesToCrop = Texture.all.filter(t => !collectionTextureUuids.has(t.uuid));
+            texturesToCrop = Texture.all.filter(t =>
+                !(t as any).group && !collectionTextureUuids.has(t.uuid)
+            );
+            // Affect elements not in any collection
             elementsToAffect = Outliner.elements.filter(el =>
                 !Collection.all.some(c => c.contains(el))
             );
@@ -450,24 +528,36 @@ class UVCropTool {
 }
 
 let cropTool: UVCropTool | null = null;
+let resizeToggle: Toggle | null = null;
 
 export function setupUVCanvasResize() {
     const style = Blockbench.addCSS(CROP_CSS);
     track(style);
 
-    cropTool = new UVCropTool();
+    cropTool = new UVCropTool(() => {
+        resizeToggle?.set(false);
+    });
 
-    const action = new Action('hytale_resize_uv_canvas', {
+    resizeToggle = new Toggle('hytale_resize_uv_canvas', {
         name: 'Resize UV Canvas',
         icon: 'crop',
         category: 'uv',
         condition: { formats: FORMAT_IDS },
-        click: () => cropTool?.activate()
+        onChange: (value) => {
+            if (value) {
+                cropTool?.activate();
+            } else {
+                cropTool?.deactivate();
+            }
+        }
     });
-    track(action);
+    track(resizeToggle);
 
-    MenuBar.menus.edit.addAction(action, '5');
+    (Toolbars as any).uv_editor?.add(resizeToggle, 0);
 
-    track(Blockbench.on('select_project', () => cropTool?.deactivate()));
-    track({ delete: () => { cropTool?.deactivate(); cropTool = null; } });
+    track(Blockbench.on('select_project', () => {
+        cropTool?.deactivate();
+        resizeToggle?.set(false);
+    }));
+    track({ delete: () => { cropTool?.deactivate(); cropTool = null; resizeToggle = null; } });
 }

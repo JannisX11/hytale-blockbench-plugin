@@ -4,6 +4,7 @@
 import { track } from "./cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
 import { discoverTexturePaths } from "./blockymodel";
+import { copyAnimationToGroupsWithSameName } from "./name_overlap";
 import {
 	AttachmentCollection,
 	setupAttachmentTextures,
@@ -12,6 +13,70 @@ import {
 
 export { AttachmentCollection } from "./attachment_texture";
 export let reload_all_attachments: Action;
+
+// @ts-expect-error
+const Animation = window.Animation as typeof _Animation;
+
+// Store orphaned keyframe data on animations so it persists when bones are deleted
+// Maps animation -> bone name -> keyframe data
+const orphanedAnimatorData: WeakMap<_Animation, Map<string, object[]>> = new WeakMap();
+
+/** Gets orphaned animator data for an animation (used by blockyanim when saving) */
+export function getOrphanedAnimatorData(animation: _Animation): Map<string, object[]> | undefined {
+	return orphanedAnimatorData.get(animation);
+}
+
+/** Saves animator data for groups being deleted, so keyframes persist in saved animations */
+function saveOrphanedAnimatorData(groupUuidsToRemove: Set<string>) {
+	for (let animation of Animation.all) {
+		for (let uuid in animation.animators) {
+			if (!groupUuidsToRemove.has(uuid)) continue;
+
+			let animator = animation.animators[uuid];
+			if (!(animator instanceof BoneAnimator)) continue;
+			if (!animator.keyframes.length) continue;
+
+			let name = animator.name;
+			if (!name) continue;
+
+			// Get or create the orphaned data map for this animation
+			if (!orphanedAnimatorData.has(animation)) {
+				orphanedAnimatorData.set(animation, new Map());
+			}
+			let animOrphans = orphanedAnimatorData.get(animation)!;
+
+			// Save keyframe data
+			let keyframeData = animator.keyframes.map(kf => kf.getUndoCopy());
+			animOrphans.set(name, keyframeData);
+
+		}
+	}
+}
+
+/** Restores saved animation data to newly loaded groups by matching names. */
+function restoreAnimatorsToNewGroups(
+	new_groups: Group[],
+	savedAnimators: Map<string, {animation: _Animation, keyframes: _Keyframe[]}[]>
+) {
+	let group_by_name: Record<string, Group> = {};
+	for (let group of new_groups) {
+		group_by_name[group.name] = group;
+	}
+
+	for (let [name, animatorDataList] of savedAnimators) {
+		let new_group = group_by_name[name];
+		if (!new_group) continue;
+
+		for (let {animation, keyframes} of animatorDataList) {
+			let animator = animation.getBoneAnimator(new_group);
+			for (let kfData of keyframes) {
+				animator.addKeyframe(kfData, kfData.uuid);
+			}
+			// Propagate to all other groups with the same name
+			copyAnimationToGroupsWithSameName(animation, new_group);
+		}
+	}
+}
 
 export function setupAttachments() {
 	setupAttachmentTextures();
@@ -26,14 +91,14 @@ export function setupAttachments() {
 			let remove_groups: Group[] = [];
 			let textures: Texture[] = [];
 			let texture_groups: TextureGroup[] = [];
-			
+
 			for (let collection of collections) {
 				if (collection.export_codec === 'blockymodel') {
 					for (let child of collection.getAllChildren()) {
 						child = child as OutlinerNode;
 						(child instanceof Group ? remove_groups : remove_elements).safePush(child);
 					}
-					
+
 					let texture_group = TextureGroup.all.find(tg => tg.name === collection.name);
 					if (texture_group) {
 						let textures2 = Texture.all.filter(t => t.group === texture_group.uuid);
@@ -42,6 +107,10 @@ export function setupAttachments() {
 					}
 				}
 			}
+
+			// Save animation data for bones being deleted BEFORE removal
+			let groupUuidsToRemove = new Set(remove_groups.map(g => g.uuid));
+			saveOrphanedAnimatorData(groupUuidsToRemove);
 
 			Undo.initEdit({
 				collections: collections,
@@ -128,6 +197,29 @@ export function setupAttachments() {
 	toolbar.add(import_as_attachment);
 
 	function reloadAttachment(collection: Collection) {
+		// Save animation data for attachment bones BEFORE removing groups
+		let savedAnimators: Map<string, {animation: _Animation, keyframes: _Keyframe[]}[]> = new Map();
+		let attachmentGroupUuids = new Set<string>();
+		for (let child of collection.getAllChildren()) {
+			if (child instanceof Group) attachmentGroupUuids.add(child.uuid);
+		}
+
+		for (let animation of Animation.all) {
+			for (let uuid in animation.animators) {
+				if (!attachmentGroupUuids.has(uuid)) continue;
+				let animator = animation.animators[uuid];
+				if (!(animator instanceof BoneAnimator)) continue;
+				if (!animator.keyframes.length) continue;
+
+				let name = animator.name;
+				if (!savedAnimators.has(name)) savedAnimators.set(name, []);
+				savedAnimators.get(name)!.push({
+					animation,
+					keyframes: animator.keyframes.map(kf => kf.getUndoCopy())
+				});
+			}
+		}
+
 		for (let child of collection.getChildren()) {
 			child.remove();
 		}
@@ -143,6 +235,8 @@ export function setupAttachments() {
 				children: root_groups.map(g => g.uuid),
 			}).add();
 
+			// Restore animation data to new groups
+			restoreAnimatorsToNewGroups(new_groups, savedAnimators);
 			Canvas.updateAllFaces();
 		})
 	}

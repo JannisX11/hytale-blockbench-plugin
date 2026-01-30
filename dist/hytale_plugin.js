@@ -940,248 +940,6 @@
     track(override, setting);
   }
 
-  // src/blockyanim.ts
-  var FPS = 60;
-  var Animation2 = window.Animation;
-  function parseAnimationFile(file, content) {
-    let animation = new Animation2({
-      name: pathToName(file.name, false),
-      length: content.duration / FPS,
-      loop: content.holdLastKeyframe ? "hold" : "loop",
-      path: file.path,
-      snapping: FPS
-    });
-    let quaternion = new THREE.Quaternion();
-    let euler = new THREE.Euler(0, 0, 0, "ZYX");
-    for (let name in content.nodeAnimations) {
-      let anim_data = content.nodeAnimations[name];
-      let group_name = name;
-      let group = Group.all.find((g) => g.name == group_name);
-      let uuid = group ? group.uuid : guid();
-      let ba = new BoneAnimator(uuid, animation, group_name);
-      animation.animators[uuid] = ba;
-      const anim_channels = [
-        { channel: "rotation", keyframes: anim_data.orientation },
-        { channel: "position", keyframes: anim_data.position },
-        { channel: "scale", keyframes: anim_data.shapeStretch },
-        { channel: "visibility", keyframes: anim_data.shapeVisible }
-      ];
-      for (let { channel, keyframes } of anim_channels) {
-        if (!keyframes || keyframes.length == 0) continue;
-        for (let kf_data of keyframes) {
-          let data_point;
-          if (channel == "visibility") {
-            data_point = {
-              visibility: kf_data.delta
-            };
-          } else {
-            let delta = kf_data.delta;
-            if (channel == "rotation") {
-              quaternion.set(delta.x, delta.y, delta.z, delta.w);
-              euler.setFromQuaternion(quaternion.normalize(), "ZYX");
-              data_point = {
-                x: Math.radToDeg(euler.x),
-                y: Math.radToDeg(euler.y),
-                z: Math.radToDeg(euler.z)
-              };
-            } else {
-              data_point = {
-                x: delta.x,
-                y: delta.y,
-                z: delta.z
-              };
-            }
-          }
-          ba.addKeyframe({
-            time: kf_data.time / FPS,
-            channel,
-            interpolation: kf_data.interpolationType == "smooth" ? "catmullrom" : "linear",
-            data_points: [data_point]
-          });
-        }
-      }
-      if (group) copyAnimationToGroupsWithSameName(animation, group);
-    }
-    animation.add(false);
-    if (!Animation2.selected && Animator.open) {
-      animation.select();
-    }
-  }
-  function compileAnimationFile(animation) {
-    const nodeAnimations = {};
-    const file = {
-      formatVersion: 1,
-      duration: Math.round(animation.length * FPS),
-      holdLastKeyframe: animation.loop == "hold",
-      nodeAnimations
-    };
-    const channels = {
-      position: "position",
-      rotation: "orientation",
-      scale: "shapeStretch",
-      visibility: "shapeVisible"
-    };
-    for (let uuid in animation.animators) {
-      let animator = animation.animators[uuid];
-      if (!animator.group) continue;
-      let name = animator.name;
-      let node_data = {};
-      let has_data = false;
-      for (let channel in channels) {
-        let timeline;
-        let hytale_channel_key = channels[channel];
-        timeline = timeline = node_data[hytale_channel_key] = [];
-        let keyframe_list = animator[channel].slice();
-        keyframe_list.sort((a, b) => a.time - b.time);
-        for (let kf of keyframe_list) {
-          let data_point = kf.data_points[0];
-          let delta;
-          if (channel == "visibility") {
-            delta = data_point.visibility;
-          } else {
-            delta = {
-              x: parseFloat(data_point.x),
-              y: parseFloat(data_point.y),
-              z: parseFloat(data_point.z)
-            };
-            if (channel == "rotation") {
-              let euler = new THREE.Euler(
-                Math.degToRad(kf.calc("x")),
-                Math.degToRad(kf.calc("y")),
-                Math.degToRad(kf.calc("z")),
-                Format.euler_order
-              );
-              let quaternion = new THREE.Quaternion().setFromEuler(euler);
-              delta = {
-                x: quaternion.x,
-                y: quaternion.y,
-                z: quaternion.z,
-                w: quaternion.w
-              };
-            }
-            delta = new oneLiner(delta);
-          }
-          let kf_output = {
-            time: Math.round(kf.time * FPS),
-            delta,
-            interpolationType: kf.interpolation == "catmullrom" ? "smooth" : "linear"
-          };
-          timeline.push(kf_output);
-          has_data = true;
-        }
-      }
-      if (has_data) {
-        node_data.shapeUvOffset = [];
-        nodeAnimations[name] = node_data;
-      }
-    }
-    return file;
-  }
-  function setupAnimationCodec() {
-    BarItems.load_animation_file.click = function(...args) {
-      if (FORMAT_IDS.includes(Format.id)) {
-        Filesystem.importFile({
-          resource_id: "blockyanim",
-          extensions: ["blockyanim"],
-          type: "Blockyanim",
-          multiple: true
-        }, async function(files) {
-          for (let file of files) {
-            let content = autoParseJSON(file.content);
-            parseAnimationFile(file, content);
-          }
-        });
-        return;
-      } else {
-        this.dispatchEvent("use");
-        this.onClick(...args);
-        this.dispatchEvent("used");
-      }
-    };
-    let export_anim = new Action("export_blockyanim", {
-      name: "Export Blockyanim",
-      icon: "cinematic_blur",
-      condition: { formats: FORMAT_IDS, selected: { animation: true } },
-      click() {
-        let animation;
-        animation = Animation2.selected;
-        let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
-        Filesystem.exportFile({
-          resource_id: "blockyanim",
-          type: "Blockyanim",
-          extensions: ["blockyanim"],
-          name: animation.name,
-          content
-        });
-      }
-    });
-    track(export_anim);
-    MenuBar.menus.animation.addAction(export_anim);
-    Panels.animations.toolbars[0].add(export_anim, "4");
-    let handler = Filesystem.addDragHandler("blockyanim", {
-      extensions: ["blockyanim"],
-      readtype: "text",
-      condition: { modes: ["animate"] }
-    }, async function(files) {
-      for (let file of files) {
-        let content = autoParseJSON(file.content);
-        parseAnimationFile(file, content);
-      }
-    });
-    track(handler);
-    let original_save = Animation2.prototype.save;
-    Animation2.prototype.save = function(...args) {
-      if (!FORMAT_IDS.includes(Format.id)) {
-        return original_save.call(this, ...args);
-      }
-      let animation;
-      animation = this;
-      let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
-      if (isApp && this.path) {
-        Blockbench.writeFile(this.path, { content }, (real_path) => {
-          this.saved = true;
-          this.saved_name = this.name;
-          this.path = real_path;
-        });
-      } else {
-        Blockbench.export({
-          resource_id: "blockyanim",
-          type: "Blockyanim",
-          extensions: ["blockyanim"],
-          name: animation.name,
-          startpath: this.path,
-          content
-        }, (real_path) => {
-          if (isApp) this.path == real_path;
-          this.saved = true;
-        });
-      }
-      return this;
-    };
-    track({
-      delete() {
-        Animation2.prototype.save = original_save;
-      }
-    });
-    let save_all_listener = BarItems.save_all_animations.on("use", () => {
-      if (!isHytaleFormat()) return;
-      Animation2.all.forEach((animation) => {
-        if (!animation.saved) animation.save();
-      });
-      return false;
-    });
-    track(save_all_listener);
-    let original_condition = BarItems.export_animation_file.condition;
-    BarItems.export_animation_file.condition = () => {
-      return Condition(original_condition) && !FORMAT_IDS.includes(Format.id);
-    };
-    track({
-      delete() {
-        BarItems.export_animation_file.condition = original_condition;
-      }
-    });
-  }
-
   // src/texture.ts
   function updateUVSize(texture) {
     let size = [texture.width, texture.display_height];
@@ -1309,6 +1067,46 @@
 
   // src/attachments.ts
   var reload_all_attachments;
+  var Animation2 = window.Animation;
+  var orphanedAnimatorData = /* @__PURE__ */ new WeakMap();
+  function getOrphanedAnimatorData(animation) {
+    return orphanedAnimatorData.get(animation);
+  }
+  function saveOrphanedAnimatorData(groupUuidsToRemove) {
+    for (let animation of Animation2.all) {
+      for (let uuid in animation.animators) {
+        if (!groupUuidsToRemove.has(uuid)) continue;
+        let animator = animation.animators[uuid];
+        if (!(animator instanceof BoneAnimator)) continue;
+        if (!animator.keyframes.length) continue;
+        let name = animator.name;
+        if (!name) continue;
+        if (!orphanedAnimatorData.has(animation)) {
+          orphanedAnimatorData.set(animation, /* @__PURE__ */ new Map());
+        }
+        let animOrphans = orphanedAnimatorData.get(animation);
+        let keyframeData = animator.keyframes.map((kf) => kf.getUndoCopy());
+        animOrphans.set(name, keyframeData);
+      }
+    }
+  }
+  function restoreAnimatorsToNewGroups(new_groups, savedAnimators) {
+    let group_by_name = {};
+    for (let group of new_groups) {
+      group_by_name[group.name] = group;
+    }
+    for (let [name, animatorDataList] of savedAnimators) {
+      let new_group = group_by_name[name];
+      if (!new_group) continue;
+      for (let { animation, keyframes } of animatorDataList) {
+        let animator = animation.getBoneAnimator(new_group);
+        for (let kfData of keyframes) {
+          animator.addKeyframe(kfData, kfData.uuid);
+        }
+        copyAnimationToGroupsWithSameName(animation, new_group);
+      }
+    }
+  }
   function setupAttachments() {
     setupAttachmentTextures();
     let shared_delete = SharedActions.add("delete", {
@@ -1335,6 +1133,8 @@
             }
           }
         }
+        let groupUuidsToRemove = new Set(remove_groups.map((g) => g.uuid));
+        saveOrphanedAnimatorData(groupUuidsToRemove);
         Undo.initEdit({
           collections,
           groups: remove_groups,
@@ -1406,6 +1206,25 @@
     let toolbar = Panels.collections.toolbars[0];
     toolbar.add(import_as_attachment);
     function reloadAttachment(collection) {
+      let savedAnimators = /* @__PURE__ */ new Map();
+      let attachmentGroupUuids = /* @__PURE__ */ new Set();
+      for (let child of collection.getAllChildren()) {
+        if (child instanceof Group) attachmentGroupUuids.add(child.uuid);
+      }
+      for (let animation of Animation2.all) {
+        for (let uuid in animation.animators) {
+          if (!attachmentGroupUuids.has(uuid)) continue;
+          let animator = animation.animators[uuid];
+          if (!(animator instanceof BoneAnimator)) continue;
+          if (!animator.keyframes.length) continue;
+          let name = animator.name;
+          if (!savedAnimators.has(name)) savedAnimators.set(name, []);
+          savedAnimators.get(name).push({
+            animation,
+            keyframes: animator.keyframes.map((kf) => kf.getUndoCopy())
+          });
+        }
+      }
       for (let child of collection.getChildren()) {
         child.remove();
       }
@@ -1417,6 +1236,7 @@
         collection.extend({
           children: root_groups.map((g) => g.uuid)
         }).add();
+        restoreAnimatorsToNewGroups(new_groups, savedAnimators);
         Canvas.updateAllFaces();
       });
     }
@@ -1444,6 +1264,303 @@
     });
     track(reload_all_attachments);
     toolbar.add(reload_all_attachments);
+  }
+
+  // src/blockyanim.ts
+  var FPS = 60;
+  var Animation3 = window.Animation;
+  function parseAnimationFile(file, content) {
+    let animation = new Animation3({
+      name: pathToName(file.name, false),
+      length: content.duration / FPS,
+      loop: content.holdLastKeyframe ? "hold" : "loop",
+      path: file.path,
+      snapping: FPS
+    });
+    let quaternion = new THREE.Quaternion();
+    let euler = new THREE.Euler(0, 0, 0, "ZYX");
+    for (let name in content.nodeAnimations) {
+      let anim_data = content.nodeAnimations[name];
+      let group_name = name;
+      let group = Group.all.find((g) => g.name == group_name);
+      let uuid = group ? group.uuid : guid();
+      let ba = new BoneAnimator(uuid, animation, group_name);
+      animation.animators[uuid] = ba;
+      const anim_channels = [
+        { channel: "rotation", keyframes: anim_data.orientation },
+        { channel: "position", keyframes: anim_data.position },
+        { channel: "scale", keyframes: anim_data.shapeStretch },
+        { channel: "visibility", keyframes: anim_data.shapeVisible }
+      ];
+      for (let { channel, keyframes } of anim_channels) {
+        if (!keyframes || keyframes.length == 0) continue;
+        for (let kf_data of keyframes) {
+          let data_point;
+          if (channel == "visibility") {
+            data_point = {
+              visibility: kf_data.delta
+            };
+          } else {
+            let delta = kf_data.delta;
+            if (channel == "rotation") {
+              quaternion.set(delta.x, delta.y, delta.z, delta.w);
+              euler.setFromQuaternion(quaternion.normalize(), "ZYX");
+              data_point = {
+                x: Math.radToDeg(euler.x),
+                y: Math.radToDeg(euler.y),
+                z: Math.radToDeg(euler.z)
+              };
+            } else {
+              data_point = {
+                x: delta.x,
+                y: delta.y,
+                z: delta.z
+              };
+            }
+          }
+          ba.addKeyframe({
+            time: kf_data.time / FPS,
+            channel,
+            interpolation: kf_data.interpolationType == "smooth" ? "catmullrom" : "linear",
+            data_points: [data_point]
+          });
+        }
+      }
+      if (group) copyAnimationToGroupsWithSameName(animation, group);
+    }
+    animation.add(false);
+    if (!Animation3.selected && Animator.open) {
+      animation.select();
+    }
+  }
+  function compileAnimationFile(animation) {
+    const nodeAnimations = {};
+    const file = {
+      formatVersion: 1,
+      duration: Math.round(animation.length * FPS),
+      holdLastKeyframe: animation.loop == "hold",
+      nodeAnimations
+    };
+    const channels = {
+      position: "position",
+      rotation: "orientation",
+      scale: "shapeStretch",
+      visibility: "shapeVisible"
+    };
+    for (let uuid in animation.animators) {
+      let animator = animation.animators[uuid];
+      let name = animator.name;
+      if (!name) continue;
+      let node_data = {};
+      let has_data = false;
+      for (let channel in channels) {
+        let timeline;
+        let hytale_channel_key = channels[channel];
+        timeline = timeline = node_data[hytale_channel_key] = [];
+        let keyframe_list = animator[channel].slice();
+        keyframe_list.sort((a, b) => a.time - b.time);
+        for (let kf of keyframe_list) {
+          let data_point = kf.data_points[0];
+          let delta;
+          if (channel == "visibility") {
+            delta = data_point.visibility;
+          } else {
+            delta = {
+              x: parseFloat(data_point.x),
+              y: parseFloat(data_point.y),
+              z: parseFloat(data_point.z)
+            };
+            if (channel == "rotation") {
+              let euler = new THREE.Euler(
+                Math.degToRad(kf.calc("x")),
+                Math.degToRad(kf.calc("y")),
+                Math.degToRad(kf.calc("z")),
+                Format.euler_order
+              );
+              let quaternion = new THREE.Quaternion().setFromEuler(euler);
+              delta = {
+                x: quaternion.x,
+                y: quaternion.y,
+                z: quaternion.z,
+                w: quaternion.w
+              };
+            }
+            delta = new oneLiner(delta);
+          }
+          let kf_output = {
+            time: Math.round(kf.time * FPS),
+            delta,
+            interpolationType: kf.interpolation == "catmullrom" ? "smooth" : "linear"
+          };
+          timeline.push(kf_output);
+          has_data = true;
+        }
+      }
+      if (has_data) {
+        node_data.shapeUvOffset = [];
+        nodeAnimations[name] = node_data;
+      }
+    }
+    let orphanedData = getOrphanedAnimatorData(animation);
+    if (orphanedData) {
+      for (let [name, keyframes] of orphanedData) {
+        if (nodeAnimations[name]) continue;
+        let node_data = {};
+        let has_data = false;
+        for (let channel in channels) {
+          let timeline = [];
+          let hytale_channel_key = channels[channel];
+          node_data[hytale_channel_key] = timeline;
+          let channel_keyframes = keyframes.filter((kf) => kf.channel === channel);
+          channel_keyframes.sort((a, b) => a.time - b.time);
+          for (let kf of channel_keyframes) {
+            let data_point = kf.data_points[0];
+            let delta;
+            if (channel == "visibility") {
+              delta = data_point.visibility;
+            } else {
+              delta = {
+                x: parseFloat(data_point.x),
+                y: parseFloat(data_point.y),
+                z: parseFloat(data_point.z)
+              };
+              if (channel == "rotation") {
+                let euler = new THREE.Euler(
+                  Math.degToRad(parseFloat(data_point.x)),
+                  Math.degToRad(parseFloat(data_point.y)),
+                  Math.degToRad(parseFloat(data_point.z)),
+                  "ZYX"
+                );
+                let quaternion = new THREE.Quaternion().setFromEuler(euler);
+                delta = {
+                  x: quaternion.x,
+                  y: quaternion.y,
+                  z: quaternion.z,
+                  w: quaternion.w
+                };
+              }
+              delta = new oneLiner(delta);
+            }
+            let kf_output = {
+              time: Math.round(kf.time * FPS),
+              delta,
+              interpolationType: kf.interpolation == "catmullrom" ? "smooth" : "linear"
+            };
+            timeline.push(kf_output);
+            has_data = true;
+          }
+        }
+        if (has_data) {
+          node_data.shapeUvOffset = [];
+          nodeAnimations[name] = node_data;
+        }
+      }
+    }
+    return file;
+  }
+  function setupAnimationCodec() {
+    BarItems.load_animation_file.click = function(...args) {
+      if (FORMAT_IDS.includes(Format.id)) {
+        Filesystem.importFile({
+          resource_id: "blockyanim",
+          extensions: ["blockyanim"],
+          type: "Blockyanim",
+          multiple: true
+        }, async function(files) {
+          for (let file of files) {
+            let content = autoParseJSON(file.content);
+            parseAnimationFile(file, content);
+          }
+        });
+        return;
+      } else {
+        this.dispatchEvent("use");
+        this.onClick(...args);
+        this.dispatchEvent("used");
+      }
+    };
+    let export_anim = new Action("export_blockyanim", {
+      name: "Export Blockyanim",
+      icon: "cinematic_blur",
+      condition: { formats: FORMAT_IDS, selected: { animation: true } },
+      click() {
+        let animation;
+        animation = Animation3.selected;
+        let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
+        Filesystem.exportFile({
+          resource_id: "blockyanim",
+          type: "Blockyanim",
+          extensions: ["blockyanim"],
+          name: animation.name,
+          content
+        });
+      }
+    });
+    track(export_anim);
+    MenuBar.menus.animation.addAction(export_anim);
+    Panels.animations.toolbars[0].add(export_anim, "4");
+    let handler = Filesystem.addDragHandler("blockyanim", {
+      extensions: ["blockyanim"],
+      readtype: "text",
+      condition: { modes: ["animate"] }
+    }, async function(files) {
+      for (let file of files) {
+        let content = autoParseJSON(file.content);
+        parseAnimationFile(file, content);
+      }
+    });
+    track(handler);
+    let original_save = Animation3.prototype.save;
+    Animation3.prototype.save = function(...args) {
+      if (!FORMAT_IDS.includes(Format.id)) {
+        return original_save.call(this, ...args);
+      }
+      let animation;
+      animation = this;
+      let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
+      if (isApp && this.path) {
+        Blockbench.writeFile(this.path, { content }, (real_path) => {
+          this.saved = true;
+          this.saved_name = this.name;
+          this.path = real_path;
+        });
+      } else {
+        Blockbench.export({
+          resource_id: "blockyanim",
+          type: "Blockyanim",
+          extensions: ["blockyanim"],
+          name: animation.name,
+          startpath: this.path,
+          content
+        }, (real_path) => {
+          if (isApp) this.path == real_path;
+          this.saved = true;
+        });
+      }
+      return this;
+    };
+    track({
+      delete() {
+        Animation3.prototype.save = original_save;
+      }
+    });
+    let save_all_listener = BarItems.save_all_animations.on("use", () => {
+      if (!isHytaleFormat()) return;
+      Animation3.all.forEach((animation) => {
+        if (!animation.saved) animation.save();
+      });
+      return false;
+    });
+    track(save_all_listener);
+    let original_condition = BarItems.export_animation_file.condition;
+    BarItems.export_animation_file.condition = () => {
+      return Condition(original_condition) && !FORMAT_IDS.includes(Format.id);
+    };
+    track({
+      delete() {
+        BarItems.export_animation_file.condition = original_condition;
+      }
+    });
   }
 
   // src/animations.ts

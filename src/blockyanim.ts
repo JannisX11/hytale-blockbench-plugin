@@ -5,6 +5,7 @@ import { copyAnimationToGroupsWithSameName } from "./name_overlap";
 import { track } from "./cleanup";
 import { Config } from "./config";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
+import { getOrphanedAnimatorData } from "./attachments";
 
 const FPS = 60;
 // @ts-expect-error
@@ -118,8 +119,8 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 	}
 	for (let uuid in animation.animators) {
 		let animator = animation.animators[uuid];
-		if (!animator.group) continue;
 		let name = animator.name;
+		if (!name) continue;
 		let node_data: IAnimationObject = {};
 		let has_data = false;
 
@@ -172,6 +173,69 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 			nodeAnimations[name] = node_data;
 		}
 	}
+
+	// Include orphaned animator data (from deleted attachments)
+	let orphanedData = getOrphanedAnimatorData(animation);
+	if (orphanedData) {
+		for (let [name, keyframes] of orphanedData) {
+			// Skip if we already have data for this bone (active animator takes priority)
+			if (nodeAnimations[name]) continue;
+
+			let node_data: IAnimationObject = {};
+			let has_data = false;
+
+			for (let channel in channels) {
+				let timeline: IKeyframe[] = [];
+				let hytale_channel_key = channels[channel];
+				node_data[hytale_channel_key] = timeline;
+
+				let channel_keyframes = keyframes.filter((kf: any) => kf.channel === channel);
+				channel_keyframes.sort((a: any, b: any) => a.time - b.time);
+
+				for (let kf of channel_keyframes as any[]) {
+					let data_point = kf.data_points[0];
+					let delta: any;
+					if (channel == 'visibility') {
+						delta = data_point.visibility;
+					} else {
+						delta = {
+							x: parseFloat(data_point.x),
+							y: parseFloat(data_point.y),
+							z: parseFloat(data_point.z),
+						};
+						if (channel == 'rotation') {
+							let euler = new THREE.Euler(
+								Math.degToRad(parseFloat(data_point.x)),
+								Math.degToRad(parseFloat(data_point.y)),
+								Math.degToRad(parseFloat(data_point.z)),
+								'ZYX',
+							);
+							let quaternion = new THREE.Quaternion().setFromEuler(euler);
+							delta = {
+								x: quaternion.x,
+								y: quaternion.y,
+								z: quaternion.z,
+								w: quaternion.w,
+							};
+						}
+						delta = new oneLiner(delta);
+					}
+					let kf_output: IKeyframe = {
+						time: Math.round(kf.time * FPS),
+						delta,
+						interpolationType: kf.interpolation == 'catmullrom' ? 'smooth' : 'linear'
+					};
+					timeline.push(kf_output);
+					has_data = true;
+				}
+			}
+			if (has_data) {
+				node_data.shapeUvOffset = [];
+				nodeAnimations[name] = node_data;
+			}
+		}
+	}
+
 	return file;
 }
 

@@ -55,6 +55,7 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 			{ channel: 'position', keyframes: anim_data.position },
 			{ channel: 'scale', keyframes: anim_data.shapeStretch },
 			{ channel: 'visibility', keyframes: anim_data.shapeVisible },
+			{ channel: 'uv_offset', keyframes: anim_data.shapeUvOffset },
 		]
 		for (let {channel, keyframes} of anim_channels) {
 			if (!keyframes || keyframes.length == 0) continue;
@@ -64,6 +65,12 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 				if (channel == 'visibility') {
 					data_point = {
 						visibility: kf_data.delta as boolean
+					}
+				} else if (channel == 'uv_offset') {
+					let delta = kf_data.delta as {x: number, y: number};
+					data_point = {
+						x: delta.x,
+						y: -delta.y,
 					}
 				} else {
 					let delta = kf_data.delta as {x: number, y: number, z: number, w?: number};
@@ -115,6 +122,7 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 		rotation: 'orientation',
 		scale: 'shapeStretch',
 		visibility: 'shapeVisible',
+		uv_offset: 'shapeUvOffset',
 	}
 	for (let uuid in animation.animators) {
 		let animator = animation.animators[uuid];
@@ -134,6 +142,12 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 				let delta: any;
 				if (channel == 'visibility') {
 					delta = data_point.visibility;
+				} else if (channel == 'uv_offset') {
+					delta = {
+						x: parseFloat(data_point.x),
+						y: -parseFloat(data_point.y),
+					};
+					delta = new oneLiner(delta);
 				} else {
 					delta = {
 						x: parseFloat(data_point.x),
@@ -163,12 +177,15 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 					delta,
 					interpolationType: kf.interpolation == 'catmullrom' ? 'smooth' : 'linear'
 				};
+				if (channel == 'uv_offset') console.log(kf_output)
 				timeline.push(kf_output);
 				has_data = true;
 			}
 		}
 		if (has_data) {
-			node_data.shapeUvOffset = [];
+			if (!node_data.shapeUvOffset) {
+				node_data.shapeUvOffset = [];
+			}
 			nodeAnimations[name] = node_data;
 		}
 	}

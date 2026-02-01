@@ -283,7 +283,7 @@ export function setupBlockymodelCodec(): Codec {
 				}
 				node.shape.stretch = formatVector(stretch);
 
-				node.shape.visible = true;
+				node.shape.visible = cube.visibility;
 				node.shape.doubleSided = cube.double_sided == true;
 				node.shape.shadingMode = cube.shading_mode;
 				node.shape.unwrapMode = 'custom';
@@ -388,6 +388,9 @@ export function setupBlockymodelCodec(): Codec {
 			}
 
 			function compileNode(element: Group | Cube, name: string = element.name): BlockymodelNode | undefined {
+				// Check the Export toggle immediately
+    			if (!element.export) return undefined;
+
 				// Filter attachment
 				if (!options.attachment) {
 					let collection = Collection.all.find(c => c.contains(element));
@@ -429,7 +432,7 @@ export function setupBlockymodelCodec(): Codec {
 						},
 						textureLayout: {},
 						unwrapMode: "custom",
-						visible: true,
+						visible: element.visibility,
 						doubleSided: false,
 						shadingMode: "flat"
 					},
@@ -442,6 +445,7 @@ export function setupBlockymodelCodec(): Codec {
 					let shape_count = 0;
 					let child_cube_count = 0;
 					for (let child of element.children ?? []) {
+						if (!child.export) continue;
 						let result: BlockymodelNode;
 						if (qualifiesAsMainShape(child) && shape_count == 0) {
 							turnNodeIntoBox(node, child as CubeHytale, element);

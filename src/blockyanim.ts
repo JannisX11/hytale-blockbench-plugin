@@ -4,7 +4,7 @@
 import { copyAnimationToGroupsWithSameName } from "./name_overlap";
 import { track } from "./cleanup";
 import { Config } from "./config";
-import { FORMAT_IDS } from "./formats";
+import { FORMAT_IDS, isHytaleFormat } from "./formats";
 
 const FPS = 60;
 // @ts-expect-error
@@ -113,7 +113,7 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 	const nodeAnimations: Record<string, IAnimationObject> = {};
 	const file: IBlockyAnimJSON = {
 		formatVersion: 1,
-		duration: animation.length * FPS,
+		duration: Math.round(animation.length * FPS),
 		holdLastKeyframe: animation.loop == 'hold',
 		nodeAnimations,
 	}
@@ -258,7 +258,7 @@ export function setupAnimationCodec() {
 
 		let animation: _Animation;
 		// @ts-ignore
-		animation = Animation.selected;
+		animation = this;
 		let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
 
 		if (isApp && this.path) {
@@ -288,6 +288,14 @@ export function setupAnimationCodec() {
 			Animation.prototype.save = original_save;
 		}
 	});
+	let save_all_listener = BarItems.save_all_animations.on('use', () => {
+		if (!isHytaleFormat()) return;
+		Animation.all.forEach(animation => {
+			if (!animation.saved) animation.save();
+		});
+		return false;
+	});
+	track(save_all_listener as unknown as Deletable);
 
 	let original_condition = BarItems.export_animation_file.condition;
 	BarItems.export_animation_file.condition = () => {

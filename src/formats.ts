@@ -31,8 +31,9 @@ export function setupFormats() {
         uv_rotation: true,
         rotate_cubes: true,
         per_texture_uv_size: true,
+        // @ts-ignore
+        texture_wrap_default: 'clamp',
         stretch_cubes: true,
-        confidential: true,
         model_identifier: false,
         animation_loop_wrapping: true,
         quaternion_interpolation: true,
@@ -97,6 +98,8 @@ export function setupFormats() {
     Object.defineProperty(format_prop, 'single_texture', single_texture);
 
     codec.format = format_character;
+    format_character.codec = codec;
+    format_prop.codec = codec;
     track(format_character);
     track(format_prop);
 

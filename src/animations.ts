@@ -11,7 +11,9 @@ export function setupAnimation() {
     // Visibility
     function displayVisibility(animator: BoneAnimator) {
         let group = animator.getGroup();
-        let scene_object = group.scene_object;
+        let main_shape = getMainShape(group);
+        if (!main_shape) return;
+        let scene_object = main_shape.scene_object;
         if (animator.muted.visibility) {
             scene_object.visible = group.visibility;
             return;
@@ -47,6 +49,13 @@ export function setupAnimation() {
         default: true
     });
     track(vis_property);
+
+    let on_exit_anim_mode = Blockbench.on('unselect_mode', (arg) => {
+        if (isHytaleFormat() && arg.mode?.id == 'animate') {
+            Canvas.updateVisibility();
+        }
+    })
+    track(vis_property, on_exit_anim_mode);
 
     
     // UV Offset

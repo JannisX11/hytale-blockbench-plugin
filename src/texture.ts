@@ -42,6 +42,7 @@ export function setupTextureHandling() {
         } else {
             texture.setAsDefaultTexture();
         }
+        UVEditor.vue.updateTexture();
     });
     track(handler);
 

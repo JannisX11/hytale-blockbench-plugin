@@ -218,7 +218,7 @@
             }
           }
           node.shape.stretch = formatVector(stretch);
-          node.shape.visible = true;
+          node.shape.visible = cube.visibility;
           node.shape.doubleSided = cube.double_sided == true;
           node.shape.shadingMode = cube.shading_mode;
           node.shape.unwrapMode = "custom";
@@ -316,6 +316,7 @@
           }
         }
         function compileNode(element, name = element.name) {
+          if (!element.export) return void 0;
           if (!options.attachment) {
             let collection = Collection.all.find((c) => c.contains(element));
             if (collection) return;
@@ -355,7 +356,7 @@
               },
               textureLayout: {},
               unwrapMode: "custom",
-              visible: true,
+              visible: element.visibility,
               doubleSided: false,
               shadingMode: "flat"
             }
@@ -367,6 +368,7 @@
             let shape_count = 0;
             let child_cube_count = 0;
             for (let child of element.children ?? []) {
+              if (!child.export) continue;
               let result;
               if (qualifiesAsMainShape(child) && shape_count == 0) {
                 turnNodeIntoBox(node, child, element);
@@ -433,12 +435,9 @@
             let reference_node = getMainShape(parent_group) ?? parent_group;
             origin = reference_node.origin.slice();
             rotation = reference_node.rotation.slice();
-          } else if (parent_group instanceof Group) {
-            let parent_geo_origin = getMainShape(parent_group)?.origin ?? parent_group.origin;
-            if (parent_geo_origin) {
-              origin.V3_add(parent_geo_origin);
-              if (parent_offset) origin.V3_add(parent_offset);
-            }
+          } else if (parent_offset && parent_group instanceof Group) {
+            origin.V3_add(parent_offset);
+            origin.V3_add(parent_group.origin);
           }
           let group = null;
           if (!node.shape?.settings?.isStaticBox) {
@@ -486,6 +485,7 @@
             let cube = new Cube({
               name,
               autouv: 1,
+              box_uv: false,
               rotation: [0, 0, 0],
               stretch,
               from: [
@@ -500,6 +500,7 @@
               ]
             });
             if (group) {
+              group.color = cube.color;
               cube.origin.V3_set(
                 Math.lerp(cube.from[0], cube.to[0], 0.5),
                 Math.lerp(cube.from[1], cube.to[1], 0.5),
@@ -642,7 +643,7 @@
           }
           if (node.children?.length && group instanceof Group) {
             for (let child of node.children) {
-              parseNode(child, node, group);
+              parseNode(child, node, group, offset);
             }
           }
         }
@@ -770,8 +771,9 @@
       uv_rotation: true,
       rotate_cubes: true,
       per_texture_uv_size: true,
+      // @ts-ignore
+      texture_wrap_default: "clamp",
       stretch_cubes: true,
-      confidential: true,
       model_identifier: false,
       animation_loop_wrapping: true,
       quaternion_interpolation: true,
@@ -835,6 +837,8 @@
     Object.defineProperty(format_character, "single_texture", single_texture);
     Object.defineProperty(format_prop, "single_texture", single_texture);
     codec.format = format_character;
+    format_character.codec = codec;
+    format_prop.codec = codec;
     track(format_character);
     track(format_prop);
     Language.addTranslations("en", {
@@ -1016,7 +1020,7 @@
     const nodeAnimations = {};
     const file = {
       formatVersion: 1,
-      duration: animation.length * FPS,
+      duration: Math.round(animation.length * FPS),
       holdLastKeyframe: animation.loop == "hold",
       nodeAnimations
     };
@@ -1150,7 +1154,7 @@
         return original_save.call(this, ...args);
       }
       let animation;
-      animation = Animation2.selected;
+      animation = this;
       let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
       if (isApp && this.path) {
         Blockbench.writeFile(this.path, { content }, (real_path) => {
@@ -1178,6 +1182,14 @@
         Animation2.prototype.save = original_save;
       }
     });
+    let save_all_listener = BarItems.save_all_animations.on("use", () => {
+      if (!isHytaleFormat()) return;
+      Animation2.all.forEach((animation) => {
+        if (!animation.saved) animation.save();
+      });
+      return false;
+    });
+    track(save_all_listener);
     let original_condition = BarItems.export_animation_file.condition;
     BarItems.export_animation_file.condition = () => {
       return Condition(original_condition) && !FORMAT_IDS.includes(Format.id);
@@ -1222,6 +1234,7 @@
       } else {
         texture.setAsDefaultTexture();
       }
+      UVEditor.vue.updateTexture();
     });
     track(handler);
   }
@@ -1320,7 +1333,7 @@
     let shared_delete = SharedActions.add("delete", {
       subject: "collection",
       priority: 1,
-      condition: () => Prop.active_panel == "collections" && isHytaleFormat() && Collection.selected.find((c) => c.export_codec === "blockymodel"),
+      condition: () => Prop.active_panel == "collections" && isHytaleFormat() && Collection.selected.some((c) => c.export_codec === "blockymodel"),
       run() {
         let collections = Collection.selected.slice();
         let remove_elements = [];
@@ -1456,7 +1469,9 @@
   function setupAnimation() {
     function displayVisibility(animator) {
       let group = animator.getGroup();
-      let scene_object = group.scene_object;
+      let main_shape = getMainShape(group);
+      if (!main_shape) return;
+      let scene_object = main_shape.scene_object;
       if (animator.muted.visibility) {
         scene_object.visible = group.visibility;
         return;
@@ -1491,6 +1506,12 @@
       default: true
     });
     track(vis_property);
+    let on_exit_anim_mode = Blockbench.on("unselect_mode", (arg) => {
+      if (isHytaleFormat() && arg.mode?.id == "animate") {
+        Canvas.updateVisibility();
+      }
+    });
+    track(vis_property, on_exit_anim_mode);
     function displayUVOffset(animator) {
       let group = animator.getGroup();
       let cube = getMainShape(group);
@@ -1992,7 +2013,7 @@
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.6.0",
+    version: "0.6.2",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
@@ -2279,6 +2300,7 @@
       this.dot.renderOrder = 900;
       this.dot.visible = false;
       Canvas.scene.add(this.dot);
+      Canvas.gizmos.push(this.dot);
       this.listener = Blockbench.on("update_selection", () => this.update());
       this.cameraListener = Blockbench.on("update_camera_position", () => this.updateScale());
       this.update();
@@ -2321,6 +2343,9 @@
     getRelevantGroup() {
       let sel = Outliner.selected[0];
       if (!sel) return null;
+      while (sel.parent instanceof OutlinerNode && sel.parent.selected) {
+        sel = sel.parent;
+      }
       if (sel instanceof Group) {
         return sel;
       }
@@ -3297,9 +3322,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         panel_setup_listener = Blockbench.on("select_mode", showCollectionPanel);
       }
       let on_finish_edit = Blockbench.on("generate_texture_template", (arg) => {
-        if (arg.texture) {
-          updateUVSize(arg.texture);
-        }
         for (let element of arg.elements) {
           if (typeof element.autouv != "number") continue;
           element.autouv = 1;

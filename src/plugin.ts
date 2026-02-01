@@ -78,9 +78,6 @@ BBPlugin.register('hytale_plugin', {
         }
 
         let on_finish_edit = Blockbench.on('generate_texture_template', (arg: {texture: Texture, elements: Cube[]}) => {
-            if (arg.texture) {
-                updateUVSize(arg.texture);
-            }
             for (let element of arg.elements) {
                 if (typeof element.autouv != 'number') continue;
                 element.autouv = 1;

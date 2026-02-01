@@ -108,6 +108,8 @@ export class GroupPivotIndicator {
 		this.dot.visible = false;
 
 		Canvas.scene.add(this.dot);
+		// @ts-ignore
+		Canvas.gizmos.push(this.dot);
 
 		this.listener = Blockbench.on('update_selection', () => this.update());
 		this.cameraListener = Blockbench.on('update_camera_position', () => this.updateScale());
@@ -159,8 +161,12 @@ export class GroupPivotIndicator {
 	}
 
 	getRelevantGroup(): Group | null {
-		let sel = Outliner.selected[0];
+		let sel: OutlinerNode = Outliner.selected[0];
 		if (!sel) return null;
+
+		while (sel.parent instanceof OutlinerNode && sel.parent.selected) {
+			sel = sel.parent;
+		}
 
 		if (sel instanceof Group) {
 			return sel;

@@ -498,6 +498,7 @@
               ]
             });
             if (group) {
+              group.color = cube.color;
               cube.origin.V3_set(
                 Math.lerp(cube.from[0], cube.to[0], 0.5),
                 Math.lerp(cube.from[1], cube.to[1], 0.5),
@@ -768,6 +769,8 @@
       uv_rotation: true,
       rotate_cubes: true,
       per_texture_uv_size: true,
+      // @ts-ignore
+      texture_wrap_default: "clamp",
       stretch_cubes: true,
       model_identifier: false,
       animation_loop_wrapping: true,
@@ -1311,7 +1314,7 @@
     let shared_delete = SharedActions.add("delete", {
       subject: "collection",
       priority: 1,
-      condition: () => Prop.active_panel == "collections" && isHytaleFormat() && Collection.selected.find((c) => c.export_codec === "blockymodel"),
+      condition: () => Prop.active_panel == "collections" && isHytaleFormat() && Collection.selected.some((c) => c.export_codec === "blockymodel"),
       run() {
         let collections = Collection.selected.slice();
         let remove_elements = [];

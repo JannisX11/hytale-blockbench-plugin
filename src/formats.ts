@@ -31,6 +31,8 @@ export function setupFormats() {
         uv_rotation: true,
         rotate_cubes: true,
         per_texture_uv_size: true,
+        // @ts-ignore
+        texture_wrap_default: 'clamp',
         stretch_cubes: true,
         model_identifier: false,
         animation_loop_wrapping: true,

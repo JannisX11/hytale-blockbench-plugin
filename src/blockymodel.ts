@@ -370,8 +370,8 @@ export function setupBlockymodelCodec(): Codec {
 					}
 
 					let layout_face: IUvFace = {
-						offset: new oneLiner({x: Math.round(uv_x), y: Math.round(uv_y)}),
-						mirror: new oneLiner({x: mirror_x, y: mirror_y}),
+						offset: new oneLiner({x: Math.round(uv_x), y: Math.round(uv_y)}) as any,
+						mirror: new oneLiner({x: mirror_x, y: mirror_y}) as any,
 						angle: uv_rot,
 					};
 					node.shape.textureLayout[direction] = layout_face;
@@ -579,6 +579,7 @@ export function setupBlockymodelCodec(): Codec {
 						]
 					})
 					if (group) {
+						group.color = cube.color;
 						cube.origin.V3_set(
 							Math.lerp(cube.from[0], cube.to[0], 0.5),
 							Math.lerp(cube.from[1], cube.to[1], 0.5),

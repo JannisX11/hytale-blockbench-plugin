@@ -445,7 +445,8 @@
               name,
               autouv: 1,
               origin,
-              rotation
+              rotation,
+              visibility: node.shape?.visible != false
             });
             new_groups.push(group);
             group.addTo(parent_group);
@@ -486,6 +487,7 @@
               name,
               autouv: 1,
               box_uv: false,
+              visibility: node.shape.visible != false,
               rotation: [0, 0, 0],
               stretch,
               from: [
@@ -2013,7 +2015,7 @@
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.6.2",
+    version: "0.7.0",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
@@ -3281,10 +3283,12 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     has_changelog: true,
     creation_date: "2025-12-22",
     contributes: {
-      formats: FORMAT_IDS
+      formats: FORMAT_IDS,
+      open_extensions: ["blockymodel"]
     },
     repository: "https://github.com/JannisX11/hytale-blockbench-plugin",
     bug_tracker: "https://github.com/JannisX11/hytale-blockbench-plugin/issues",
+    contributors: ["Hedaox"],
     onload() {
       setupFormats();
       setupElements();

@@ -531,6 +531,7 @@ export function setupBlockymodelCodec(): Codec {
 						autouv: 1,
 						origin,
 						rotation,
+						visibility: node.shape?.visible != false,
 					});
 					
 					new_groups.push(group);
@@ -569,6 +570,7 @@ export function setupBlockymodelCodec(): Codec {
 						name,
 						autouv: 1,
 						box_uv: false,
+						visibility: node.shape.visible != false,
 						rotation: [0, 0, 0],
 						stretch,
 						from: [

@@ -3269,6 +3269,47 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     track(Blockbench.on("select_format", updateSizes));
   }
 
+  // src/color_picker_eraser.ts
+  function setupColorPickerEraser() {
+    let setting = new Setting("color_picker_eraser_switch", {
+      name: "Color Picker Eraser Switch",
+      description: "When using the color picker on an empty (transparent) pixel, automatically switch to the eraser tool",
+      type: "toggle",
+      category: "paint",
+      value: true
+    });
+    track(setting);
+    let color_picker = BarItems.color_picker;
+    let original_onTextureEditorClick = color_picker.onTextureEditorClick;
+    color_picker.onTextureEditorClick = function(texture, x, y, event) {
+      if (setting.value && FORMAT_IDS.includes(Format.id)) {
+        try {
+          let ctx;
+          if (texture?.ctx) {
+            ctx = texture.ctx;
+          } else if (texture?.canvas) {
+            ctx = texture.canvas.getContext("2d");
+          }
+          if (ctx) {
+            let pixel = ctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data;
+            if (pixel[3] === 0) {
+              BarItems.eraser?.select();
+              Blockbench.showQuickMessage("Switched to Eraser", 1e3);
+              return;
+            }
+          }
+        } catch (e) {
+        }
+      }
+      return original_onTextureEditorClick?.call(this, texture, x, y, event);
+    };
+    track({
+      delete() {
+        color_picker.onTextureEditorClick = original_onTextureEditorClick;
+      }
+    });
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -3284,6 +3325,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     creation_date: "2025-12-22",
     contributes: {
       formats: FORMAT_IDS,
+      // @ts-expect-error
       open_extensions: ["blockymodel"]
     },
     repository: "https://github.com/JannisX11/hytale-blockbench-plugin",
@@ -3304,6 +3346,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupUVOutline();
       setupTempFixes();
       setupPreviewScenes();
+      setupColorPickerEraser();
       let panel_setup_listener;
       function showCollectionPanel() {
         const local_storage_key = "hytale_plugin:collection_panel_setup";

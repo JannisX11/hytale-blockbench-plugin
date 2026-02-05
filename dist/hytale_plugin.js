@@ -3269,6 +3269,335 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     track(Blockbench.on("select_format", updateSizes));
   }
 
+  // src/uv_texture_tools.ts
+  function getFaceTextureRegion(face, texture) {
+    if (!texture || face.texture === null) return null;
+    const uv = face.uv;
+    const x = Math.min(uv[0], uv[2]);
+    const y = Math.min(uv[1], uv[3]);
+    const width = Math.abs(uv[2] - uv[0]);
+    const height = Math.abs(uv[3] - uv[1]);
+    return { texture, x, y, width, height };
+  }
+  function extractRegionPixels(region) {
+    const ctx = region.texture.ctx;
+    if (!ctx) return null;
+    try {
+      return ctx.getImageData(
+        Math.round(region.x),
+        Math.round(region.y),
+        Math.round(region.width) || 1,
+        Math.round(region.height) || 1
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+  function rotateImageDataCW(imageData) {
+    const { width, height, data } = imageData;
+    const rotated = new ImageData(height, width);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const srcIdx = (y * width + x) * 4;
+        const dstX = height - 1 - y;
+        const dstY = x;
+        const dstIdx = (dstY * height + dstX) * 4;
+        rotated.data[dstIdx] = data[srcIdx];
+        rotated.data[dstIdx + 1] = data[srcIdx + 1];
+        rotated.data[dstIdx + 2] = data[srcIdx + 2];
+        rotated.data[dstIdx + 3] = data[srcIdx + 3];
+      }
+    }
+    return rotated;
+  }
+  function rotateImageDataCCW(imageData) {
+    const { width, height, data } = imageData;
+    const rotated = new ImageData(height, width);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const srcIdx = (y * width + x) * 4;
+        const dstX = y;
+        const dstY = width - 1 - x;
+        const dstIdx = (dstY * height + dstX) * 4;
+        rotated.data[dstIdx] = data[srcIdx];
+        rotated.data[dstIdx + 1] = data[srcIdx + 1];
+        rotated.data[dstIdx + 2] = data[srcIdx + 2];
+        rotated.data[dstIdx + 3] = data[srcIdx + 3];
+      }
+    }
+    return rotated;
+  }
+  function flipImageDataH(imageData) {
+    const { width, height, data } = imageData;
+    const flipped = new ImageData(width, height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const srcIdx = (y * width + x) * 4;
+        const dstIdx = (y * width + (width - 1 - x)) * 4;
+        flipped.data[dstIdx] = data[srcIdx];
+        flipped.data[dstIdx + 1] = data[srcIdx + 1];
+        flipped.data[dstIdx + 2] = data[srcIdx + 2];
+        flipped.data[dstIdx + 3] = data[srcIdx + 3];
+      }
+    }
+    return flipped;
+  }
+  function flipImageDataV(imageData) {
+    const { width, height, data } = imageData;
+    const flipped = new ImageData(width, height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const srcIdx = (y * width + x) * 4;
+        const dstIdx = ((height - 1 - y) * width + x) * 4;
+        flipped.data[dstIdx] = data[srcIdx];
+        flipped.data[dstIdx + 1] = data[srcIdx + 1];
+        flipped.data[dstIdx + 2] = data[srcIdx + 2];
+        flipped.data[dstIdx + 3] = data[srcIdx + 3];
+      }
+    }
+    return flipped;
+  }
+  function rotateUVCW(uv) {
+    const centerX = (uv[0] + uv[2]) / 2;
+    const centerY = (uv[1] + uv[3]) / 2;
+    const halfW = Math.abs(uv[2] - uv[0]) / 2;
+    const halfH = Math.abs(uv[3] - uv[1]) / 2;
+    return [
+      centerX - halfH,
+      centerY - halfW,
+      centerX + halfH,
+      centerY + halfW
+    ];
+  }
+  function rotateUVCCW(uv) {
+    return rotateUVCW(uv);
+  }
+  function flipUVH(uv) {
+    return [uv[2], uv[1], uv[0], uv[3]];
+  }
+  function flipUVV(uv) {
+    return [uv[0], uv[3], uv[2], uv[1]];
+  }
+  function collectSelectedFaces() {
+    const operations = [];
+    const defaultTexture = Texture.getDefault();
+    for (const cube of Cube.selected) {
+      const selectedFaces = UVEditor.getSelectedFaces(cube);
+      for (const faceKey of selectedFaces) {
+        const face = cube.faces[faceKey];
+        if (face.texture === null) continue;
+        let texture;
+        if (face.texture === false) {
+          texture = defaultTexture;
+        } else {
+          texture = Texture.all.find((t) => t.uuid === face.texture);
+        }
+        if (!texture || !texture.ctx) continue;
+        const region = getFaceTextureRegion(face, texture);
+        if (!region || region.width < 1 || region.height < 1) continue;
+        const originalPixels = extractRegionPixels(region);
+        if (!originalPixels) continue;
+        operations.push({ cube, faceKey, face, texture, region, originalPixels });
+      }
+    }
+    return operations;
+  }
+  function rotateUVTextureCW() {
+    const operations = collectSelectedFaces();
+    if (operations.length === 0) {
+      Blockbench.showQuickMessage("No valid UV faces selected");
+      return;
+    }
+    Undo.initEdit({ elements: Cube.selected, textures: Texture.all });
+    const textureUpdates = /* @__PURE__ */ new Map();
+    for (const op of operations) {
+      op.texture.ctx.clearRect(
+        Math.round(op.region.x),
+        Math.round(op.region.y),
+        Math.round(op.region.width),
+        Math.round(op.region.height)
+      );
+      const rotatedPixels = rotateImageDataCW(op.originalPixels);
+      const newUV = rotateUVCW(op.face.uv);
+      const newX = Math.min(newUV[0], newUV[2]);
+      const newY = Math.min(newUV[1], newUV[3]);
+      op.texture.ctx.putImageData(rotatedPixels, Math.round(newX), Math.round(newY));
+      op.face.uv = newUV;
+      op.face.rotation = ((op.face.rotation || 0) + 270) % 360;
+      textureUpdates.set(op.texture, true);
+    }
+    for (const texture of textureUpdates.keys()) {
+      texture.updateSource(texture.ctx.canvas.toDataURL());
+    }
+    Canvas.updateView({ elements: Cube.selected, element_aspects: { uv: true } });
+    UVEditor.loadData();
+    Undo.finishEdit("Rotate UV + Texture CW");
+  }
+  function rotateUVTextureCCW() {
+    const operations = collectSelectedFaces();
+    if (operations.length === 0) {
+      Blockbench.showQuickMessage("No valid UV faces selected");
+      return;
+    }
+    Undo.initEdit({ elements: Cube.selected, textures: Texture.all });
+    const textureUpdates = /* @__PURE__ */ new Map();
+    for (const op of operations) {
+      op.texture.ctx.clearRect(
+        Math.round(op.region.x),
+        Math.round(op.region.y),
+        Math.round(op.region.width),
+        Math.round(op.region.height)
+      );
+      const rotatedPixels = rotateImageDataCCW(op.originalPixels);
+      const newUV = rotateUVCCW(op.face.uv);
+      const newX = Math.min(newUV[0], newUV[2]);
+      const newY = Math.min(newUV[1], newUV[3]);
+      op.texture.ctx.putImageData(rotatedPixels, Math.round(newX), Math.round(newY));
+      op.face.uv = newUV;
+      op.face.rotation = ((op.face.rotation || 0) + 90) % 360;
+      textureUpdates.set(op.texture, true);
+    }
+    for (const texture of textureUpdates.keys()) {
+      texture.updateSource(texture.ctx.canvas.toDataURL());
+    }
+    Canvas.updateView({ elements: Cube.selected, element_aspects: { uv: true } });
+    UVEditor.loadData();
+    Undo.finishEdit("Rotate UV + Texture CCW");
+  }
+  function flipUVTextureH() {
+    const operations = collectSelectedFaces();
+    if (operations.length === 0) {
+      Blockbench.showQuickMessage("No valid UV faces selected");
+      return;
+    }
+    Undo.initEdit({ elements: Cube.selected, textures: Texture.all });
+    const textureUpdates = /* @__PURE__ */ new Map();
+    for (const op of operations) {
+      op.texture.ctx.clearRect(
+        Math.round(op.region.x),
+        Math.round(op.region.y),
+        Math.round(op.region.width),
+        Math.round(op.region.height)
+      );
+      const flippedPixels = flipImageDataH(op.originalPixels);
+      const newUV = flipUVH(op.face.uv);
+      op.texture.ctx.putImageData(flippedPixels, Math.round(op.region.x), Math.round(op.region.y));
+      op.face.uv = newUV;
+      textureUpdates.set(op.texture, true);
+    }
+    for (const texture of textureUpdates.keys()) {
+      texture.updateSource(texture.ctx.canvas.toDataURL());
+    }
+    Canvas.updateView({ elements: Cube.selected, element_aspects: { uv: true } });
+    UVEditor.loadData();
+    Undo.finishEdit("Flip UV + Texture Horizontal");
+  }
+  function flipUVTextureV() {
+    const operations = collectSelectedFaces();
+    if (operations.length === 0) {
+      Blockbench.showQuickMessage("No valid UV faces selected");
+      return;
+    }
+    Undo.initEdit({ elements: Cube.selected, textures: Texture.all });
+    const textureUpdates = /* @__PURE__ */ new Map();
+    for (const op of operations) {
+      op.texture.ctx.clearRect(
+        Math.round(op.region.x),
+        Math.round(op.region.y),
+        Math.round(op.region.width),
+        Math.round(op.region.height)
+      );
+      const flippedPixels = flipImageDataV(op.originalPixels);
+      const newUV = flipUVV(op.face.uv);
+      op.texture.ctx.putImageData(flippedPixels, Math.round(op.region.x), Math.round(op.region.y));
+      op.face.uv = newUV;
+      textureUpdates.set(op.texture, true);
+    }
+    for (const texture of textureUpdates.keys()) {
+      texture.updateSource(texture.ctx.canvas.toDataURL());
+    }
+    Canvas.updateView({ elements: Cube.selected, element_aspects: { uv: true } });
+    UVEditor.loadData();
+    Undo.finishEdit("Flip UV + Texture Vertical");
+  }
+  function setupUVTextureTools() {
+    const style = Blockbench.addCSS(`
+		.hytale-uv-texture-toolbar {
+			display: none;
+			justify-content: space-evenly;
+			padding: 4px 8px;
+			background: var(--color-back);
+			border-bottom: 1px solid var(--color-border);
+		}
+		.hytale-uv-texture-toolbar.visible {
+			display: flex;
+		}
+		.hytale-uv-texture-toolbar .tool {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			width: 28px;
+			height: 28px;
+			cursor: pointer;
+			border-radius: 4px;
+		}
+		.hytale-uv-texture-toolbar .tool:hover {
+			background: var(--color-button);
+		}
+		.hytale-uv-texture-toolbar .tool .material-icons {
+			font-size: 20px;
+		}
+	`);
+    track(style);
+    const toolbarEl = document.createElement("div");
+    toolbarEl.className = "hytale-uv-texture-toolbar";
+    const buttons = [
+      { icon: "rotate_left", title: "Rotate UV + Texture CCW", action: rotateUVTextureCCW },
+      { icon: "rotate_right", title: "Rotate UV + Texture CW", action: rotateUVTextureCW },
+      { icon: "swap_horiz", title: "Flip UV + Texture Horizontal", action: flipUVTextureH },
+      { icon: "swap_vert", title: "Flip UV + Texture Vertical", action: flipUVTextureV }
+    ];
+    for (const btn of buttons) {
+      const buttonEl = document.createElement("div");
+      buttonEl.className = "tool";
+      buttonEl.title = btn.title;
+      buttonEl.innerHTML = `<i class="material-icons">${btn.icon}</i>`;
+      buttonEl.addEventListener("click", btn.action);
+      toolbarEl.appendChild(buttonEl);
+    }
+    const uvPanel = Panels.uv;
+    if (uvPanel?.node && uvPanel.toolbars?.[0]?.node) {
+      const toolbarNode = uvPanel.toolbars[0].node;
+      toolbarNode.parentNode.insertBefore(toolbarEl, toolbarNode);
+    }
+    function updateToolbarVisibility() {
+      const formatOk = FORMAT_IDS.includes(Format?.id);
+      const toggleOk = BarItems.move_texture_with_uv?.value === true;
+      toolbarEl.classList.toggle("visible", formatOk && toggleOk);
+    }
+    const moveTextureToggle = BarItems.move_texture_with_uv;
+    if (moveTextureToggle) {
+      const originalOnChange = moveTextureToggle.onChange;
+      moveTextureToggle.onChange = function(value) {
+        if (originalOnChange) originalOnChange.call(this, value);
+        updateToolbarVisibility();
+      };
+      track({
+        delete() {
+          moveTextureToggle.onChange = originalOnChange;
+        }
+      });
+    }
+    const projectListener = Blockbench.on("select_project", updateToolbarVisibility);
+    track(projectListener);
+    updateToolbarVisibility();
+    track({
+      delete() {
+        toolbarEl.remove();
+      }
+    });
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -3284,6 +3613,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     creation_date: "2025-12-22",
     contributes: {
       formats: FORMAT_IDS,
+      // @ts-expect-error
       open_extensions: ["blockymodel"]
     },
     repository: "https://github.com/JannisX11/hytale-blockbench-plugin",
@@ -3304,6 +3634,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupUVOutline();
       setupTempFixes();
       setupPreviewScenes();
+      setupUVTextureTools();
       let panel_setup_listener;
       function showCollectionPanel() {
         const local_storage_key = "hytale_plugin:collection_panel_setup";

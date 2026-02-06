@@ -1,0 +1,216 @@
+{
+	"fov": 70,
+	"preview_models": [
+		{
+			"id": "hytale_default",
+			"texture": "hytale/default/default.png",
+			"texture_size": [32, 32],
+			"prefabs": {
+				"grass_block": {
+					"position": [-8, 0, -8],
+					"size": [16, 16, 16],
+					"faces": {
+						"north": {"uv": [0, 16, 16, 32]},
+						"south": {"uv": [0, 16, 16, 32]},
+						"east": {"uv": [0, 16, 16, 32]},
+						"west": {"uv": [0, 16, 16, 32]},
+						"up": {"uv": [0, 0, 16, 16]},
+						"down": {"uv": [16, 16, 32, 32]}
+					}
+				}
+			},
+			"cubes": [
+				{
+					"prefab": "grass_block",
+					"offset": [0, -1, 0],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [-1, -1, 0],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [1, -1, 1],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [1, -1, 0],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [1, -1, -1],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [0, -1, 1],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [-1, -1, -1],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [0, -1, -1],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [-1, -1, 1],
+					"offset_space": "block"
+				},
+
+				
+				{
+					"prefab": "grass_block",
+					"offset": [2, -1, 0],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [2, -1, 1],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [2, -1, -1],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [-2, -1, -1],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [-2, -1, 0],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [-2, -1, 1],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [0, -1, -2],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [-1, -1, -2],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [1, -1, -2],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [-1, -1, 2],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [1, -1, 2],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [0, -1, 2],
+					"offset_space": "block"
+				},
+
+				
+				{
+					"prefab": "grass_block",
+					"offset": [3, -2, 0],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [3, -2, 1],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [3, -2, -1],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [-3, -2, -1],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [-3, -2, 0],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [-3, -2, 1],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [0, -2, -3],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [-1, -2, -3],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [1, -2, -3],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [-1, -2, 3],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [1, -2, 3],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [0, -2, 3],
+					"offset_space": "block"
+				},
+
+				{
+					"prefab": "grass_block",
+					"offset": [2, -2, -2],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [-2, -2, 2],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [2, -2, 2],
+					"offset_space": "block"
+				},
+				{
+					"prefab": "grass_block",
+					"offset": [-2, -2, -2],
+					"offset_space": "block"
+				}
+			]
+		}
+	]
+}

@@ -1,3 +1,6 @@
+//! Copyright (C) 2025 Hypixel Studios Canada inc.
+//! Licensed under the GNU General Public License, see LICENSE.MD
+
 import { track } from "./cleanup";
 import { FORMAT_IDS } from "./formats";
 
@@ -15,7 +18,7 @@ interface UVCycleState {
 }
 
 let cycleState: UVCycleState | null = null;
-const CLICK_THRESHOLD = 5;
+const CLICK_THRESHOLD = 0;
 
 function screenToUV(event: MouseEvent): { x: number; y: number } {
 	return UVEditor.getBrushCoordinates(event, UVEditor.texture);
@@ -105,7 +108,7 @@ export function setupUVCycling() {
 			if (!pendingClick) return;
 			if (event.button !== 0) return;
 
-			const uvPos = pendingClick.uvPos;
+			const uvPos = screenToUV(event);
 			pendingClick = null;
 
 			const isSamePosition = cycleState !== null &&

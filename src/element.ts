@@ -1,6 +1,9 @@
+//! Copyright (C) 2025 Hypixel Studios Canada inc.
+//! Licensed under the GNU General Public License, see LICENSE.MD
+
 import { track } from "./cleanup";
-import { Config } from "./config";
-import { FORMAT_IDS } from "./formats";
+import { FORMAT_IDS, isHytaleFormat } from "./formats";
+import { cubeIsQuad } from "./util";
 
 // TODO(Blockbench): Resizing a stretched cube causes it to drift. The gizmo's move_value
 // is in rendered space (stretch applied) but resize() applies it directly to from/to.
@@ -65,7 +68,7 @@ function setupStretchedCubeResizeFix() {
 }
 
 export function setupElements() {
-	setupStretchedCubeResizeFix();
+	// setupStretchedCubeResizeFix();
 	let property_shading_mode = new Property(Cube, 'enum', 'shading_mode', {
 		default: 'flat',
 		values: ['flat', 'standard', 'fullbright', 'reflective'],
@@ -124,9 +127,12 @@ export function setupElements() {
 				Undo.initEdit({outliner: true, elements: [], selection: true}, amended);
 				let base_quad = new Cube({
 					autouv: (settings.autouv.value ? 1 : 0),
+					// @ts-ignore
+					double_sided: true,
+					box_uv: false,
 					color
 				}).init()
-				if (!base_quad.box_uv) base_quad.mapAutoUV()
+				base_quad.mapAutoUV();
 				let group = getCurrentGroup();
 				if (group) {
 					base_quad.addTo(group)
@@ -202,22 +208,55 @@ export function setupElements() {
 	track(add_quad_action);
 	let add_element_menu = ((BarItems.add_element as Action).side_menu as Menu);
 	add_element_menu.addAction(add_quad_action);
+	
+	// Box UV on quads
+	let set_uv_mode_original = Cube.prototype.setUVMode;
+	Cube.prototype.setUVMode = function (box_uv, ...args) {
+		if (isHytaleFormat()) {
+			if (cubeIsQuad(this) && box_uv) return;
+		}
+		return set_uv_mode_original.call(this, box_uv, ...args);
+	}
+	track({
+		delete() {
+			Cube.prototype.setUVMode = set_uv_mode_original;
+		}
+	});
 
-	// UV workflow
+	// Inflate
+	let inflate_condition_original = BarItems.slider_inflate.condition;
+	BarItems.slider_inflate.condition = () => {
+		if (isHytaleFormat()) return false;
+		return Condition(inflate_condition_original);
+	}
+	track({
+		delete() {
+			BarItems.slider_inflate.condition = inflate_condition_original;
+		}
+	});
+
+	// UV workflow and inflate fallback
 	Blockbench.on('finish_edit', (arg: {aspects: UndoAspects}) => {
         if (!FORMAT_IDS.includes(Format.id)) return;
 		if (arg.aspects?.elements) {
-			let changes = false;
+			let uv_changes = false;
 			for (let element of arg.aspects.elements) {
 				if (element instanceof Cube == false) continue;
-				if (element.autouv) continue;
 
-				element.autouv = 1;
-				element.mapAutoUV();
-				element.preview_controller.updateUV(element);
-				changes = true;
+				if (!element.autouv) {
+					element.autouv = 1;
+					element.mapAutoUV();
+					element.preview_controller.updateUV(element);
+					uv_changes = true;
+				}
+				if (element.inflate) {
+					// Set inflate to 0 in case a value is set for unknown reasons
+					element.inflate = 0;
+					element.preview_controller.updateGeometry(element);
+					TickUpdates.selection = true;
+				}
 			}
-			if (changes) {
+			if (uv_changes) {
 				UVEditor.vue.$forceUpdate();
 			}
 		}

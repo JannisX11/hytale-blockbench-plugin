@@ -1,5 +1,12 @@
+//! Copyright (C) 2025 Hypixel Studios Canada inc.
+//! Licensed under the GNU General Public License, see LICENSE.MD
+
 import { track } from "./cleanup";
 import { FORMAT_IDS } from "./formats";
+
+declare global {
+	const Clipbench: any
+}
 
 export function setupPhotoshopTools() {
 
@@ -7,6 +14,7 @@ export function setupPhotoshopTools() {
         name: 'Copy-Paste with Magenta Alpha',
         description: 'Copy image selections with magenta background and remove magenta when pasting to help transfer transparency to Photoshop',
         type: 'toggle',
+        category: 'paint',
         value: false
     })
     track(setting);

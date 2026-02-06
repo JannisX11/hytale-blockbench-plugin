@@ -1,6 +1,10 @@
+//! Copyright (C) 2025 Hypixel Studios Canada inc.
+//! Licensed under the GNU General Public License, see LICENSE.MD
+
+import { copyAnimationToGroupsWithSameName } from "./name_overlap";
 import { track } from "./cleanup";
 import { Config } from "./config";
-import { FORMAT_IDS } from "./formats";
+import { FORMAT_IDS, isHytaleFormat } from "./formats";
 
 const FPS = 60;
 // @ts-expect-error
@@ -51,6 +55,7 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 			{ channel: 'position', keyframes: anim_data.position },
 			{ channel: 'scale', keyframes: anim_data.shapeStretch },
 			{ channel: 'visibility', keyframes: anim_data.shapeVisible },
+			{ channel: 'uv_offset', keyframes: anim_data.shapeUvOffset },
 		]
 		for (let {channel, keyframes} of anim_channels) {
 			if (!keyframes || keyframes.length == 0) continue;
@@ -60,6 +65,12 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 				if (channel == 'visibility') {
 					data_point = {
 						visibility: kf_data.delta as boolean
+					}
+				} else if (channel == 'uv_offset') {
+					let delta = kf_data.delta as {x: number, y: number};
+					data_point = {
+						x: delta.x,
+						y: -delta.y,
 					}
 				} else {
 					let delta = kf_data.delta as {x: number, y: number, z: number, w?: number};
@@ -87,6 +98,9 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 				});
 			}
 		}
+
+		// Copy to others with same name
+		if (group) copyAnimationToGroupsWithSameName(animation, group);
 	}
 	animation.add(false);
 
@@ -99,7 +113,7 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 	const nodeAnimations: Record<string, IAnimationObject> = {};
 	const file: IBlockyAnimJSON = {
 		formatVersion: 1,
-		duration: animation.length * FPS,
+		duration: Math.round(animation.length * FPS),
 		holdLastKeyframe: animation.loop == 'hold',
 		nodeAnimations,
 	}
@@ -108,6 +122,7 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 		rotation: 'orientation',
 		scale: 'shapeStretch',
 		visibility: 'shapeVisible',
+		uv_offset: 'shapeUvOffset',
 	}
 	for (let uuid in animation.animators) {
 		let animator = animation.animators[uuid];
@@ -127,6 +142,12 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 				let delta: any;
 				if (channel == 'visibility') {
 					delta = data_point.visibility;
+				} else if (channel == 'uv_offset') {
+					delta = {
+						x: parseFloat(data_point.x),
+						y: -parseFloat(data_point.y),
+					};
+					delta = new oneLiner(delta);
 				} else {
 					delta = {
 						x: parseFloat(data_point.x),
@@ -156,12 +177,15 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 					delta,
 					interpolationType: kf.interpolation == 'catmullrom' ? 'smooth' : 'linear'
 				};
+				if (channel == 'uv_offset') console.log(kf_output)
 				timeline.push(kf_output);
 				has_data = true;
 			}
 		}
 		if (has_data) {
-			node_data.shapeUvOffset = [];
+			if (!node_data.shapeUvOffset) {
+				node_data.shapeUvOffset = [];
+			}
 			nodeAnimations[name] = node_data;
 		}
 	}
@@ -229,12 +253,12 @@ export function setupAnimationCodec() {
 	let original_save = Animation.prototype.save;
 	Animation.prototype.save = function(...args) {
 		if (!FORMAT_IDS.includes(Format.id)) {
-			return original_save(...args);
+			return original_save.call(this, ...args);
 		}
 
 		let animation: _Animation;
 		// @ts-ignore
-		animation = Animation.selected;
+		animation = this;
 		let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
 
 		if (isApp && this.path) {
@@ -264,6 +288,14 @@ export function setupAnimationCodec() {
 			Animation.prototype.save = original_save;
 		}
 	});
+	let save_all_listener = BarItems.save_all_animations.on('use', () => {
+		if (!isHytaleFormat()) return;
+		Animation.all.forEach(animation => {
+			if (!animation.saved) animation.save();
+		});
+		return false;
+	});
+	track(save_all_listener as unknown as Deletable);
 
 	let original_condition = BarItems.export_animation_file.condition;
 	BarItems.export_animation_file.condition = () => {

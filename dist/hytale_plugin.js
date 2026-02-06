@@ -6,7 +6,11 @@
   }
   function cleanup() {
     for (let deletable of list) {
-      deletable.delete();
+      try {
+        deletable.delete();
+      } catch (error) {
+        console.error(error);
+      }
     }
     list.empty();
   }
@@ -18,6 +22,20 @@
       final_newline: false
     }
   };
+
+  // src/util.ts
+  function qualifiesAsMainShape(object) {
+    return object instanceof Cube && object.rotation.allEqual(0);
+  }
+  function cubeIsQuad(cube) {
+    if (!cube.size().some((val) => val == 0)) return false;
+    let faces = Object.keys(cube.faces).filter((fkey) => cube.faces[fkey].texture !== null);
+    if (faces.length > 1) return false;
+    return true;
+  }
+  function getMainShape(group) {
+    return group.children.find(qualifiesAsMainShape);
+  }
 
   // src/blockymodel.ts
   function discoverTexturePaths(dirname, modelName) {
@@ -156,12 +174,6 @@
             z: input[2]
           });
         };
-        function qualifiesAsMainShape(object) {
-          return object instanceof Cube && (object.rotation.allEqual(0) || cubeIsQuad(object));
-        }
-        function cubeIsQuad(cube) {
-          return cube.size()[2] == 0;
-        }
         function turnNodeIntoBox(node, cube, original_element) {
           let size = cube.size();
           let stretch = cube.stretch.slice();
@@ -173,34 +185,40 @@
           node.shape.type = "box";
           node.shape.settings.size = formatVector(size);
           node.shape.offset = formatVector(offset);
-          let temp;
-          function switchIndices(arr, i1, i2) {
-            temp = arr[i1];
-            arr[i1] = arr[i2];
-            arr[i2] = temp;
-          }
           if (cubeIsQuad(cube)) {
             node.shape.type = "quad";
-            if (cube.rotation[0] == -90) {
-              node.shape.settings.normal = "+Y";
-              switchIndices(stretch, 1, 2);
-            } else if (cube.rotation[0] == 90) {
-              node.shape.settings.normal = "-Y";
-              switchIndices(stretch, 1, 2);
-            } else if (cube.rotation[1] == 90) {
-              node.shape.settings.normal = "+X";
-              switchIndices(stretch, 0, 2);
-            } else if (cube.rotation[1] == -90) {
-              node.shape.settings.normal = "-X";
-              switchIndices(stretch, 0, 2);
-            } else if (cube.rotation[1] == 180) {
-              node.shape.settings.normal = "-Z";
-            } else {
-              node.shape.settings.normal = "+Z";
+            let used_face = Object.keys(cube.faces).find((fkey) => cube.faces[fkey].texture != null);
+            let normal = "+Z";
+            switch (used_face) {
+              case "west":
+                normal = "-X";
+                break;
+              case "east":
+                normal = "+X";
+                break;
+              case "down":
+                normal = "-Y";
+                break;
+              case "up":
+                normal = "+Y";
+                break;
+              case "north":
+                normal = "-Z";
+                break;
+              case "south":
+                normal = "+Z";
+                break;
+            }
+            node.shape.settings.normal = normal;
+            delete node.shape.settings.size.z;
+            if (normal.endsWith("X")) {
+              node.shape.settings.size.x = size[2];
+            } else if (normal.endsWith("Y")) {
+              node.shape.settings.size.y = size[2];
             }
           }
           node.shape.stretch = formatVector(stretch);
-          node.shape.visible = true;
+          node.shape.visible = cube.visibility;
           node.shape.doubleSided = cube.double_sided == true;
           node.shape.shadingMode = cube.shading_mode;
           node.shape.unwrapMode = "custom";
@@ -215,8 +233,7 @@
             up: "top",
             down: "bottom"
           };
-          let faces = node.shape.type == "quad" ? ["south", "north"] : Object.keys(cube.faces);
-          for (let fkey of faces) {
+          for (let fkey in cube.faces) {
             let flipMinMax = function(axis) {
               if (axis == 0 /* X */) {
                 flip_x = !flip_x;
@@ -237,6 +254,7 @@
             let face = cube.faces[fkey];
             if (face.texture == null) continue;
             let direction = BBToHytaleDirection[fkey];
+            if (node.shape.type == "quad") direction = "front";
             let flip_x = false;
             let flip_y = false;
             let uv_x = Math.min(face.uv[0], face.uv[2]);
@@ -282,7 +300,7 @@
               }
             }
             let layout_face = {
-              offset: new oneLiner({ x: Math.trunc(uv_x), y: Math.trunc(uv_y) }),
+              offset: new oneLiner({ x: Math.round(uv_x), y: Math.round(uv_y) }),
               mirror: new oneLiner({ x: mirror_x, y: mirror_y }),
               angle: uv_rot
             };
@@ -290,14 +308,15 @@
           }
         }
         function getNodeOffset(group) {
-          let cube = group.children.find(qualifiesAsMainShape);
+          let cube = getMainShape(group);
           if (cube) {
             let center_pos = cube.from.slice().V3_add(cube.to).V3_divide(2, 2, 2);
             center_pos.V3_subtract(group.origin);
             return center_pos;
           }
         }
-        function compileNode(element) {
+        function compileNode(element, name = element.name) {
+          if (!element.export) return void 0;
           if (!options.attachment) {
             let collection = Collection.all.find((c) => c.contains(element));
             if (collection) return;
@@ -325,7 +344,7 @@
           }
           let node = {
             id: node_id.toString(),
-            name: element.name.replace(/^.+:/, ""),
+            name: name.replace(/^.+:/, ""),
             position: formatVector(origin),
             orientation,
             shape: {
@@ -337,7 +356,7 @@
               },
               textureLayout: {},
               unwrapMode: "custom",
-              visible: true,
+              visible: element.visibility,
               doubleSided: false,
               shadingMode: "flat"
             }
@@ -347,13 +366,16 @@
             turnNodeIntoBox(node, element, element);
           } else if ("children" in element) {
             let shape_count = 0;
+            let child_cube_count = 0;
             for (let child of element.children ?? []) {
+              if (!child.export) continue;
               let result;
               if (qualifiesAsMainShape(child) && shape_count == 0) {
                 turnNodeIntoBox(node, child, element);
                 shape_count++;
               } else if (child instanceof Cube) {
-                result = compileNode(child);
+                child_cube_count++;
+                result = compileNode(child, child.name + "--C" + child_cube_count);
               } else if (child instanceof Group) {
                 result = compileNode(child);
               }
@@ -365,12 +387,12 @@
           }
           return node;
         }
-        let groups = Outliner.root.filter((g) => g instanceof Group);
+        let nodes = Outliner.root.filter((node) => node instanceof Group || node instanceof Cube);
         if (options.attachment instanceof Collection) {
-          groups = options.attachment.getChildren().filter((g) => g instanceof Group);
+          nodes = options.attachment.getChildren().filter((g) => g instanceof Group);
         }
-        for (let group of groups) {
-          let compiled = group instanceof Group && compileNode(group);
+        for (let node of nodes) {
+          let compiled = compileNode(node);
           if (compiled) model.nodes.push(compiled);
         }
         if (options.raw) {
@@ -405,20 +427,17 @@
           let offset = node.shape?.offset ? parseVector(node.shape?.offset) : [0, 0, 0];
           let origin = parseVector(node.position);
           let rotation = [
-            Math.radToDeg(rotation_euler.x),
-            Math.radToDeg(rotation_euler.y),
-            Math.radToDeg(rotation_euler.z)
+            Math.roundTo(Math.radToDeg(rotation_euler.x), 3),
+            Math.roundTo(Math.radToDeg(rotation_euler.y), 3),
+            Math.roundTo(Math.radToDeg(rotation_euler.z), 3)
           ];
           if (args.attachment && !parent_node && parent_group instanceof Group) {
-            let reference_node = parent_group.children.find((c) => c instanceof Cube) ?? parent_group;
+            let reference_node = getMainShape(parent_group) ?? parent_group;
             origin = reference_node.origin.slice();
             rotation = reference_node.rotation.slice();
-          } else if (parent_group instanceof Group) {
-            let parent_geo_origin = parent_group.children.find((cube) => cube instanceof Cube)?.origin ?? parent_group.origin;
-            if (parent_geo_origin) {
-              origin.V3_add(parent_geo_origin);
-              if (parent_offset) origin.V3_add(parent_offset);
-            }
+          } else if (parent_offset && parent_group instanceof Group) {
+            origin.V3_add(parent_offset);
+            origin.V3_add(parent_group.origin);
           }
           let group = null;
           if (!node.shape?.settings?.isStaticBox) {
@@ -426,7 +445,8 @@
               name,
               autouv: 1,
               origin,
-              rotation
+              rotation,
+              visibility: node.shape?.visible != false
             });
             new_groups.push(group);
             group.addTo(parent_group);
@@ -439,21 +459,35 @@
               // @ts-ignore
               is_piece: node.shape?.settings?.isPiece ?? false
             });
+          } else {
+            name = name.replace(/--C\d+$/, "");
           }
           if (node.shape.type != "none") {
             let switchIndices = function(arr, i1, i2) {
               temp = arr[i1];
               arr[i1] = arr[i2];
               arr[i2] = temp;
+            }, resetFace = function(face_name) {
+              cube.faces[face_name].texture = null;
+              cube.faces[face_name].uv = [0, 0, 0, 0];
             };
             let size = parseVector(node.shape.settings.size);
             let stretch = parseVector(node.shape.stretch, [1, 1, 1]);
             if (node.shape.type == "quad") {
-              size[2] = 0;
+              let axis = node.shape.settings.normal?.substring(1) ?? "Z";
+              if (axis == "X") {
+                size = [0, size[1], size[0]];
+              } else if (axis == "Y") {
+                size.splice("XYZ".indexOf(axis), 0, 0);
+              } else if (axis == "Z") {
+                size[2] = 0;
+              }
             }
             let cube = new Cube({
               name,
               autouv: 1,
+              box_uv: false,
+              visibility: node.shape.visible != false,
               rotation: [0, 0, 0],
               stretch,
               from: [
@@ -468,6 +502,7 @@
               ]
             });
             if (group) {
+              group.color = cube.color;
               cube.origin.V3_set(
                 Math.lerp(cube.from[0], cube.to[0], 0.5),
                 Math.lerp(cube.from[1], cube.to[1], 0.5),
@@ -485,34 +520,6 @@
               double_sided: node.shape.doubleSided
             });
             let temp;
-            if (node.shape.settings?.normal && node.shape.settings.normal != "+Z") {
-              switch (node.shape.settings.normal) {
-                case "+Y": {
-                  cube.rotation[0] -= 90;
-                  switchIndices(cube.stretch, 1, 2);
-                  break;
-                }
-                case "-Y": {
-                  cube.rotation[0] += 90;
-                  switchIndices(cube.stretch, 1, 2);
-                  break;
-                }
-                case "+X": {
-                  cube.rotation[1] += 90;
-                  switchIndices(cube.stretch, 0, 2);
-                  break;
-                }
-                case "-X": {
-                  cube.rotation[1] -= 90;
-                  switchIndices(cube.stretch, 0, 2);
-                  break;
-                }
-                case "-Z": {
-                  cube.rotation[1] += 180;
-                  break;
-                }
-              }
-            }
             let HytaleDirection;
             ((HytaleDirection2) => {
               HytaleDirection2["back"] = "back";
@@ -530,17 +537,29 @@
               top: "up",
               bottom: "down"
             };
+            const normal_faces = {
+              "-X": "west",
+              "+X": "east",
+              "-Y": "down",
+              "+Y": "up",
+              "-Z": "north",
+              "+Z": "south"
+            };
             if (node.shape.settings.size) {
               let parseUVVector = function(vec, fallback = [0, 0]) {
                 if (!vec) return fallback;
                 return Object.values(vec).slice(0, 2);
               };
+              let normal_face = node.shape.type == "quad" && normal_faces[node.shape.settings.normal];
               for (let key in HytaleDirection) {
-                let uv_source = node.shape.textureLayout[key];
                 let face_name = HytaleToBBDirection[key];
+                let uv_source = node.shape.textureLayout[key];
+                if (normal_face == face_name) {
+                  if (face_name != "south") resetFace("south");
+                  uv_source = node.shape.textureLayout["front"];
+                }
                 if (!uv_source) {
-                  cube.faces[face_name].texture = null;
-                  cube.faces[face_name].uv = [0, 0, 0, 0];
+                  resetFace(face_name);
                   continue;
                 }
                 let uv_offset = parseUVVector(uv_source.offset);
@@ -626,7 +645,7 @@
           }
           if (node.children?.length && group instanceof Group) {
             for (let child of node.children) {
-              parseNode(child, node, group);
+              parseNode(child, node, group, offset);
             }
           }
         }
@@ -695,10 +714,14 @@
         }, (path) => this.afterDownload(path));
       },
       async exportCollection(collection) {
+        this.context = collection;
         await this.export({ attachment: collection });
+        this.context = null;
       },
       async writeCollection(collection) {
+        this.context = collection;
         this.write(this.compile({ attachment: collection }), collection.export_path);
+        this.context = null;
       }
     });
     let export_action = new Action("export_blockymodel", {
@@ -745,11 +768,14 @@
       centered_grid: true,
       box_uv: false,
       optional_box_uv: true,
+      box_uv_float_size: true,
+      integer_size: true,
       uv_rotation: true,
       rotate_cubes: true,
       per_texture_uv_size: true,
+      // @ts-ignore
+      texture_wrap_default: "clamp",
       stretch_cubes: true,
-      confidential: true,
       model_identifier: false,
       animation_loop_wrapping: true,
       quaternion_interpolation: true,
@@ -763,13 +789,14 @@
         { type: "h3", text: tl("mode.start.format.informations") },
         {
           text: `* One texture can be applied to a model at a time
+                    * UV sizes are linked to the size of each cube and cannot be modified, except by stretching the cube
                     * Models can have a maximum of 255 nodes`.replace(/(\t| {4,4})+/g, "")
         },
         { type: "h3", text: tl("mode.start.format.resources") },
         {
           text: [
-            "* [Modeling Tutorial](https://hytale.com/)",
-            "* [Animation Tutorial](https://hytale.com/)"
+            "* [Modeling Overview and Style Guide](https://hytale.com/news/2025/12/an-introduction-to-making-models-for-hytale)",
+            "* [Modeling Tutorial](https://youtu.be/Q07i3wmGy0Y)"
           ].join("\n")
         }
       ]
@@ -781,6 +808,13 @@
       format_page,
       block_size: 64,
       ...common
+      // TODO: Auto-reload attachments on tab switch. Needs dirty tracking and setting toggle to avoid losing unsaved changes
+      /*
+      onActivation() {
+          common.onActivation?.();
+          setTimeout(() => reload_all_attachments?.click(), 0);
+      }
+      */
     });
     let format_prop = new ModelFormat("hytale_prop", {
       name: "Hytale Prop",
@@ -790,7 +824,23 @@
       block_size: 32,
       ...common
     });
+    let int_setting = new Setting("hytale_integer_size", {
+      name: "Hytale Integer Size",
+      category: "edit",
+      description: "Restrict cube sizes in hytale formats to full integers. Float values are technically supported but make UV mapping more difficult. Using stretch is recommended instead.",
+      type: "toggle",
+      value: true
+    });
+    track(int_setting);
+    const integer_size = { get: () => int_setting.value };
+    Object.defineProperty(format_character, "integer_size", integer_size);
+    Object.defineProperty(format_prop, "integer_size", integer_size);
+    const single_texture = { get: () => Collection.all.length == 0 };
+    Object.defineProperty(format_character, "single_texture", single_texture);
+    Object.defineProperty(format_prop, "single_texture", single_texture);
     codec.format = format_character;
+    format_character.codec = codec;
+    format_prop.codec = codec;
     track(format_character);
     track(format_prop);
     Language.addTranslations("en", {
@@ -801,11 +851,104 @@
     return Format && FORMAT_IDS.includes(Format.id);
   }
 
+  // src/name_overlap.ts
+  var Animation = window.Animation;
+  function copyAnimationToGroupsWithSameName(animation, source_group) {
+    let source_animator = animation.getBoneAnimator(source_group);
+    let other_groups = Group.all.filter((g) => g.name == source_group.name && g != source_group);
+    for (let group2 of other_groups) {
+      let animator2 = animation.getBoneAnimator(group2);
+      for (let channel in animator2.channels) {
+        if (animator2[channel] instanceof Array) animator2[channel].empty();
+      }
+      source_animator.keyframes.forEach((kf) => {
+        animator2.addKeyframe(kf, guid());
+      });
+    }
+  }
+  function setupNameOverlap() {
+    Blockbench.on("finish_edit", (arg) => {
+      if (arg.aspects.keyframes && Animation.selected) {
+        let changes = false;
+        let groups = {};
+        if (Timeline.selected_animator) {
+          groups[Timeline.selected_animator.name] = [
+            Timeline.selected_animator.group
+          ];
+        }
+        for (let group of Group.all) {
+          if (!groups[group.name]) groups[group.name] = [];
+          groups[group.name].push(group);
+        }
+        for (let name in groups) {
+          if (groups[name].length >= 2) {
+            copyAnimationToGroupsWithSameName(Animation.selected, groups[name][0]);
+            if (!changes && groups[name].find((g) => g.selected)) changes = true;
+          }
+        }
+        if (changes) {
+          Animator.preview();
+        }
+      }
+    });
+    let bone_animator_select_original = BoneAnimator.prototype.select;
+    BoneAnimator.prototype.select = function select(group_is_selected) {
+      if (!this.getGroup()) {
+        unselectAllElements();
+        return this;
+      }
+      if (this.group.locked) return;
+      for (var key in this.animation.animators) {
+        this.animation.animators[key].selected = false;
+      }
+      if (group_is_selected !== true && this.group) {
+        this.group.select();
+      }
+      GeneralAnimator.prototype.select.call(this);
+      if (this[Toolbox.selected.animation_channel] && (Timeline.selected.length == 0 || Timeline.selected[0].animator != this) && !Blockbench.hasFlag("loading_selection_save")) {
+        var nearest;
+        this[Toolbox.selected.animation_channel].forEach((kf) => {
+          if (Math.abs(kf.time - Timeline.time) < 2e-3) {
+            nearest = kf;
+          }
+        });
+        if (nearest) {
+          nearest.select();
+        }
+      }
+      if (this.group && this.group.parent && this.group.parent !== "root") {
+        this.group.parent.openUp();
+      }
+      return this;
+    };
+    track({
+      delete() {
+        BoneAnimator.prototype.select = bone_animator_select_original;
+      }
+    });
+    let setting = new Setting("hytale_duplicate_bone_names", {
+      name: "Duplicate Bone Names",
+      category: "edit",
+      description: "Allow creating duplicate groups names in Hytale formats. Multiple groups with the same name can be used to apply animations to multiple nodes at once.",
+      type: "toggle",
+      value: false
+    });
+    let override = Group.addBehaviorOverride({
+      condition: () => isHytaleFormat() && setting.value == true,
+      // @ts-ignore
+      priority: 2,
+      behavior: {
+        unique_name: false
+      }
+    });
+    track(override, setting);
+  }
+
   // src/blockyanim.ts
   var FPS = 60;
-  var Animation = window.Animation;
+  var Animation2 = window.Animation;
   function parseAnimationFile(file, content) {
-    let animation = new Animation({
+    let animation = new Animation2({
       name: pathToName(file.name, false),
       length: content.duration / FPS,
       loop: content.holdLastKeyframe ? "hold" : "loop",
@@ -825,7 +968,8 @@
         { channel: "rotation", keyframes: anim_data.orientation },
         { channel: "position", keyframes: anim_data.position },
         { channel: "scale", keyframes: anim_data.shapeStretch },
-        { channel: "visibility", keyframes: anim_data.shapeVisible }
+        { channel: "visibility", keyframes: anim_data.shapeVisible },
+        { channel: "uv_offset", keyframes: anim_data.shapeUvOffset }
       ];
       for (let { channel, keyframes } of anim_channels) {
         if (!keyframes || keyframes.length == 0) continue;
@@ -834,6 +978,12 @@
           if (channel == "visibility") {
             data_point = {
               visibility: kf_data.delta
+            };
+          } else if (channel == "uv_offset") {
+            let delta = kf_data.delta;
+            data_point = {
+              x: delta.x,
+              y: -delta.y
             };
           } else {
             let delta = kf_data.delta;
@@ -861,9 +1011,10 @@
           });
         }
       }
+      if (group) copyAnimationToGroupsWithSameName(animation, group);
     }
     animation.add(false);
-    if (!Animation.selected && Animator.open) {
+    if (!Animation2.selected && Animator.open) {
       animation.select();
     }
   }
@@ -871,7 +1022,7 @@
     const nodeAnimations = {};
     const file = {
       formatVersion: 1,
-      duration: animation.length * FPS,
+      duration: Math.round(animation.length * FPS),
       holdLastKeyframe: animation.loop == "hold",
       nodeAnimations
     };
@@ -879,7 +1030,8 @@
       position: "position",
       rotation: "orientation",
       scale: "shapeStretch",
-      visibility: "shapeVisible"
+      visibility: "shapeVisible",
+      uv_offset: "shapeUvOffset"
     };
     for (let uuid in animation.animators) {
       let animator = animation.animators[uuid];
@@ -898,6 +1050,12 @@
           let delta;
           if (channel == "visibility") {
             delta = data_point.visibility;
+          } else if (channel == "uv_offset") {
+            delta = {
+              x: parseFloat(data_point.x),
+              y: -parseFloat(data_point.y)
+            };
+            delta = new oneLiner(delta);
           } else {
             delta = {
               x: parseFloat(data_point.x),
@@ -926,12 +1084,15 @@
             delta,
             interpolationType: kf.interpolation == "catmullrom" ? "smooth" : "linear"
           };
+          if (channel == "uv_offset") console.log(kf_output);
           timeline.push(kf_output);
           has_data = true;
         }
       }
       if (has_data) {
-        node_data.shapeUvOffset = [];
+        if (!node_data.shapeUvOffset) {
+          node_data.shapeUvOffset = [];
+        }
         nodeAnimations[name] = node_data;
       }
     }
@@ -964,7 +1125,7 @@
       condition: { formats: FORMAT_IDS, selected: { animation: true } },
       click() {
         let animation;
-        animation = Animation.selected;
+        animation = Animation2.selected;
         let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
         Filesystem.exportFile({
           resource_id: "blockyanim",
@@ -989,13 +1150,13 @@
       }
     });
     track(handler);
-    let original_save = Animation.prototype.save;
-    Animation.prototype.save = function(...args) {
+    let original_save = Animation2.prototype.save;
+    Animation2.prototype.save = function(...args) {
       if (!FORMAT_IDS.includes(Format.id)) {
-        return original_save(...args);
+        return original_save.call(this, ...args);
       }
       let animation;
-      animation = Animation.selected;
+      animation = this;
       let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
       if (isApp && this.path) {
         Blockbench.writeFile(this.path, { content }, (real_path) => {
@@ -1020,9 +1181,17 @@
     };
     track({
       delete() {
-        Animation.prototype.save = original_save;
+        Animation2.prototype.save = original_save;
       }
     });
+    let save_all_listener = BarItems.save_all_animations.on("use", () => {
+      if (!isHytaleFormat()) return;
+      Animation2.all.forEach((animation) => {
+        if (!animation.saved) animation.save();
+      });
+      return false;
+    });
+    track(save_all_listener);
     let original_condition = BarItems.export_animation_file.condition;
     BarItems.export_animation_file.condition = () => {
       return Condition(original_condition) && !FORMAT_IDS.includes(Format.id);
@@ -1067,15 +1236,154 @@
       } else {
         texture.setAsDefaultTexture();
       }
+      UVEditor.vue.updateTexture();
     });
     track(handler);
   }
 
+  // src/attachment_texture.ts
+  function getCollection(cube) {
+    return Collection.all.find((c) => c.contains(cube));
+  }
+  function processAttachmentTextures(attachmentName, newTextures) {
+    let textureGroup = new TextureGroup({ name: attachmentName });
+    textureGroup.folded = true;
+    textureGroup.add();
+    if (newTextures.length === 0) return "";
+    for (let tex of newTextures) {
+      tex.group = textureGroup.uuid;
+      updateUVSize(tex);
+    }
+    let texture = newTextures.find((t) => t.name.startsWith(attachmentName)) ?? newTextures[0];
+    return texture.uuid;
+  }
+  function setupAttachmentTextures() {
+    let textureProperty = new Property(Collection, "string", "texture", {
+      condition: { formats: FORMAT_IDS }
+    });
+    track(textureProperty);
+    let originalGetTexture = CubeFace.prototype.getTexture;
+    CubeFace.prototype.getTexture = function(...args) {
+      if (isHytaleFormat()) {
+        if (this.texture == null) return null;
+        let collection = getCollection(this.cube);
+        if (collection && "texture" in collection) {
+          if (collection.texture) {
+            let texture = Texture.all.find((t) => t.uuid == collection.texture);
+            if (texture) return texture;
+          }
+          return null;
+        }
+        return Texture.getDefault();
+      }
+      return originalGetTexture.call(this, ...args);
+    };
+    track({
+      delete() {
+        CubeFace.prototype.getTexture = originalGetTexture;
+      }
+    });
+    let assignTexture = {
+      id: "set_texture",
+      name: "menu.cube.texture",
+      icon: "collections",
+      condition: { formats: FORMAT_IDS },
+      children(context) {
+        function applyTexture(textureValue, undoMessage) {
+          Undo.initEdit({ collections: Collection.selected });
+          for (let collection of Collection.selected) {
+            collection.texture = textureValue;
+          }
+          Undo.finishEdit(undoMessage);
+          Canvas.updateAllFaces();
+        }
+        let arr = [
+          {
+            icon: "crop_square",
+            name: Format.single_texture_default ? "menu.cube.texture.default" : "menu.cube.texture.blank",
+            click() {
+              applyTexture("", "Unassign texture from collection");
+            }
+          }
+        ];
+        Texture.all.forEach((t) => {
+          arr.push({
+            name: t.name,
+            // @ts-expect-error
+            icon: t.img,
+            marked: t.uuid == context.texture,
+            click() {
+              applyTexture(t.uuid, "Apply texture to collection");
+            }
+          });
+        });
+        return arr;
+      }
+    };
+    Collection.menu.addAction(assignTexture);
+    track({
+      delete() {
+        Collection.menu.removeAction("set_texture");
+      }
+    });
+  }
+
   // src/attachments.ts
+  var reload_all_attachments;
   function setupAttachments() {
+    setupAttachmentTextures();
+    let shared_delete = SharedActions.add("delete", {
+      subject: "collection",
+      priority: 1,
+      condition: () => Prop.active_panel == "collections" && isHytaleFormat() && Collection.selected.some((c) => c.export_codec === "blockymodel"),
+      run() {
+        let collections = Collection.selected.slice();
+        let remove_elements = [];
+        let remove_groups = [];
+        let textures = [];
+        let texture_groups = [];
+        for (let collection of collections) {
+          if (collection.export_codec === "blockymodel") {
+            for (let child of collection.getAllChildren()) {
+              child = child;
+              (child instanceof Group ? remove_groups : remove_elements).safePush(child);
+            }
+            let texture_group = TextureGroup.all.find((tg) => tg.name === collection.name);
+            if (texture_group) {
+              let textures2 = Texture.all.filter((t) => t.group === texture_group.uuid);
+              textures.safePush(...textures2);
+              texture_groups.push(texture_group);
+            }
+          }
+        }
+        Undo.initEdit({
+          collections,
+          groups: remove_groups,
+          elements: remove_elements,
+          outliner: true,
+          // @ts-expect-error
+          texture_groups,
+          textures
+        });
+        collections.forEach((c) => Collection.all.remove(c));
+        collections.empty();
+        textures.forEach((t) => t.remove(true));
+        textures.empty();
+        texture_groups.forEach((t) => t.remove());
+        texture_groups.empty();
+        remove_groups.forEach((group) => group.remove());
+        remove_groups.empty();
+        remove_elements.forEach((element) => element.remove());
+        remove_elements.empty();
+        updateSelection();
+        Undo.finishEdit("Remove attachment");
+      }
+    });
+    track(shared_delete);
     let import_as_attachment = new Action("import_as_hytale_attachment", {
       name: "Import Attachment",
       icon: "fa-hat-cowboy",
+      condition: { formats: FORMAT_IDS },
       click() {
         Filesystem.importFile({
           extensions: ["blockymodel"],
@@ -1097,18 +1405,20 @@
               visibility: true
             }).add();
             collection.export_path = file.path;
-            let new_textures = content.new_textures;
-            if (new_textures.length) {
-              let texture_group = new TextureGroup({ name });
-              texture_group.add();
-              new_textures.forEach((tex) => tex.group = texture_group.uuid);
-              for (let texture2 of new_textures) {
-                updateUVSize(texture2);
+            let texturesToProcess = content.new_textures;
+            if (texturesToProcess.length === 0) {
+              let dirname = PathModule.dirname(file.path);
+              let texturePaths = discoverTexturePaths(dirname, attachment_name);
+              for (let texPath of texturePaths) {
+                let tex = new Texture().fromPath(texPath).add(false);
+                texturesToProcess.push(tex);
               }
-              let texture = new_textures.find((t) => t.name.startsWith(attachment_name)) ?? new_textures[0];
-              collection.texture = texture.uuid;
-              Canvas.updateAllFaces();
             }
+            let textureUuid = processAttachmentTextures(attachment_name, texturesToProcess);
+            if (textureUuid) {
+              collection.texture = textureUuid;
+            }
+            Canvas.updateAllFaces();
           }
         });
       }
@@ -1116,95 +1426,54 @@
     track(import_as_attachment);
     let toolbar = Panels.collections.toolbars[0];
     toolbar.add(import_as_attachment);
-    let texture_property = new Property(Collection, "string", "texture", {
-      condition: { formats: FORMAT_IDS }
-    });
-    track(texture_property);
-    function getCollection(cube) {
-      return Collection.all.find((c) => c.contains(cube));
+    function reloadAttachment(collection) {
+      for (let child of collection.getChildren()) {
+        child.remove();
+      }
+      Filesystem.readFile([collection.export_path], {}, ([file]) => {
+        let json = autoParseJSON(file.content);
+        let content = Codecs.blockymodel.parse(json, file.path, { attachment: collection.name });
+        let new_groups = content.new_groups;
+        let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
+        collection.extend({
+          children: root_groups.map((g) => g.uuid)
+        }).add();
+        Canvas.updateAllFaces();
+      });
     }
-    let originalGetTexture = CubeFace.prototype.getTexture;
-    CubeFace.prototype.getTexture = function(...args) {
-      if (isHytaleFormat()) {
-        if (this.texture == null) return null;
-        let collection = getCollection(this.cube);
-        if (collection && "texture" in collection && collection.texture) {
-          let texture = Texture.all.find((t) => t.uuid == collection.texture);
-          if (texture) return texture;
-        }
-      }
-      return originalGetTexture.call(this, ...args);
-    };
-    track({
-      delete() {
-        CubeFace.prototype.getTexture = originalGetTexture;
-      }
-    });
     let reload_attachment_action = new Action("reload_hytale_attachment", {
       name: "Reload Attachment",
       icon: "refresh",
       condition: () => Collection.selected.length && Modes.edit,
       click() {
         for (let collection of Collection.selected) {
-          for (let child of Collection.selected[0].getChildren()) {
-            child.remove();
-          }
-          Filesystem.readFile([collection.export_path], {}, ([file]) => {
-            let json = autoParseJSON(file.content);
-            let content = Codecs.blockymodel.parse(json, file.path, { attachment: collection.name });
-            let new_groups = content.new_groups;
-            let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
-            collection.extend({
-              children: root_groups.map((g) => g.uuid)
-            }).add();
-            Canvas.updateAllFaces();
-          });
+          reloadAttachment(collection);
         }
       }
     });
     Collection.menu.addAction(reload_attachment_action, 10);
     track(reload_attachment_action);
-    let assign_texture = {
-      id: "set_texture",
-      name: "menu.cube.texture",
-      icon: "collections",
+    reload_all_attachments = new Action("reload_all_hytale_attachments", {
+      name: "Reload All Attachments",
+      icon: "sync",
       condition: { formats: FORMAT_IDS },
-      children(context) {
-        function applyTexture(texture_value, undo_message) {
-          Undo.initEdit({ collections: Collection.selected });
-          for (let collection of Collection.selected) {
-            collection.texture = texture_value;
-          }
-          Undo.finishEdit(undo_message);
-          Canvas.updateAllFaces();
+      click() {
+        for (let collection of Collection.all.filter((c) => c.export_path)) {
+          reloadAttachment(collection);
         }
-        let arr = [
-          { icon: "crop_square", name: Format.single_texture_default ? "menu.cube.texture.default" : "menu.cube.texture.blank", click(group) {
-            applyTexture("", "Unassign texture from collection");
-          } }
-        ];
-        Texture.all.forEach((t) => {
-          arr.push({
-            name: t.name,
-            // @ts-ignore
-            icon: t.img,
-            marked: t.uuid == context.texture,
-            click() {
-              applyTexture(t.uuid, "Apply texture to collection");
-            }
-          });
-        });
-        return arr;
       }
-    };
-    Collection.menu.addAction(assign_texture);
+    });
+    track(reload_all_attachments);
+    toolbar.add(reload_all_attachments);
   }
 
   // src/animations.ts
   function setupAnimation() {
     function displayVisibility(animator) {
       let group = animator.getGroup();
-      let scene_object = group.scene_object;
+      let main_shape = getMainShape(group);
+      if (!main_shape) return;
+      let scene_object = main_shape.scene_object;
       if (animator.muted.visibility) {
         scene_object.visible = group.visibility;
         return;
@@ -1233,12 +1502,79 @@
         displayVisibility(animator);
       }
     });
-    let property = new Property(KeyframeDataPoint, "boolean", "visibility", {
+    let vis_property = new Property(KeyframeDataPoint, "boolean", "visibility", {
       label: "Visibility",
       condition: (point) => point.keyframe.channel == "visibility",
       default: true
     });
-    track(property);
+    track(vis_property);
+    let on_exit_anim_mode = Blockbench.on("unselect_mode", (arg) => {
+      if (isHytaleFormat() && arg.mode?.id == "animate") {
+        Canvas.updateVisibility();
+      }
+    });
+    track(vis_property, on_exit_anim_mode);
+    function displayUVOffset(animator) {
+      let group = animator.getGroup();
+      let cube = getMainShape(group);
+      if (!cube) return;
+      let updateUV = (offset) => {
+        if (!offset || !offset[0] && !offset[1]) {
+          if (!cube.mesh.userData.uv_anim_offset) {
+            return;
+          } else {
+            cube.mesh.userData.uv_anim_offset = false;
+          }
+        } else {
+          cube.mesh.userData.uv_anim_offset = true;
+        }
+        offset = offset ?? [0, 0];
+        let fix_uvs = {};
+        for (let fkey in cube.faces) {
+          fix_uvs[fkey] = cube.faces[fkey].uv.slice();
+          cube.faces[fkey].uv[0] += offset[0];
+          cube.faces[fkey].uv[1] += offset[1];
+          cube.faces[fkey].uv[2] += offset[0];
+          cube.faces[fkey].uv[3] += offset[1];
+        }
+        Cube.preview_controller.updateUV(cube);
+        for (let fkey in cube.faces) {
+          cube.faces[fkey].uv.replace(fix_uvs[fkey]);
+        }
+      };
+      if (animator.muted.uv_offset) {
+        updateUV();
+        return;
+      }
+      let previous_keyframe;
+      let previous_time = -Infinity;
+      for (let keyframe of animator.uv_offset) {
+        if (keyframe.time <= Timeline.time && keyframe.time > previous_time) {
+          previous_keyframe = keyframe;
+          previous_time = keyframe.time;
+        }
+      }
+      if (previous_keyframe) {
+        updateUV(previous_keyframe.getArray());
+      } else if (true) {
+        updateUV();
+      }
+    }
+    BoneAnimator.addChannel("uv_offset", {
+      name: "UV Offset",
+      mutable: true,
+      transform: true,
+      max_data_points: 1,
+      condition: { formats: FORMAT_IDS },
+      displayFrame(animator, multiplier) {
+        displayUVOffset(animator);
+      }
+    });
+    let original_condition = KeyframeDataPoint.properties.z.condition;
+    KeyframeDataPoint.properties.z.condition = (point) => {
+      if (point.keyframe.channel == "uv_offset") return false;
+      return Condition(original_condition, point);
+    };
     function weightedCubicBezier(t) {
       let P0 = 0, P1 = 0.05, P2 = 0.95, P3 = 1;
       let W0 = 2, W1 = 1, W2 = 2, W3 = 1;
@@ -1264,11 +1600,12 @@
     });
     track(on_interpolate);
     let original_display_scale = BoneAnimator.prototype.displayScale;
+    let original_display_rotation = BoneAnimator.prototype.displayRotation;
     let original_show_default_pose = Animator.showDefaultPose;
     BoneAnimator.prototype.displayScale = function displayScale(array, multiplier = 1) {
       if (!array) return this;
       if (isHytaleFormat()) {
-        let target_shape = this.group.children.find((c) => c instanceof Cube);
+        let target_shape = getMainShape(this.group);
         if (target_shape) {
           let initial_stretch = target_shape.stretch.slice();
           target_shape.stretch.V3_set([
@@ -1279,9 +1616,24 @@
           Cube.preview_controller.updateGeometry(target_shape);
           target_shape.stretch.V3_set(initial_stretch);
         }
-        return;
+        return this;
       }
-      original_display_scale.call(this, array, multiplier);
+      return original_display_scale.call(this, array, multiplier);
+    };
+    BoneAnimator.prototype.displayRotation = function displayRotation(array, multiplier = 1) {
+      if (isHytaleFormat() && array) {
+        let bone = this.group.scene_object;
+        let euler = Reusable.euler1.set(
+          Math.degToRad(array[0]) * multiplier,
+          Math.degToRad(array[1]) * multiplier,
+          Math.degToRad(array[2]) * multiplier,
+          bone.rotation.order
+        );
+        let q2 = Reusable.quat2.setFromEuler(euler);
+        bone.quaternion.multiply(q2);
+        return this;
+      }
+      return original_display_rotation.call(this, array, multiplier);
     };
     Animator.showDefaultPose = function(reduced_updates, ...args) {
       original_show_default_pose(reduced_updates, ...args);
@@ -1294,46 +1646,14 @@
     track({
       delete() {
         BoneAnimator.prototype.displayScale = original_display_scale;
+        BoneAnimator.prototype.displayRotation = original_display_rotation;
         Animator.showDefaultPose = original_show_default_pose;
       }
     });
   }
 
   // src/element.ts
-  function setupStretchedCubeResizeFix() {
-    const originalResize = Cube.prototype.resize;
-    Cube.prototype.resize = function(val, axis, negative, allow_negative, bidirectional) {
-      if (!FORMAT_IDS.includes(Format?.id) || !this.isStretched() || this.stretch[axis] === 1) {
-        return originalResize.call(this, val, axis, negative, allow_negative, bidirectional);
-      }
-      const stretch = this.stretch[axis];
-      let fixedEdgePos = null;
-      if (!bidirectional) {
-        const center = (this.from[axis] + this.to[axis]) / 2;
-        const halfSize = Math.abs(this.to[axis] - this.from[axis]) / 2;
-        fixedEdgePos = negative ? center + halfSize * stretch : center - halfSize * stretch;
-      }
-      const adjustedVal = typeof val === "function" ? (n) => val(n * stretch) / stretch : val / stretch;
-      originalResize.call(this, adjustedVal, axis, negative, allow_negative, bidirectional);
-      if (fixedEdgePos !== null) {
-        const newCenter = (this.from[axis] + this.to[axis]) / 2;
-        const newHalfSize = Math.abs(this.to[axis] - this.from[axis]) / 2;
-        const currentEdgePos = negative ? newCenter + newHalfSize * stretch : newCenter - newHalfSize * stretch;
-        const drift = fixedEdgePos - currentEdgePos;
-        this.from[axis] += drift;
-        this.to[axis] += drift;
-        this.preview_controller.updateGeometry(this);
-      }
-      return this;
-    };
-    track({
-      delete() {
-        Cube.prototype.resize = originalResize;
-      }
-    });
-  }
   function setupElements() {
-    setupStretchedCubeResizeFix();
     let property_shading_mode = new Property(Cube, "enum", "shading_mode", {
       default: "flat",
       values: ["flat", "standard", "fullbright", "reflective"],
@@ -1389,9 +1709,12 @@
           Undo.initEdit({ outliner: true, elements: [], selection: true }, amended);
           let base_quad = new Cube({
             autouv: settings.autouv.value ? 1 : 0,
+            // @ts-ignore
+            double_sided: true,
+            box_uv: false,
             color
           }).init();
-          if (!base_quad.box_uv) base_quad.mapAutoUV();
+          base_quad.mapAutoUV();
           let group = getCurrentGroup();
           if (group) {
             base_quad.addTo(group);
@@ -1461,19 +1784,47 @@
     track(add_quad_action);
     let add_element_menu = BarItems.add_element.side_menu;
     add_element_menu.addAction(add_quad_action);
+    let set_uv_mode_original = Cube.prototype.setUVMode;
+    Cube.prototype.setUVMode = function(box_uv, ...args) {
+      if (isHytaleFormat()) {
+        if (cubeIsQuad(this) && box_uv) return;
+      }
+      return set_uv_mode_original.call(this, box_uv, ...args);
+    };
+    track({
+      delete() {
+        Cube.prototype.setUVMode = set_uv_mode_original;
+      }
+    });
+    let inflate_condition_original = BarItems.slider_inflate.condition;
+    BarItems.slider_inflate.condition = () => {
+      if (isHytaleFormat()) return false;
+      return Condition(inflate_condition_original);
+    };
+    track({
+      delete() {
+        BarItems.slider_inflate.condition = inflate_condition_original;
+      }
+    });
     Blockbench.on("finish_edit", (arg) => {
       if (!FORMAT_IDS.includes(Format.id)) return;
       if (arg.aspects?.elements) {
-        let changes = false;
+        let uv_changes = false;
         for (let element of arg.aspects.elements) {
           if (element instanceof Cube == false) continue;
-          if (element.autouv) continue;
-          element.autouv = 1;
-          element.mapAutoUV();
-          element.preview_controller.updateUV(element);
-          changes = true;
+          if (!element.autouv) {
+            element.autouv = 1;
+            element.mapAutoUV();
+            element.preview_controller.updateUV(element);
+            uv_changes = true;
+          }
+          if (element.inflate) {
+            element.inflate = 0;
+            element.preview_controller.updateGeometry(element);
+            TickUpdates.selection = true;
+          }
         }
-        if (changes) {
+        if (uv_changes) {
           UVEditor.vue.$forceUpdate();
         }
       }
@@ -1482,7 +1833,7 @@
 
   // src/uv_cycling.ts
   var cycleState = null;
-  var CLICK_THRESHOLD = 5;
+  var CLICK_THRESHOLD = 0;
   function screenToUV(event) {
     return UVEditor.getBrushCoordinates(event, UVEditor.texture);
   }
@@ -1550,7 +1901,7 @@
       function handleMouseUp(event) {
         if (!pendingClick) return;
         if (event.button !== 0) return;
-        const uvPos = pendingClick.uvPos;
+        const uvPos = screenToUV(event);
         pendingClick = null;
         const isSamePosition = cycleState !== null && Math.abs(uvPos.x - cycleState.lastClickX) <= CLICK_THRESHOLD && Math.abs(uvPos.y - cycleState.lastClickY) <= CLICK_THRESHOLD;
         if (isSamePosition && cycleState) {
@@ -1604,11 +1955,11 @@
       if (group.export == false) return;
       if (Collection.all.find((c) => c.contains(group))) continue;
       node_count++;
-      let cube_count = 0;
+      let main_shape = getMainShape(group);
       for (let cube of group.children) {
         if (cube instanceof Cube == false || cube.export == false) continue;
-        cube_count++;
-        if (cube_count > 1) node_count++;
+        if (cube == main_shape) continue;
+        node_count++;
       }
     }
     return node_count;
@@ -1626,7 +1977,33 @@
         }
       }
     });
+    check.name = "Hytale Node Count";
     track(check);
+    let uv_check = new ValidatorCheck("hytale_uv_size", {
+      update_triggers: ["update_selection"],
+      condition: { formats: FORMAT_IDS },
+      run() {
+        for (let texture of Texture.all) {
+          if (texture.uv_width != texture.width || texture.uv_height != texture.height) {
+            this.fail({
+              message: `The texture ${texture.name} has a resolution (${texture.width}x${texture.height}) that does not match its UV size (${texture.uv_width}x${texture.uv_height}). Ensure that your pixel density is 64 for characters and 32 for props.`,
+              buttons: [
+                {
+                  name: "Fix UV Size",
+                  icon: "build",
+                  click() {
+                    updateUVSize(texture);
+                    texture.select();
+                  }
+                }
+              ]
+            });
+          }
+        }
+      }
+    });
+    uv_check.name = "Hytale UV Size";
+    track(uv_check);
     let listener = Blockbench.on("display_model_stats", ({ stats }) => {
       if (!FORMAT_IDS.includes(Format.id)) return;
       let node_count = getNodeCount();
@@ -1638,18 +2015,18 @@
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.3.2",
+    version: "0.7.0",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
     scripts: {
-      build: "esbuild src/plugin.ts --bundle --outfile=dist/hytale_plugin.js",
-      dev: "esbuild src/plugin.ts --bundle --outfile=dist/hytale_plugin.js --watch"
+      build: "esbuild src/plugin.ts --bundle --loader:.png=dataurl --outfile=dist/hytale_plugin.js",
+      dev: "esbuild src/plugin.ts --bundle --loader:.png=dataurl --outfile=dist/hytale_plugin.js --watch"
     },
     author: "JannisX11, Kanno",
-    license: "MIT",
+    license: "GPL-3.0",
     dependencies: {
-      "blockbench-types": "^5.0.5"
+      "blockbench-types": "^5.0.6"
     },
     devDependencies: {
       esbuild: "^0.25.9"
@@ -1662,6 +2039,7 @@
       name: "Copy-Paste with Magenta Alpha",
       description: "Copy image selections with magenta background and remove magenta when pasting to help transfer transparency to Photoshop",
       type: "toggle",
+      category: "paint",
       value: false
     });
     track(setting);
@@ -1900,6 +2278,996 @@
       Canvas.pivot_marker.add(...this.original_helpers);
     }
   };
+  var GroupPivotIndicator = class {
+    dot;
+    listener;
+    cameraListener;
+    setting;
+    constructor() {
+      this.setting = new Setting("show_group_pivot_indicator", {
+        name: "Show Group Pivot Indicator",
+        description: "Show a dot in Edit mode indicating the rotation pivot point for animations",
+        category: "preview",
+        type: "toggle",
+        value: true
+      });
+      let geometry = new THREE.SphereGeometry(0.65, 12, 12);
+      let material = new THREE.MeshBasicMaterial({
+        color: this.getAccentColor(),
+        transparent: true,
+        opacity: 0.9,
+        depthTest: false
+      });
+      this.dot = new THREE.Mesh(geometry, material);
+      this.dot.renderOrder = 900;
+      this.dot.visible = false;
+      Canvas.scene.add(this.dot);
+      Canvas.gizmos.push(this.dot);
+      this.listener = Blockbench.on("update_selection", () => this.update());
+      this.cameraListener = Blockbench.on("update_camera_position", () => this.updateScale());
+      this.update();
+    }
+    updateScale() {
+      if (!this.dot.visible) return;
+      let scale = Preview.selected.calculateControlScale(this.dot.position) || 0.8;
+      this.dot.scale.setScalar(scale * 0.7);
+    }
+    getAccentColor() {
+      let cssColor = getComputedStyle(document.body).getPropertyValue("--color-accent").trim();
+      return new THREE.Color(cssColor || "#3e90ff");
+    }
+    update() {
+      if (!this.setting.value) {
+        this.dot.visible = false;
+        return;
+      }
+      if (Modes.paint) {
+        this.dot.visible = false;
+        return;
+      }
+      let group = this.getRelevantGroup();
+      if (!group) {
+        this.dot.visible = false;
+        return;
+      }
+      this.dot.material.color.copy(this.getAccentColor());
+      let mesh = group.mesh;
+      if (mesh) {
+        let worldPos = new THREE.Vector3();
+        mesh.getWorldPosition(worldPos);
+        this.dot.position.copy(worldPos);
+        this.dot.visible = true;
+        this.updateScale();
+      } else {
+        this.dot.visible = false;
+      }
+    }
+    getRelevantGroup() {
+      let sel = Outliner.selected[0];
+      if (!sel) return null;
+      while (sel.parent instanceof OutlinerNode && sel.parent.selected) {
+        sel = sel.parent;
+      }
+      if (sel instanceof Group) {
+        return sel;
+      }
+      if (sel.parent instanceof Group) {
+        return sel.parent;
+      }
+      return null;
+    }
+    delete() {
+      Canvas.scene.remove(this.dot);
+      this.dot.geometry.dispose();
+      this.dot.material.dispose();
+      this.listener.delete();
+      this.cameraListener.delete();
+      this.setting.delete();
+    }
+  };
+
+  // src/outliner_filter.ts
+  var HIDDEN_CLASS = "hytale_attachment_hidden";
+  var attachmentsHidden = false;
+  var visibilityUpdatePending = false;
+  function scheduleVisibilityUpdate() {
+    if (!attachmentsHidden || visibilityUpdatePending) return;
+    visibilityUpdatePending = true;
+    requestAnimationFrame(() => {
+      visibilityUpdatePending = false;
+      applyOutlinerVisibility();
+    });
+  }
+  function getAttachmentUUIDs() {
+    let uuids = [];
+    if (!Collection.all?.length) return uuids;
+    for (let collection of Collection.all) {
+      for (let child of collection.getChildren()) {
+        uuids.push(child.uuid);
+        if ("children" in child && Array.isArray(child.children)) {
+          collectChildUUIDs(child, uuids);
+        }
+      }
+    }
+    return uuids;
+  }
+  function collectChildUUIDs(parent, uuids) {
+    for (let child of parent.children) {
+      if (child instanceof OutlinerNode) {
+        uuids.push(child.uuid);
+        if ("children" in child && Array.isArray(child.children)) {
+          collectChildUUIDs(child, uuids);
+        }
+      }
+    }
+  }
+  function applyOutlinerVisibility() {
+    if (!isHytaleFormat()) return;
+    const outlinerNode = Panels.outliner?.node;
+    if (!outlinerNode) return;
+    if (!attachmentsHidden) {
+      outlinerNode.querySelectorAll(`.${HIDDEN_CLASS}`).forEach((el) => {
+        el.classList.remove(HIDDEN_CLASS);
+      });
+      for (let collection of Collection.all ?? []) {
+        for (let child of collection.getChildren()) {
+          unlockRecursive(child);
+        }
+      }
+      return;
+    }
+    const uuids = getAttachmentUUIDs();
+    for (let uuid of uuids) {
+      let node = outlinerNode.querySelector(`[id="${uuid}"]`);
+      if (node) {
+        node.classList.add(HIDDEN_CLASS);
+      }
+      let element = OutlinerNode.uuids[uuid];
+      if (element) {
+        element.locked = true;
+      }
+    }
+  }
+  function unlockRecursive(node) {
+    node.locked = false;
+    if ("children" in node && Array.isArray(node.children)) {
+      for (let child of node.children) {
+        if (child instanceof OutlinerNode) {
+          unlockRecursive(child);
+        }
+      }
+    }
+  }
+  function setupOutlinerFilter() {
+    let style = Blockbench.addCSS(`
+		.outliner_node.${HIDDEN_CLASS} {
+			display: none !important;
+		}
+		/* Lock overlay on attachment toggle when active */
+		.tool[toolbar_item="toggle_attachment_editing"].enabled .fa-paperclip::after {
+			content: "lock";
+			font-family: "Material Icons";
+			font-size: 14px;
+			position: absolute;
+			bottom: -1px;
+			right: -3px;
+			text-shadow:
+				-1.5px -1.5px 0 var(--color-accent),
+				1.5px -1.5px 0 var(--color-accent),
+				-1.5px 1.5px 0 var(--color-accent),
+				1.5px 1.5px 0 var(--color-accent),
+				0px -1.5px 0 var(--color-accent),
+				0px 1.5px 0 var(--color-accent),
+				-1.5px 0px 0 var(--color-accent),
+				1.5px 0px 0 var(--color-accent);
+		}
+		.tool[toolbar_item="toggle_attachment_editing"] .fa-paperclip {
+			position: relative;
+		}
+	`);
+    StateMemory.init("hytale_attachments_hidden", "boolean");
+    attachmentsHidden = StateMemory.get("hytale_attachments_hidden") ?? false;
+    let toggle = new Toggle("toggle_attachment_editing", {
+      name: "Toggle Attachment Editing",
+      description: "Lock or unlock attachment elements for editing",
+      icon: "fa-paperclip",
+      category: "view",
+      condition: { formats: FORMAT_IDS },
+      default: attachmentsHidden,
+      onChange(value) {
+        attachmentsHidden = value;
+        StateMemory.set("hytale_attachments_hidden", value);
+        applyOutlinerVisibility();
+      }
+    });
+    let outlinerPanel = Panels.outliner;
+    if (outlinerPanel && outlinerPanel.toolbars.length > 0) {
+      outlinerPanel.toolbars[0].add(toggle, -1);
+    }
+    let hookFinishedEdit = Blockbench.on("finished_edit", scheduleVisibilityUpdate);
+    let hookSelectMode = Blockbench.on("select_mode", scheduleVisibilityUpdate);
+    let hookSelection = Blockbench.on("update_selection", scheduleVisibilityUpdate);
+    if (attachmentsHidden) {
+      setTimeout(applyOutlinerVisibility, 100);
+    }
+    track(toggle, hookFinishedEdit, hookSelectMode, hookSelection, style, {
+      delete() {
+        Panels.outliner?.node?.querySelectorAll(`.${HIDDEN_CLASS}`).forEach((el) => {
+          el.classList.remove(HIDDEN_CLASS);
+        });
+      }
+    });
+  }
+
+  // src/uv_outline.ts
+  var UV_OUTLINE_CSS = `
+body.hytale-format[mode=edit] #uv_frame .uv_resize_corner,
+body.hytale-format[mode=edit] #uv_frame .uv_resize_side,
+body.hytale-format[mode=edit] #uv_frame #uv_scale_handle,
+body.hytale-format[mode=edit] #uv_frame #uv_selection_frame {
+    display: none;
+}
+
+body.hytale-format #uv_frame.overlay_mode {
+    --uv-line-width: 2px;
+}
+body.hytale-format #uv_frame.overlay_mode .cube_uv_face {
+    border-color: transparent !important;
+}
+body.hytale-format #uv_frame.overlay_mode .cube_uv_face::before {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: -1px;
+    right: -1px;
+    bottom: -1px;
+    border: 1px solid var(--color-text);
+    pointer-events: none;
+}
+body.hytale-format #uv_frame.overlay_mode .cube_uv_face.selected:not(.unselected) {
+    outline: none;
+}
+
+body.hytale-uv-outline-only #uv_frame {
+    --color-uv-background: transparent;
+    --color-uv-background-hover: transparent;
+}
+body.hytale-uv-outline-only #uv_frame .cube_uv_face {
+    border-color: transparent !important;
+}
+body.hytale-uv-outline-only #uv_frame .cube_uv_face::before {
+    content: '';
+    position: absolute;
+    top: -1px;
+    left: -1px;
+    right: -1px;
+    bottom: -1px;
+    border: 1px solid var(--color-text);
+    pointer-events: none;
+}
+body.hytale-uv-outline-only #uv_frame .cube_uv_face:hover::before {
+    border-color: var(--color-accent);
+}
+body.hytale-uv-outline-only #uv_frame:not(.overlay_mode) .cube_uv_face.selected:not(.unselected)::before {
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    border-width: 2px;
+    border-color: var(--color-accent);
+}
+body.hytale-uv-outline-only #uv_frame .mesh_uv_face polygon {
+    stroke-width: 1px;
+}
+body.hytale-uv-outline-only #uv_frame:not(.overlay_mode) .mesh_uv_face.selected polygon {
+    stroke-width: 2px;
+}
+body.hytale-uv-outline-only #uv_frame .selection_rectangle {
+    background-color: transparent;
+}
+`;
+  function updateHytaleFormatClass() {
+    document.body.classList.toggle("hytale-format", isHytaleFormat());
+  }
+  function setupUVOutline() {
+    const style = Blockbench.addCSS(UV_OUTLINE_CSS);
+    track(style);
+    const setting = new Setting("uv_outline_only", {
+      name: "UV Outline Only",
+      description: "Show only outlines for UV faces instead of filled overlays",
+      category: "edit",
+      value: false,
+      onChange(value) {
+        document.body.classList.toggle("hytale-uv-outline-only", value);
+      }
+    });
+    track(setting);
+    const selectProjectListener = Blockbench.on("select_project", updateHytaleFormatClass);
+    track(selectProjectListener);
+    document.body.classList.toggle("hytale-uv-outline-only", settings.uv_outline_only?.value ?? true);
+    updateHytaleFormatClass();
+  }
+
+  // src/temp_fixes.js
+  function setupTempFixes() {
+    if (!Blockbench.isOlderThan("5.0.7")) return;
+    Cube.prototype.mapAutoUV = function(options = {}) {
+      if (this.box_uv) return;
+      var scope = this;
+      if (scope.autouv === 2) {
+        var all_faces = ["north", "south", "west", "east", "up", "down"];
+        let offset = Format.centered_grid ? 8 : 0;
+        all_faces.forEach(function(side) {
+          var uv = scope.faces[side].uv.slice();
+          let texture = scope.faces[side].getTexture();
+          let uv_width = Project.getUVWidth(texture);
+          let uv_height = Project.getUVHeight(texture);
+          switch (side) {
+            case "north":
+              uv = [
+                uv_width - (scope.to[0] + offset),
+                uv_height - scope.to[1],
+                uv_width - (scope.from[0] + offset),
+                uv_height - scope.from[1]
+              ];
+              break;
+            case "south":
+              uv = [
+                scope.from[0] + offset,
+                uv_height - scope.to[1],
+                scope.to[0] + offset,
+                uv_height - scope.from[1]
+              ];
+              break;
+            case "west":
+              uv = [
+                scope.from[2] + offset,
+                uv_height - scope.to[1],
+                scope.to[2] + offset,
+                uv_height - scope.from[1]
+              ];
+              break;
+            case "east":
+              uv = [
+                uv_width - (scope.to[2] + offset),
+                uv_height - scope.to[1],
+                uv_width - (scope.from[2] + offset),
+                uv_height - scope.from[1]
+              ];
+              break;
+            case "up":
+              uv = [
+                scope.from[0] + offset,
+                scope.from[2] + offset,
+                scope.to[0] + offset,
+                scope.to[2] + offset
+              ];
+              break;
+            case "down":
+              uv = [
+                scope.from[0] + offset,
+                uv_height - (scope.to[2] + offset),
+                scope.to[0] + offset,
+                uv_height - (scope.from[2] + offset)
+              ];
+              break;
+          }
+          if (Math.max(uv[0], uv[2]) > uv_width) {
+            let offset2 = Math.max(uv[0], uv[2]) - uv_width;
+            uv[0] -= offset2;
+            uv[2] -= offset2;
+          }
+          if (Math.min(uv[0], uv[2]) < 0) {
+            let offset2 = Math.min(uv[0], uv[2]);
+            uv[0] = Math.clamp(uv[0] - offset2, 0, uv_width);
+            uv[2] = Math.clamp(uv[2] - offset2, 0, uv_width);
+          }
+          if (Math.max(uv[1], uv[3]) > uv_height) {
+            let offset2 = Math.max(uv[1], uv[3]) - uv_height;
+            uv[1] -= offset2;
+            uv[3] -= offset2;
+          }
+          if (Math.min(uv[1], uv[3]) < 0) {
+            let offset2 = Math.min(uv[1], uv[3]);
+            uv[1] = Math.clamp(uv[1] - offset2, 0, uv_height);
+            uv[3] = Math.clamp(uv[3] - offset2, 0, uv_height);
+          }
+          scope.faces[side].uv = uv;
+        });
+        scope.preview_controller.updateUV(scope);
+      } else if (scope.autouv === 1) {
+        let calcAutoUV = function(fkey, dimension_axes, world_directions) {
+          let size = dimension_axes.map((axis) => scope.size(axis));
+          let face = scope.faces[fkey];
+          size[0] = Math.abs(size[0]);
+          size[1] = Math.abs(size[1]);
+          let sx = face.uv[0];
+          let sy = face.uv[1];
+          let previous_size = face.uv_size;
+          let rot = face.rotation;
+          let texture = face.getTexture();
+          let uv_width = Project.getUVWidth(texture);
+          let uv_height = Project.getUVHeight(texture);
+          if (rot === 90 || rot === 270) {
+            size.reverse();
+            dimension_axes.reverse();
+            world_directions.reverse();
+          }
+          if (rot == 180) {
+            world_directions[0] *= -1;
+            world_directions[1] *= -1;
+          }
+          size[0] = Math.clamp(size[0], -uv_width, uv_width) * (Math.sign(previous_size[0]) || 1);
+          size[1] = Math.clamp(size[1], -uv_height, uv_height) * (Math.sign(previous_size[1]) || 1);
+          if (options && typeof options.axis == "number") {
+            if (options.axis == dimension_axes[0] && options.direction == world_directions[0]) {
+              sx += previous_size[0] - size[0];
+            }
+            if (options.axis == dimension_axes[1] && options.direction == world_directions[1]) {
+              sy += previous_size[1] - size[1];
+            }
+          }
+          if (sx < 0) sx = 0;
+          if (sy < 0) sy = 0;
+          let endx = sx + size[0];
+          let endy = sy + size[1];
+          if (endx > uv_width) {
+            sx = uv_width - (endx - sx);
+            endx = uv_width;
+          }
+          if (endy > uv_height) {
+            sy = uv_height - (endy - sy);
+            endy = uv_height;
+          }
+          return [sx, sy, endx, endy];
+        };
+        scope.faces.north.uv = calcAutoUV("north", [0, 1], [1, 1]);
+        scope.faces.east.uv = calcAutoUV("east", [2, 1], [1, 1]);
+        scope.faces.south.uv = calcAutoUV("south", [0, 1], [-1, 1]);
+        scope.faces.west.uv = calcAutoUV("west", [2, 1], [-1, 1]);
+        scope.faces.up.uv = calcAutoUV("up", [0, 2], [-1, -1]);
+        scope.faces.down.uv = calcAutoUV("down", [0, 2], [-1, 1]);
+        scope.preview_controller.updateUV(scope);
+      }
+    };
+    BarItems.group_elements.click = function() {
+      Undo.initEdit({ outliner: true, groups: [] });
+      let add_group = Group.first_selected;
+      if (!add_group && Outliner.selected.length) {
+        add_group = Outliner.selected.last();
+      }
+      let new_name = add_group?.name;
+      let base_group = new Group({
+        origin: add_group ? add_group.origin : void 0,
+        name: ["cube", "mesh"].includes(new_name) ? void 0 : new_name
+      });
+      base_group.sortInBefore(add_group);
+      base_group.isOpen = true;
+      base_group.init();
+      if (base_group.getTypeBehavior("unique_name")) {
+        base_group.createUniqueName();
+      }
+      Outliner.selected.concat(Group.multi_selected).forEach((s) => {
+        if (s.parent?.selected) return;
+        s.addTo(base_group);
+        s.preview_controller.updateTransform(s);
+      });
+      base_group.select();
+      Undo.finishEdit("Add group", { outliner: true, groups: [base_group] });
+      Vue.nextTick(function() {
+        updateSelection();
+        if (settings.create_rename.value) {
+          base_group.rename();
+        }
+        base_group.showInOutliner();
+        Blockbench.dispatchEvent("group_elements", { object: base_group });
+      });
+    };
+  }
+
+  // src/references/player.json
+  var player_default = {
+    texture_size: [256, 128],
+    cubes: [
+      {
+        position: [-12.74, 45.10128, -8.82],
+        size: [25.48, 11.79744, 17.64],
+        faces: {
+          north: { uv: [68, 115, 94, 127] },
+          east: { uv: [50, 115, 68, 127] },
+          south: { uv: [24, 115, 50, 127] },
+          west: { uv: [6, 115, 24, 127] },
+          up: { uv: [216, 83, 242, 101] },
+          down: { uv: [216, 101, 242, 119] }
+        }
+      },
+      {
+        position: [-13, 55, -9],
+        size: [26, 16, 18],
+        faces: {
+          north: { uv: [68, 99, 94, 115] },
+          east: { uv: [50, 99, 68, 115] },
+          south: { uv: [24, 99, 50, 115] },
+          west: { uv: [6, 99, 24, 115] },
+          up: { uv: [52, 58, 78, 76] },
+          down: { uv: [52, 58, 78, 76] }
+        }
+      },
+      {
+        position: [-13.72, 68.22, -9.5],
+        size: [27.44, 21.56, 19],
+        faces: {
+          north: { uv: [71, 77, 99, 99] },
+          east: { uv: [51, 77, 71, 99] },
+          south: { uv: [23, 77, 51, 99] },
+          west: { uv: [3, 77, 23, 99] },
+          up: { uv: [23, 57, 51, 77] },
+          down: { uv: [51, 57, 79, 77] }
+        }
+      },
+      {
+        position: [-15, 93, -13],
+        size: [30, 28, 28],
+        faces: {
+          north: { uv: [86, 28, 116, 56] },
+          east: { uv: [58, 28, 86, 56] },
+          south: { uv: [28, 28, 58, 56] },
+          west: { uv: [0, 28, 28, 56] },
+          up: { uv: [28, 0, 58, 28] },
+          down: { uv: [58, 0, 88, 28] }
+        }
+      },
+      {
+        position: [-7.5, 85.04378, -5.5],
+        size: [15, 17.91244, 11],
+        faces: {
+          north: { uv: [106, 63, 121, 76] },
+          east: { uv: [95, 63, 106, 76] },
+          south: { uv: [80, 63, 95, 76] },
+          west: { uv: [95, 63, 106, 76] },
+          down: { uv: [30, 63, 45, 74] }
+        }
+      },
+      {
+        position: [-20.10255, 68.71157, -7.1452],
+        size: [7.84, 20, 12],
+        origin: [-16.18255, 78.71157, -1.1452],
+        rotation: [0.6131, -6.9732, -5.0374],
+        faces: {
+          north: { uv: [149, 12, 157, 32] },
+          east: { uv: [137, 12, 149, 32] },
+          south: { uv: [129, 12, 137, 32] },
+          west: { uv: [117, 12, 129, 32] },
+          up: { uv: [129, 12, 117, 4] },
+          down: { uv: [137, 0, 145, 12] }
+        }
+      },
+      {
+        position: [-21.73964, 52.77981, -7.33636],
+        size: [8, 16, 12],
+        origin: [-17.73964, 60.77981, -1.33636],
+        rotation: [0.6131, -6.9732, -5.0374],
+        faces: {
+          north: { uv: [149, 32, 157, 48] },
+          east: { uv: [137, 32, 149, 48] },
+          south: { uv: [129, 32, 137, 48] },
+          west: { uv: [117, 32, 129, 48] },
+          up: { uv: [149, 26, 157, 38] },
+          down: { uv: [129, 26, 137, 38] }
+        }
+      },
+      {
+        position: [-23.86423, 41.82928, -8.47444],
+        size: [10, 12, 14],
+        origin: [-18.86423, 47.82928, -1.47444],
+        rotation: [0.6131, -6.9732, -5.0374],
+        faces: {
+          north: { uv: [165, 48, 155, 60] },
+          east: { uv: [141, 48, 155, 60] },
+          south: { uv: [131, 48, 141, 60] },
+          west: { uv: [117, 48, 131, 60] },
+          up: { uv: [118, 33, 128, 47] },
+          down: { uv: [155, 70, 141, 60] }
+        }
+      },
+      {
+        position: [20.10255, 68.71157, -7.1452],
+        size: [-7.84, 20, 12],
+        origin: [16.18255, 78.71157, -1.1452],
+        rotation: [0.6131, 6.9732, 5.0374],
+        faces: {
+          north: { uv: [149, 12, 157, 32] },
+          east: { uv: [137, 12, 149, 32] },
+          south: { uv: [129, 12, 137, 32] },
+          west: { uv: [117, 12, 129, 32] },
+          up: { uv: [129, 12, 117, 4] },
+          down: { uv: [137, 0, 145, 12] }
+        }
+      },
+      {
+        position: [21.73964, 52.77982, -7.33636],
+        size: [-8, 16, 12],
+        origin: [17.73964, 60.77982, -1.33636],
+        rotation: [0.6131, 6.9732, 5.0374],
+        faces: {
+          north: { uv: [149, 32, 157, 48] },
+          east: { uv: [137, 32, 149, 48] },
+          south: { uv: [129, 32, 137, 48] },
+          west: { uv: [117, 32, 129, 48] },
+          up: { uv: [149, 26, 157, 38] },
+          down: { uv: [129, 26, 137, 38] }
+        }
+      },
+      {
+        position: [23.86423, 41.82928, -8.47444],
+        size: [-10, 12, 14],
+        origin: [18.86423, 47.82928, -1.47444],
+        rotation: [0.6131, 6.9732, 5.0374],
+        faces: {
+          north: { uv: [165, 48, 155, 60] },
+          east: { uv: [141, 48, 155, 60] },
+          south: { uv: [131, 48, 141, 60] },
+          west: { uv: [117, 48, 131, 60] },
+          up: { uv: [118, 33, 128, 47] },
+          down: { uv: [155, 70, 141, 60] }
+        }
+      },
+      {
+        position: [-12.40001, 29, -5],
+        size: [9.8, 20, 12],
+        origin: [-7.50001, 39, 1],
+        rotation: [0, -2.1999, 0],
+        faces: {
+          north: { uv: [155, 77, 145, 97] },
+          east: { uv: [133, 77, 145, 97] },
+          south: { uv: [123, 77, 133, 97] },
+          west: { uv: [111, 77, 123, 97] },
+          down: { uv: [123, 93, 133, 105] }
+        }
+      },
+      {
+        position: [-12.50001, 5, -5],
+        size: [10, 24, 12],
+        origin: [-7.50001, 17, 1],
+        rotation: [0, -2.1999, 0],
+        faces: {
+          north: { uv: [145, 97, 155, 121] },
+          east: { uv: [133, 97, 145, 121] },
+          south: { uv: [123, 97, 133, 121] },
+          west: { uv: [111, 97, 123, 121] },
+          up: { uv: [123, 85, 133, 97] },
+          down: { uv: [221, 37, 209, 27] }
+        }
+      },
+      {
+        position: [-14.22678, 0.2, -6.50147],
+        size: [13.3, 7.6, 19],
+        origin: [-7.57678, 4, 2.99853],
+        rotation: [0, -2.1999, 0],
+        faces: {
+          north: { uv: [215, 55, 223, 41] },
+          east: { uv: [223, 33, 243, 41] },
+          south: { uv: [251, 55, 243, 41] },
+          west: { uv: [223, 55, 243, 63] },
+          up: { uv: [243, 55, 223, 41] },
+          down: { uv: [223, 77, 243, 63] }
+        }
+      },
+      {
+        position: [12.4, 29, -5],
+        size: [-9.8, 20, 12],
+        origin: [7.5, 39, 1],
+        rotation: [0, 2.1999, 0],
+        faces: {
+          north: { uv: [190, 77, 200, 97] },
+          east: { uv: [178, 77, 190, 97] },
+          south: { uv: [168, 77, 178, 97] },
+          west: { uv: [156, 77, 168, 97] },
+          down: { uv: [168, 105, 178, 93] }
+        }
+      },
+      {
+        position: [12.5, 5, -5],
+        size: [-10, 24, 12],
+        origin: [7.5, 17, 1],
+        rotation: [0, 2.1999, 0],
+        faces: {
+          north: { uv: [190, 97, 200, 121] },
+          east: { uv: [178, 97, 190, 121] },
+          south: { uv: [178, 97, 168, 121] },
+          west: { uv: [156, 97, 168, 121] },
+          up: { uv: [178, 86, 168, 98] },
+          down: { uv: [221, 37, 209, 27] }
+        }
+      },
+      {
+        position: [14.22677, 0.2, -6.50147],
+        size: [-13.3, 7.6, 19],
+        origin: [7.57677, 4, 2.99853],
+        rotation: [0, 2.1999, 0],
+        faces: {
+          north: { uv: [215, 24, 223, 10] },
+          east: { uv: [223, 2, 243, 10] },
+          south: { uv: [251, 24, 243, 10] },
+          west: { uv: [223, 24, 243, 32] },
+          up: { uv: [243, 24, 223, 10] },
+          down: { uv: [223, 77, 243, 63] }
+        }
+      }
+    ]
+  };
+
+  // src/references/player.png
+  var player_default2 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAACACAYAAADktbcKAAADDElEQVR4nOzdMW7TUBzH8YfUC3TqkqEbC1eAjYtE4gBRzhHlAJVyChbW9AZMIDEwREKwWOICoCAVqRKlcWw/2/l9PkuntnFTffMS+/19VSpbr9e/ygiapilj2O12L8rMbbfb/z5nq9Vq9seY6qoAsQQARtL3aniz2bReiQkABBOAC9T2leWcVw4ugwBAMAGAYAIAwQQAggkABBMAGMhzV1DW/n3/umJTACCYAND5lart99s7MB0CAMEEAIIJAAQTAAgmABBMACCYAEAwAYBgAgDBBACCCQAEEwAYyHN7HkwFBkYlABBMAKCjOW+Hvqp9r77FYlESPBxn7akw9trThhUABBMACCYAEEwAYCRTuCejAMBIXAgEjEoAIJgAQDABgI7mfPGVAEAwAYBgAgDBBAAG4vbgwKQJAAQTAAgmABBMACCYAEAwAaAcDoc/X2vNazzndBXDEAAIJgAQTAAgmABAMAGAYAIAwQQABjKL24NPYTY5MI5BVwCXfuNRF6wwd94CQDABgGACcIGG/lxnuVye9dZut9t5yzQxAgDBBACCCUBHXSa/PmzDPUWXMxzOVkxT0zRlbAIAwQQAggkABBMACCYAEEwAIJgA0Jor+i6HAEAwAYBgAgDBBACCCQAEE4CObLRhzh798/Y9w6/2jL42u+tOMfUZg22fr1OPp+3f8dSfezy+OT7mcsGsACCYAEAwAYBgAgDBBACCCQAM6PWbd1XujnW/vzvrbIUAQDABgGACAMEEAIIJAAQTAAgmABBMACCYAEAwAYBgAgDBBACCCQAEEwAIJgAQ7FEANpvN3z3FfUwIPk5qrTVZt6+JwLUer3HiTIEVAAQTABjQl0/7MmUCAMEEAIIJAAQTAAgmABBMACCYAEAwAYBgAgDBBACCCQAEEwAIJgAQ7MkAfHj/sfTh+uZnqaH5/rX0odbjhSmwAoBgAgDBBACCCQAM6NuPz5Oe/SgAEOzJOr16+bbzVOCj65vbUkN/ZwFuSw33+ztTgRmdFQAEEwAIJgAQTAAgmABAMJ9EQ7DfAAAA//+uHsCBAAAABklEQVQDADCBnIyfROhlAAAAAElFTkSuQmCC";
+
+  // src/references/default.json
+  var default_default = {
+    fov: 70,
+    preview_models: [
+      {
+        id: "hytale_default",
+        texture: "hytale/default/default.png",
+        texture_size: [32, 32],
+        prefabs: {
+          grass_block: {
+            position: [-8, 0, -8],
+            size: [16, 16, 16],
+            faces: {
+              north: { uv: [0, 16, 16, 32] },
+              south: { uv: [0, 16, 16, 32] },
+              east: { uv: [0, 16, 16, 32] },
+              west: { uv: [0, 16, 16, 32] },
+              up: { uv: [0, 0, 16, 16] },
+              down: { uv: [16, 16, 32, 32] }
+            }
+          }
+        },
+        cubes: [
+          {
+            prefab: "grass_block",
+            offset: [0, -1, 0],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [-1, -1, 0],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [1, -1, 1],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [1, -1, 0],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [1, -1, -1],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [0, -1, 1],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [-1, -1, -1],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [0, -1, -1],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [-1, -1, 1],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [2, -1, 0],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [2, -1, 1],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [2, -1, -1],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [-2, -1, -1],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [-2, -1, 0],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [-2, -1, 1],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [0, -1, -2],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [-1, -1, -2],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [1, -1, -2],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [-1, -1, 2],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [1, -1, 2],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [0, -1, 2],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [3, -2, 0],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [3, -2, 1],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [3, -2, -1],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [-3, -2, -1],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [-3, -2, 0],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [-3, -2, 1],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [0, -2, -3],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [-1, -2, -3],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [1, -2, -3],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [-1, -2, 3],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [1, -2, 3],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [0, -2, 3],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [2, -2, -2],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [-2, -2, 2],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [2, -2, 2],
+            offset_space: "block"
+          },
+          {
+            prefab: "grass_block",
+            offset: [-2, -2, -2],
+            offset_space: "block"
+          }
+        ]
+      }
+    ]
+  };
+
+  // src/references/default/default.png
+  var default_default2 = "data:image/png;base64,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";
+
+  // src/preview_scenes.ts
+  function setupPreviewScenes() {
+    PreviewScene.menu_categories.hytale = {
+      _label: "Hytale"
+    };
+    let base_path = "https://cdn.jsdelivr.net/gh/JannisX11/hytale-blockbench-plugin/src/references/default/";
+    default_default.preview_models.forEach((model) => model.texture = default_default2);
+    new PreviewScene("hytale_default", {
+      ...default_default,
+      name: "Hytale",
+      category: "hytale",
+      cubemap: [
+        base_path + "skybox_0.webp",
+        base_path + "skybox_1.webp",
+        base_path + "skybox_2.webp",
+        base_path + "skybox_3.webp",
+        base_path + "skybox_4.webp",
+        base_path + "skybox_5.webp"
+      ]
+    });
+    let player_model = new PreviewModel("hytale_player", {
+      ...player_default,
+      texture: player_default2
+    });
+    ViewOptionsDialog.form_config.hytale_player = {
+      label: "Hytale Player",
+      type: "checkbox",
+      style: "toggle_switch",
+      condition: { formats: FORMAT_IDS }
+    };
+    if (!ViewOptionsDialog.form) {
+      ViewOptionsDialog.build();
+    } else {
+      ViewOptionsDialog.form.buildForm();
+    }
+    ViewOptionsDialog.form.on("change", (arg) => {
+      if (arg.result.hytale_player) {
+        player_model.enable();
+        updateSizes();
+      } else {
+        player_model.disable();
+      }
+    });
+    function updateSizes() {
+      let block_size = Format?.block_size ?? 64;
+      player_model.model_3d.scale.set(block_size / 64, block_size / 64, block_size / 64);
+      player_model.model_3d.position.x = -block_size;
+      let model = PreviewModel.models.hytale_default;
+      model.model_3d.scale.set(block_size / 16, block_size / 16, block_size / 16);
+    }
+    track(Blockbench.on("select_format", updateSizes));
+  }
 
   // src/alt_duplicate.ts
   function setupAltDuplicate() {
@@ -2049,24 +3417,68 @@
     min_version: "5.0.5",
     await_loading: true,
     has_changelog: true,
+    creation_date: "2025-12-22",
+    contributes: {
+      formats: FORMAT_IDS,
+      // @ts-expect-error
+      open_extensions: ["blockymodel"]
+    },
     repository: "https://github.com/JannisX11/hytale-blockbench-plugin",
     bug_tracker: "https://github.com/JannisX11/hytale-blockbench-plugin/issues",
+    contributors: ["Hedaox"],
     onload() {
       setupFormats();
       setupElements();
       setupAnimation();
       setupAnimationCodec();
       setupAttachments();
+      setupOutlinerFilter();
       setupChecks();
       setupPhotoshopTools();
       setupUVCycling();
       setupTextureHandling();
       setupAltDuplicate();
+      setupNameOverlap();
+      setupUVOutline();
+      setupTempFixes();
+      setupPreviewScenes();
+      let panel_setup_listener;
+      function showCollectionPanel() {
+        const local_storage_key = "hytale_plugin:collection_panel_setup";
+        if (localStorage.getItem(local_storage_key)) return true;
+        if (!Modes.edit) return false;
+        if (Panels.collections.slot == "hidden") {
+          Panels.collections.moveTo("right_bar");
+        }
+        if (Panels.collections.folded) {
+          Panels.collections.fold();
+        }
+        if (panel_setup_listener) {
+          panel_setup_listener.delete();
+          panel_setup_listener = void 0;
+        }
+        localStorage.setItem(local_storage_key, "true");
+        return true;
+      }
+      if (!showCollectionPanel()) {
+        panel_setup_listener = Blockbench.on("select_mode", showCollectionPanel);
+      }
+      let on_finish_edit = Blockbench.on("generate_texture_template", (arg) => {
+        for (let element of arg.elements) {
+          if (typeof element.autouv != "number") continue;
+          element.autouv = 1;
+        }
+      });
+      track(on_finish_edit);
       let pivot_marker = new CustomPivotMarker();
       track(pivot_marker);
+      let group_pivot_indicator = new GroupPivotIndicator();
+      track(group_pivot_indicator);
     },
     onunload() {
       cleanup();
     }
   });
 })();
+//! Copyright (C) 2025 Hypixel Studios Canada inc.
+//! Licensed under the GNU General Public License, see LICENSE.MD

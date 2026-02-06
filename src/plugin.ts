@@ -18,6 +18,7 @@ import { setupNameOverlap } from "./name_overlap";
 import { setupUVOutline } from "./uv_outline";
 import { setupTempFixes } from './temp_fixes'
 import { setupPreviewScenes } from "./preview_scenes";
+import { setupColorPickerEraser } from "./color_picker_eraser";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -55,6 +56,7 @@ BBPlugin.register('hytale_plugin', {
         setupUVOutline();
         setupTempFixes();
         setupPreviewScenes();
+        setupColorPickerEraser();
 
         // Collections panel setting
         let panel_setup_listener: Deletable;

@@ -3271,10 +3271,11 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
 
   // src/alt_duplicate.ts
   function setupAltDuplicate() {
-    const keybindItem = new BarItem("hytale_duplicate_drag_modifier", {
+    const keybindItem = new KeybindItem("hytale_duplicate_drag_modifier", {
       name: "Duplicate While Dragging",
       description: "Hold this key while dragging the gizmo to duplicate",
-      keybind: new Keybind({ key: 18 })
+      keybind: new Keybind({ key: 18 }),
+      category: "edit"
     });
     track(keybindItem);
     let isDragging = false;
@@ -3314,7 +3315,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         Outliner.selected[i] = obj.duplicate();
       });
     }
-    function performDuplicationForCombinedUndo() {
+    function performDuplicationForCombinedUndo(shouldInitEdit) {
       const hasGroups = Group.all.some((g) => g.selected);
       const hasElements = selected.length > 0;
       if (!hasGroups && !hasElements) return false;
@@ -3322,7 +3323,9 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       combinedUndoGroups = [];
       originalInitEdit = Undo.initEdit.bind(Undo);
       originalFinishEdit = Undo.finishEdit.bind(Undo);
-      originalInitEdit({ outliner: true, elements: [], groups: [], selection: true });
+      if (shouldInitEdit) {
+        originalInitEdit({ outliner: true, elements: [], groups: [], selection: true });
+      }
       Undo.initEdit = () => {
       };
       Undo.finishEdit = () => {
@@ -3345,19 +3348,20 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       originalFinishEdit = null;
       Undo.finishEdit("Duplicate and move", {
         outliner: true,
-        elements: elements.slice().slice(combinedUndoCubesBefore),
+        elements: elements.slice(combinedUndoCubesBefore),
         groups: combinedUndoGroups,
         selection: true
       });
     }
     function onMouseDown(event) {
+      if (isCombinedUndoActive) return;
       const axis = Transformer?.axis;
       const hasSelection = selected.length > 0 || Group.all.some((g) => g.selected);
       const isTransformTool = Toolbox.selected?.id === "move_tool" || Toolbox.selected?.id === "rotate_tool";
       if (!axis || !hasSelection || !isTransformTool) return;
       if (isModifierPressed(event)) {
         event.stopImmediatePropagation();
-        if (!performDuplicationForCombinedUndo()) return;
+        if (!performDuplicationForCombinedUndo(true)) return;
         isDragging = true;
         modifierWasPressed = true;
         setTimeout(() => {
@@ -3383,8 +3387,9 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       const isTransformTool = Toolbox.selected?.id === "move_tool" || Toolbox.selected?.id === "rotate_tool";
       if (!isTransformTool) return;
       modifierWasPressed = true;
+      const shouldInitEdit = isCombinedUndoActive;
       if (isCombinedUndoActive) finishCombinedUndo();
-      performDuplicationForCombinedUndo();
+      performDuplicationForCombinedUndo(shouldInitEdit);
     }
     function onKeyUp(event) {
       if (isModifierKey(event)) modifierWasPressed = false;

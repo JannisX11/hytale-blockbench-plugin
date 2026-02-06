@@ -5,10 +5,12 @@ import { track } from "./cleanup";
  * Each Alt press creates a combined undo entry (duplication + movement).
  */
 export function setupAltDuplicate() {
-    const keybindItem = new BarItem('hytale_duplicate_drag_modifier', {
+    // @ts-ignore - KeybindItem supports name but types don't reflect it
+    const keybindItem = new KeybindItem('hytale_duplicate_drag_modifier', {
         name: 'Duplicate While Dragging',
         description: 'Hold this key while dragging the gizmo to duplicate',
-        keybind: new Keybind({ key: 18 })
+        keybind: new Keybind({ key: 18 }),
+        category: 'edit'
     });
     track(keybindItem);
 
@@ -63,9 +65,8 @@ export function setupAltDuplicate() {
     }
 
     // Duplicates and temporarily disables Undo methods.
-    // Transformer can't create a separate undo entry: restored them in finishCombinedUndo().
-    
-    function performDuplicationForCombinedUndo(): boolean {
+    // Transformer can't create a separate undo entry: restored in finishCombinedUndo().
+    function performDuplicationForCombinedUndo(shouldInitEdit: boolean): boolean {
         const hasGroups = Group.all.some(g => g.selected);
         const hasElements = selected.length > 0;
         if (!hasGroups && !hasElements) return false;
@@ -76,7 +77,10 @@ export function setupAltDuplicate() {
         originalInitEdit = Undo.initEdit.bind(Undo);
         originalFinishEdit = Undo.finishEdit.bind(Undo);
 
-        originalInitEdit({ outliner: true, elements: [], groups: [], selection: true });
+        // Skip if Transformer already initialized undo (Alt pressed mid-drag)
+        if (shouldInitEdit) {
+            originalInitEdit({ outliner: true, elements: [], groups: [], selection: true });
+        }
 
         // Block Transformer from creating its own undo entry
         Undo.initEdit = () => {};
@@ -104,13 +108,15 @@ export function setupAltDuplicate() {
 
         Undo.finishEdit('Duplicate and move', {
             outliner: true,
-            elements: elements.slice().slice(combinedUndoCubesBefore),
+            elements: elements.slice(combinedUndoCubesBefore),
             groups: combinedUndoGroups,
             selection: true
         });
     }
 
     function onMouseDown(event: MouseEvent) {
+        if (isCombinedUndoActive) return; // Ignore re-dispatched event
+
         const axis = (Transformer as any)?.axis;
         const hasSelection = selected.length > 0 || Group.all.some(g => g.selected);
         const isTransformTool = Toolbox.selected?.id === 'move_tool' || Toolbox.selected?.id === 'rotate_tool';
@@ -119,7 +125,7 @@ export function setupAltDuplicate() {
 
         if (isModifierPressed(event)) {
             event.stopImmediatePropagation();
-            if (!performDuplicationForCombinedUndo()) return;
+            if (!performDuplicationForCombinedUndo(true)) return;
 
             isDragging = true;
             modifierWasPressed = true;
@@ -151,9 +157,9 @@ export function setupAltDuplicate() {
 
         modifierWasPressed = true;
 
-        // Finish previous segment before starting new one
+        const shouldInitEdit = isCombinedUndoActive; // Only init on subsequent Alt presses
         if (isCombinedUndoActive) finishCombinedUndo();
-        performDuplicationForCombinedUndo();
+        performDuplicationForCombinedUndo(shouldInitEdit);
     }
 
     function onKeyUp(event: KeyboardEvent) {

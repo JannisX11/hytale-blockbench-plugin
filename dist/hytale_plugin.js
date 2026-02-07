@@ -776,7 +776,6 @@
       uv_rotation: true,
       rotate_cubes: true,
       per_texture_uv_size: true,
-      // @ts-ignore
       texture_wrap_default: "clamp",
       stretch_cubes: true,
       model_identifier: false,
@@ -938,7 +937,6 @@
     });
     let override = Group.addBehaviorOverride({
       condition: () => isHytaleFormat() && setting.value == true,
-      // @ts-ignore
       priority: 2,
       behavior: {
         unique_name: false
@@ -2018,7 +2016,7 @@
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.7.0",
+    version: "0.8.0",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
@@ -3428,7 +3426,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     creation_date: "2025-12-22",
     contributes: {
       formats: FORMAT_IDS,
-      // @ts-expect-error
       open_extensions: ["blockymodel"]
     },
     repository: "https://github.com/JannisX11/hytale-blockbench-plugin",

@@ -1,6 +1,6 @@
 {
   "name": "hytale-blockbench-plugin",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Create models and animations for Hytale",
   "main": "src/plugin.ts",
   "type": "module",

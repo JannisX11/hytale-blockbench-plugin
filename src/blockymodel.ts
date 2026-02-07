@@ -743,6 +743,9 @@ export function setupBlockymodelCodec(): Codec {
 				}
 
 				if (node.children?.length && group instanceof Group) {
+					if (args.attachment && node.shape.settings.isPiece) {
+						offset = [0, 0, 0];
+					}
 					for (let child of node.children) {
 						parseNode(child, node, group, offset);
 					}

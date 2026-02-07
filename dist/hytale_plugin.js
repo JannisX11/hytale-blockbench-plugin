@@ -644,6 +644,9 @@
             cube.addTo(group || parent_group).init();
           }
           if (node.children?.length && group instanceof Group) {
+            if (args.attachment && node.shape.settings.isPiece) {
+              offset = [0, 0, 0];
+            }
             for (let child of node.children) {
               parseNode(child, node, group, offset);
             }
@@ -2026,7 +2029,7 @@
     author: "JannisX11, Kanno",
     license: "GPL-3.0",
     dependencies: {
-      "blockbench-types": "^5.0.6"
+      "blockbench-types": "^5.1.0-beta.0-next.4"
     },
     devDependencies: {
       esbuild: "^0.25.9"
@@ -3284,6 +3287,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     creation_date: "2025-12-22",
     contributes: {
       formats: FORMAT_IDS,
+      // @ts-expect-error
       open_extensions: ["blockymodel"]
     },
     repository: "https://github.com/JannisX11/hytale-blockbench-plugin",

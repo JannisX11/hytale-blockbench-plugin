@@ -3317,9 +3317,9 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     }
     function performDuplicationForCombinedUndo(shouldInitEdit) {
       const hasGroups = Group.all.some((g) => g.selected);
-      const hasElements = selected.length > 0;
+      const hasElements = Outliner.selected.length > 0;
       if (!hasGroups && !hasElements) return false;
-      combinedUndoCubesBefore = elements.length;
+      combinedUndoCubesBefore = Outliner.elements.length;
       combinedUndoGroups = [];
       originalInitEdit = Undo.initEdit.bind(Undo);
       originalFinishEdit = Undo.finishEdit.bind(Undo);
@@ -3348,7 +3348,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       originalFinishEdit = null;
       Undo.finishEdit("Duplicate and move", {
         outliner: true,
-        elements: elements.slice(combinedUndoCubesBefore),
+        elements: Outliner.elements.slice(combinedUndoCubesBefore),
         groups: combinedUndoGroups,
         selection: true
       });
@@ -3356,7 +3356,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     function onMouseDown(event) {
       if (isCombinedUndoActive) return;
       const axis = Transformer?.axis;
-      const hasSelection = selected.length > 0 || Group.all.some((g) => g.selected);
+      const hasSelection = Outliner.selected.length > 0 || Group.all.some((g) => g.selected);
       const isTransformTool = Toolbox.selected?.id === "move_tool" || Toolbox.selected?.id === "rotate_tool";
       if (!axis || !hasSelection || !isTransformTool) return;
       if (isModifierPressed(event)) {

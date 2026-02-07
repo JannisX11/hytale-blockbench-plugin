@@ -68,10 +68,10 @@ export function setupAltDuplicate() {
     // Transformer can't create a separate undo entry: restored in finishCombinedUndo().
     function performDuplicationForCombinedUndo(shouldInitEdit: boolean): boolean {
         const hasGroups = Group.all.some(g => g.selected);
-        const hasElements = selected.length > 0;
+        const hasElements = Outliner.selected.length > 0;
         if (!hasGroups && !hasElements) return false;
 
-        combinedUndoCubesBefore = elements.length;
+        combinedUndoCubesBefore = Outliner.elements.length;
         combinedUndoGroups = [];
 
         originalInitEdit = Undo.initEdit.bind(Undo);
@@ -108,7 +108,7 @@ export function setupAltDuplicate() {
 
         Undo.finishEdit('Duplicate and move', {
             outliner: true,
-            elements: elements.slice(combinedUndoCubesBefore),
+            elements: Outliner.elements.slice(combinedUndoCubesBefore),
             groups: combinedUndoGroups,
             selection: true
         });
@@ -118,7 +118,7 @@ export function setupAltDuplicate() {
         if (isCombinedUndoActive) return; // Ignore re-dispatched event
 
         const axis = (Transformer as any)?.axis;
-        const hasSelection = selected.length > 0 || Group.all.some(g => g.selected);
+        const hasSelection = Outliner.selected.length > 0 || Group.all.some(g => g.selected);
         const isTransformTool = Toolbox.selected?.id === 'move_tool' || Toolbox.selected?.id === 'rotate_tool';
 
         if (!axis || !hasSelection || !isTransformTool) return;

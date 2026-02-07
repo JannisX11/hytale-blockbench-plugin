@@ -33,7 +33,6 @@ BBPlugin.register('hytale_plugin', {
 	creation_date: "2025-12-22",
     contributes: {
         formats: FORMAT_IDS,
-        // @ts-expect-error
         open_extensions: ['blockymodel']
     },
     repository: 'https://github.com/JannisX11/hytale-blockbench-plugin',

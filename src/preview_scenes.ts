@@ -67,7 +67,6 @@ export function setupPreviewScenes() {
 		player_model.model_3d.scale.set(block_size/64, block_size/64, block_size/64);
 		player_model.model_3d.position.x = -block_size;
 		// Scene
-		// @ts-ignore
 		let model = PreviewModel.models.hytale_default as PreviewModel;
 		model.model_3d.scale.set(block_size/16, block_size/16, block_size/16);
 	}

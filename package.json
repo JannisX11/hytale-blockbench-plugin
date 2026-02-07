@@ -11,7 +11,7 @@
   "author": "JannisX11, Kanno",
   "license": "GPL-3.0",
   "dependencies": {
-    "blockbench-types": "^5.0.6"
+    "blockbench-types": "^5.1.0-beta.0-next.4"
   },
   "devDependencies": {
     "esbuild": "^0.25.9"

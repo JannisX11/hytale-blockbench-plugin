@@ -108,7 +108,6 @@ export class GroupPivotIndicator {
 		this.dot.visible = false;
 
 		Canvas.scene.add(this.dot);
-		// @ts-ignore
 		Canvas.gizmos.push(this.dot);
 
 		this.listener = Blockbench.on('update_selection', () => this.update());

@@ -98,7 +98,6 @@ export function setupNameOverlap() {
     })
     let override = Group.addBehaviorOverride({
         condition: () => isHytaleFormat() && setting.value == true,
-        // @ts-ignore
         priority: 2,
         behavior: {
             unique_name: false

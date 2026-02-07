@@ -221,7 +221,6 @@ export function setupAnimationCodec() {
 		condition: {formats: FORMAT_IDS, selected: {animation: true}},
 		click() {
 			let animation: _Animation;
-			// @ts-ignore
 			animation = Animation.selected;
 			let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
 			Filesystem.exportFile({
@@ -257,7 +256,6 @@ export function setupAnimationCodec() {
 		}
 
 		let animation: _Animation;
-		// @ts-ignore
 		animation = this;
 		let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
 

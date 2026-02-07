@@ -3272,6 +3272,147 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     track(Blockbench.on("select_format", updateSizes));
   }
 
+  // src/alt_duplicate.ts
+  function setupAltDuplicate() {
+    const keybindItem = new KeybindItem("hytale_duplicate_drag_modifier", {
+      name: "Duplicate While Dragging",
+      description: "Hold this key while dragging the gizmo to duplicate",
+      keybind: new Keybind({ key: 18 }),
+      category: "edit"
+    });
+    track(keybindItem);
+    let isDragging = false;
+    let modifierWasPressed = false;
+    let isCombinedUndoActive = false;
+    let combinedUndoCubesBefore = 0;
+    let combinedUndoGroups = [];
+    let originalInitEdit = null;
+    let originalFinishEdit = null;
+    function isModifierPressed(event) {
+      const kb = keybindItem.keybind;
+      if (kb.key === 18 || kb.alt) return event.altKey;
+      if (kb.key === 17 || kb.ctrl) return event.ctrlKey;
+      if (kb.key === 16 || kb.shift) return event.shiftKey;
+      return Pressing.alt;
+    }
+    function isModifierKey(event) {
+      const kb = keybindItem.keybind;
+      return event.keyCode === kb.key || event.key === "Alt" && (kb.key === 18 || kb.alt) || event.key === "Control" && (kb.key === 17 || kb.ctrl) || event.key === "Shift" && (kb.key === 16 || kb.shift);
+    }
+    function duplicateGroups() {
+      const allNewGroups = [];
+      const oldSelectedGroups = Group.multi_selected.slice();
+      Group.multi_selected.empty();
+      for (const group of oldSelectedGroups) {
+        group.selected = false;
+        const newGroup = group.duplicate();
+        newGroup.forEachChild((g) => allNewGroups.push(g), Group, true);
+        newGroup.multiSelect();
+        allNewGroups.push(newGroup);
+      }
+      return allNewGroups;
+    }
+    function duplicateElements() {
+      Outliner.selected.slice().forEach((obj, i) => {
+        if (obj.parent instanceof OutlinerElement && obj.parent.selected) return;
+        Outliner.selected[i] = obj.duplicate();
+      });
+    }
+    function performDuplicationForCombinedUndo(shouldInitEdit) {
+      const hasGroups = Group.all.some((g) => g.selected);
+      const hasElements = Outliner.selected.length > 0;
+      if (!hasGroups && !hasElements) return false;
+      combinedUndoCubesBefore = Outliner.elements.length;
+      combinedUndoGroups = [];
+      originalInitEdit = Undo.initEdit.bind(Undo);
+      originalFinishEdit = Undo.finishEdit.bind(Undo);
+      if (shouldInitEdit) {
+        originalInitEdit({ outliner: true, elements: [], groups: [], selection: true });
+      }
+      Undo.initEdit = () => {
+      };
+      Undo.finishEdit = () => {
+      };
+      if (hasGroups) {
+        combinedUndoGroups = duplicateGroups();
+      } else {
+        duplicateElements();
+      }
+      updateSelection();
+      isCombinedUndoActive = true;
+      return true;
+    }
+    function finishCombinedUndo() {
+      if (!isCombinedUndoActive) return;
+      isCombinedUndoActive = false;
+      if (originalInitEdit) Undo.initEdit = originalInitEdit;
+      if (originalFinishEdit) Undo.finishEdit = originalFinishEdit;
+      originalInitEdit = null;
+      originalFinishEdit = null;
+      Undo.finishEdit("Duplicate and move", {
+        outliner: true,
+        elements: Outliner.elements.slice(combinedUndoCubesBefore),
+        groups: combinedUndoGroups,
+        selection: true
+      });
+    }
+    function onMouseDown(event) {
+      if (isCombinedUndoActive) return;
+      const axis = Transformer?.axis;
+      const hasSelection = Outliner.selected.length > 0 || Group.all.some((g) => g.selected);
+      const isTransformTool = Toolbox.selected?.id === "move_tool" || Toolbox.selected?.id === "rotate_tool";
+      if (!axis || !hasSelection || !isTransformTool) return;
+      if (isModifierPressed(event)) {
+        event.stopImmediatePropagation();
+        if (!performDuplicationForCombinedUndo(true)) return;
+        isDragging = true;
+        modifierWasPressed = true;
+        setTimeout(() => {
+          event.target?.dispatchEvent(new PointerEvent("pointerdown", {
+            bubbles: true,
+            cancelable: true,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            button: event.button,
+            buttons: event.buttons,
+            view: window,
+            pointerId: 1,
+            pointerType: "mouse"
+          }));
+        }, 0);
+      } else {
+        isDragging = true;
+        modifierWasPressed = false;
+      }
+    }
+    function onKeyDown(event) {
+      if (!isDragging || !isModifierKey(event) || modifierWasPressed) return;
+      const isTransformTool = Toolbox.selected?.id === "move_tool" || Toolbox.selected?.id === "rotate_tool";
+      if (!isTransformTool) return;
+      modifierWasPressed = true;
+      const shouldInitEdit = isCombinedUndoActive;
+      if (isCombinedUndoActive) finishCombinedUndo();
+      performDuplicationForCombinedUndo(shouldInitEdit);
+    }
+    function onKeyUp(event) {
+      if (isModifierKey(event)) modifierWasPressed = false;
+    }
+    function onMouseUp() {
+      isDragging = false;
+      modifierWasPressed = false;
+      if (isCombinedUndoActive) setTimeout(finishCombinedUndo, 0);
+    }
+    const events = [
+      ["pointerdown", onMouseDown],
+      ["pointerup", onMouseUp],
+      ["mouseup", onMouseUp],
+      ["keydown", onKeyDown],
+      ["keyup", onKeyUp]
+    ];
+    events.forEach(([type, handler]) => document.addEventListener(type, handler, true));
+    track({ delete: () => events.forEach(([type, handler]) => document.removeEventListener(type, handler, true)) });
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -3304,6 +3445,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupPhotoshopTools();
       setupUVCycling();
       setupTextureHandling();
+      setupAltDuplicate();
       setupNameOverlap();
       setupUVOutline();
       setupTempFixes();

@@ -517,7 +517,6 @@ export function setupBlockymodelCodec(): Codec {
 				if (args.attachment && !parent_node && parent_group instanceof Group) {
 					let reference_node = getMainShape(parent_group) ?? parent_group;
 					origin = reference_node.origin.slice() as ArrayVector3;
-					rotation = reference_node.rotation.slice() as ArrayVector3;
 
 				} else if (parent_offset && parent_group instanceof Group) {
 					origin.V3_add(parent_offset);

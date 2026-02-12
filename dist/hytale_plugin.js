@@ -434,7 +434,6 @@
           if (args.attachment && !parent_node && parent_group instanceof Group) {
             let reference_node = getMainShape(parent_group) ?? parent_group;
             origin = reference_node.origin.slice();
-            rotation = reference_node.rotation.slice();
           } else if (parent_offset && parent_group instanceof Group) {
             origin.V3_add(parent_offset);
             origin.V3_add(parent_group.origin);

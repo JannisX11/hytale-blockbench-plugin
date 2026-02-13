@@ -26,10 +26,10 @@ export function setupAltDuplicate() {
 
     function isModifierPressed(event: MouseEvent | KeyboardEvent): boolean {
         const kb = keybindItem.keybind;
-        if (kb.key === 18 || kb.alt) return event.altKey;
-        if (kb.key === 17 || kb.ctrl) return event.ctrlKey;
-        if (kb.key === 16 || kb.shift) return event.shiftKey;
-        return Pressing.alt;
+        if (kb.key === 18 || kb.alt) return event.altKey || Pressing.overrides.alt;
+        if (kb.key === 17 || kb.ctrl) return event.ctrlKey || Pressing.overrides.ctrl;
+        if (kb.key === 16 || kb.shift) return event.shiftKey || Pressing.overrides.shift;
+        if (kb.key === 91 || kb.ctrl) return event.metaKey || Pressing.overrides.ctrl;
     }
 
     function isModifierKey(event: KeyboardEvent): boolean {

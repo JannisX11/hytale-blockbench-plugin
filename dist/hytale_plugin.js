@@ -1052,8 +1052,8 @@
             delta = data_point.visibility;
           } else if (channel == "uv_offset") {
             delta = {
-              x: parseFloat(data_point.x),
-              y: -parseFloat(data_point.y)
+              x: Math.round(parseFloat(data_point.x)),
+              y: -Math.round(parseFloat(data_point.y))
             };
             delta = new oneLiner(delta);
           } else {
@@ -1519,6 +1519,9 @@
       let cube = getMainShape(group);
       if (!cube) return;
       let updateUV = (offset) => {
+        if (offset) {
+          offset = offset.map((v) => Math.round(v));
+        }
         if (!offset || !offset[0] && !offset[1]) {
           if (!cube.mesh.userData.uv_anim_offset) {
             return;
@@ -2015,7 +2018,7 @@
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.8.0",
+    version: "0.8.1",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
@@ -3287,10 +3290,10 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     let originalFinishEdit = null;
     function isModifierPressed(event) {
       const kb = keybindItem.keybind;
-      if (kb.key === 18 || kb.alt) return event.altKey;
-      if (kb.key === 17 || kb.ctrl) return event.ctrlKey;
-      if (kb.key === 16 || kb.shift) return event.shiftKey;
-      return Pressing.alt;
+      if (kb.key === 18 || kb.alt) return event.altKey || Pressing.overrides.alt;
+      if (kb.key === 17 || kb.ctrl) return event.ctrlKey || Pressing.overrides.ctrl;
+      if (kb.key === 16 || kb.shift) return event.shiftKey || Pressing.overrides.shift;
+      if (kb.key === 91 || kb.ctrl) return event.metaKey || Pressing.overrides.ctrl;
     }
     function isModifierKey(event) {
       const kb = keybindItem.keybind;

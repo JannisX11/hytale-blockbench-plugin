@@ -227,6 +227,7 @@ export function setupBlockymodelCodec(): Codec {
 			}
 			Settings.updateSettingsInProfiles();
 		},
+		// MARK: Compile
 		compile(options: CompileOptions = {}): string | BlockymodelJSON {
 			let model: BlockymodelJSON = {
 				nodes: [],
@@ -384,6 +385,8 @@ export function setupBlockymodelCodec(): Codec {
 					let center_pos = cube.from.slice().V3_add(cube.to).V3_divide(2, 2, 2);
 					center_pos.V3_subtract(group.origin);
 					return center_pos;
+				} else {
+					return group.original_offset;
 				}
 			}
 
@@ -396,7 +399,6 @@ export function setupBlockymodelCodec(): Codec {
 					let collection = Collection.all.find(c => c.contains(element));
 					if (collection) return;
 				}
-
 				let euler = Reusable.euler1.set(
 					Math.degToRad(element.rotation[0]),
 					Math.degToRad(element.rotation[1]),
@@ -411,12 +413,16 @@ export function setupBlockymodelCodec(): Codec {
 					w: quaternion.w,
 				}) as IQuaternion;
 				let origin = element.origin.slice() as ArrayVector3;
+				let offset: ArrayVector3 = element instanceof Group ? getNodeOffset(element) : [0, 0, 0];
 				if (element.parent instanceof Group) {
 					origin.V3_subtract(element.parent.origin);
-					let offset = getNodeOffset(element.parent);
-					if (offset) {
-						origin.V3_subtract(offset);
+					let parent_offset = getNodeOffset(element.parent);
+					if (parent_offset) {
+						origin.V3_subtract(parent_offset);
 					}
+				}
+				if (options.attachment && element instanceof Group && element.is_piece && element.original_position?.some((v: number) => v)) {
+					origin = element.original_position;
 				}
 				let node: BlockymodelNode = {
 					id: node_id.toString(),
@@ -425,8 +431,8 @@ export function setupBlockymodelCodec(): Codec {
 					orientation,
 					shape: {
 						type: "none",
-						offset: formatVector([0, 0, 0]),
-						stretch: formatVector([0, 0, 0]),
+						offset: formatVector(offset),
+						stretch: formatVector([1, 1, 1]),
 						settings: {
 							isPiece: (element instanceof Group && (element as GroupHytale).is_piece) || false
 						},
@@ -468,7 +474,10 @@ export function setupBlockymodelCodec(): Codec {
 			}
 			let nodes: (Group | Cube)[] = Outliner.root.filter(node => node instanceof Group || node instanceof Cube);
 			if (options.attachment instanceof Collection) {
-				nodes = (options.attachment as Collection).getChildren().filter(g => g instanceof Group);
+				let in_collection = (options.attachment as Collection).getChildren();
+				nodes = in_collection.filter(g => {
+					return g instanceof Group;
+				}) as Group[];
 			}
 			for (let node of nodes) {
 				let compiled = compileNode(node);
@@ -481,6 +490,7 @@ export function setupBlockymodelCodec(): Codec {
 				return compileJSON(model, Config.json_compile_options)
 			}
 		},
+		// MARK: Parse
 		parse(model: BlockymodelJSON, path: string, args: {attachment?: string} = {}) {
 			function parseVector(vec: IVector, fallback: ArrayVector3 = [0, 0, 0]): ArrayVector3 | undefined {
 				if (!vec) return fallback;
@@ -509,6 +519,7 @@ export function setupBlockymodelCodec(): Codec {
 				let name = node.name;
 				let offset: ArrayVector3 = node.shape?.offset ? parseVector(node.shape?.offset) : [0, 0, 0];
 				let origin = parseVector(node.position);
+				let original_position: ArrayVector3 | undefined;
 				let rotation: ArrayVector3 = [
 					Math.roundTo(Math.radToDeg(rotation_euler.x), 3),
 					Math.roundTo(Math.radToDeg(rotation_euler.y), 3),
@@ -516,6 +527,7 @@ export function setupBlockymodelCodec(): Codec {
 				];
 				if (args.attachment && !parent_node && parent_group instanceof Group) {
 					let reference_node = getMainShape(parent_group) ?? parent_group;
+					original_position = origin;
 					origin = reference_node.origin.slice() as ArrayVector3;
 
 				} else if (parent_offset && parent_group instanceof Group) {
@@ -542,10 +554,12 @@ export function setupBlockymodelCodec(): Codec {
 					}
 
 					group.init();
-					group.extend({
-						// @ts-ignore
+					let custom_data = {
 						is_piece: node.shape?.settings?.isPiece ?? false,
-					});
+						original_position,
+						original_offset: offset,
+					};
+					group.extend(custom_data as any);
 				} else {
 					name = name.replace(/--C\d+$/, '');
 				}
@@ -807,6 +821,7 @@ export function setupBlockymodelCodec(): Codec {
 			}
 			return {new_groups, new_textures};
 		},
+		// MARK: Other
 		async export(options?: CompileOptions) {
 			if (Object.keys(this.export_options).length) {
 				let result = await this.promptExportOptions();

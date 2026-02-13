@@ -1784,6 +1784,35 @@
     track(add_quad_action);
     let add_element_menu = BarItems.add_element.side_menu;
     add_element_menu.addAction(add_quad_action);
+    let add_bone_action = new Action("hytale_add_bone_with_cube", {
+      name: "Add Bone with Cube",
+      icon: "fa-cubes",
+      category: "edit",
+      condition: { formats: FORMAT_IDS, modes: ["edit"] },
+      click() {
+        let addGroupAction = BarItems.add_group;
+        addGroupAction.trigger();
+        let group = Group.selected[0];
+        if (!group) return;
+        Undo.initEdit({ outliner: true, elements: [], selection: true }, true);
+        let cube = new Cube({
+          name: group.name,
+          autouv: settings.autouv.value ? 1 : 0,
+          box_uv: false,
+          rotation: [0, 0, 0],
+          origin: group.origin.slice(),
+          from: [group.origin[0] - 4, group.origin[1], group.origin[2] - 4],
+          to: [group.origin[0] + 4, group.origin[1] + 8, group.origin[2] + 4],
+          color: group.color
+        }).init().addTo(group);
+        cube.mapAutoUV();
+        group.select();
+        Canvas.updateView({ elements: [cube], element_aspects: { transform: true, geometry: true, faces: true } });
+        Undo.finishEdit("Add bone with cube", { outliner: true, elements: selected, selection: true });
+      }
+    });
+    track(add_bone_action);
+    add_element_menu.addAction(add_bone_action);
     let set_uv_mode_original = Cube.prototype.setUVMode;
     Cube.prototype.setUVMode = function(box_uv, ...args) {
       if (isHytaleFormat()) {
@@ -2015,7 +2044,7 @@
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.8.0",
+    version: "0.8.1",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
@@ -2494,6 +2523,125 @@
       delete() {
         Panels.outliner?.node?.querySelectorAll(`.${HIDDEN_CLASS}`).forEach((el) => {
           el.classList.remove(HIDDEN_CLASS);
+        });
+      }
+    });
+  }
+
+  // src/bones_only_view.ts
+  var HIDDEN_CLASS2 = "hytale_main_shape_hidden";
+  var bonesViewActive = false;
+  var hiddenUUIDs = /* @__PURE__ */ new Set();
+  var visibilityUpdatePending2 = false;
+  var outlinerObserver = null;
+  function scheduleVisibilityUpdate2() {
+    if (!bonesViewActive || visibilityUpdatePending2) return;
+    visibilityUpdatePending2 = true;
+    requestAnimationFrame(() => {
+      visibilityUpdatePending2 = false;
+      applyVisibility();
+    });
+  }
+  function setupOutlinerObserver() {
+    if (outlinerObserver) return;
+    const outlinerNode = Panels.outliner?.node;
+    if (!outlinerNode) return;
+    outlinerObserver = new MutationObserver(() => {
+      if (bonesViewActive) {
+        scheduleVisibilityUpdate2();
+      }
+    });
+    outlinerObserver.observe(outlinerNode, {
+      childList: true,
+      subtree: true
+    });
+  }
+  function disconnectOutlinerObserver() {
+    if (outlinerObserver) {
+      outlinerObserver.disconnect();
+      outlinerObserver = null;
+    }
+  }
+  function getMainShapeUUIDs() {
+    let uuids = [];
+    for (let group of Group.all) {
+      let cubes = group.children.filter((c) => c instanceof Cube);
+      if (cubes.length === 1 && qualifiesAsMainShape(cubes[0])) {
+        uuids.push(cubes[0].uuid);
+      }
+    }
+    for (let element of Outliner.root) {
+      if (element instanceof Cube && element.rotation.allEqual(0)) {
+        uuids.push(element.uuid);
+      }
+    }
+    return uuids;
+  }
+  function applyVisibility() {
+    if (!isHytaleFormat()) return;
+    const outlinerNode = Panels.outliner?.node;
+    if (!outlinerNode) return;
+    if (!bonesViewActive) {
+      outlinerNode.querySelectorAll(`.${HIDDEN_CLASS2}`).forEach((el) => {
+        el.classList.remove(HIDDEN_CLASS2);
+      });
+      hiddenUUIDs.clear();
+      disconnectOutlinerObserver();
+      return;
+    }
+    setupOutlinerObserver();
+    hiddenUUIDs = new Set(getMainShapeUUIDs());
+    for (let uuid of hiddenUUIDs) {
+      let node = outlinerNode.querySelector(`[id="${uuid}"]`);
+      if (node && !node.classList.contains(HIDDEN_CLASS2)) {
+        node.classList.add(HIDDEN_CLASS2);
+      }
+    }
+  }
+  function setupBonesOnlyView() {
+    let style = Blockbench.addCSS(`
+		.outliner_node.${HIDDEN_CLASS2} {
+			display: none !important;
+		}
+	`);
+    const originalSelect = Cube.prototype.select;
+    Cube.prototype.select = function(event, isOutlinerClick) {
+      if (bonesViewActive && hiddenUUIDs.has(this.uuid) && this.parent instanceof Group) {
+        return this.parent.select(event, isOutlinerClick);
+      }
+      return originalSelect.call(this, event, isOutlinerClick);
+    };
+    StateMemory.init("hytale_bones_view", "boolean");
+    bonesViewActive = StateMemory.get("hytale_bones_view") ?? false;
+    let toggle = new Toggle("toggle_bones_view", {
+      name: "Bones View",
+      description: "Hide main shapes, work with bones directly",
+      icon: "fa-bone",
+      category: "view",
+      condition: { formats: FORMAT_IDS },
+      default: bonesViewActive,
+      onChange(value) {
+        bonesViewActive = value;
+        StateMemory.set("hytale_bones_view", value);
+        applyVisibility();
+      }
+    });
+    let outlinerPanel = Panels.outliner;
+    if (outlinerPanel && outlinerPanel.toolbars.length > 0) {
+      outlinerPanel.toolbars[0].add(toggle, -1);
+    }
+    let hookFinishedEdit = Blockbench.on("finished_edit", scheduleVisibilityUpdate2);
+    let hookSelectMode = Blockbench.on("select_mode", scheduleVisibilityUpdate2);
+    let hookSelection = Blockbench.on("update_selection", scheduleVisibilityUpdate2);
+    if (bonesViewActive) {
+      setTimeout(applyVisibility, 100);
+    }
+    track(toggle, hookFinishedEdit, hookSelectMode, hookSelection, style, {
+      delete() {
+        Cube.prototype.select = originalSelect;
+        disconnectOutlinerObserver();
+        Panels.outliner?.node?.querySelectorAll(`.${HIDDEN_CLASS2}`).forEach((el) => {
+          el.classList.remove(HIDDEN_CLASS2);
         });
       }
     });
@@ -3410,6 +3558,120 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     track({ delete: () => events.forEach(([type, handler]) => document.removeEventListener(type, handler, true)) });
   }
 
+  // src/merge_bones.ts
+  function findTargetBone(groups) {
+    for (let group of groups) {
+      let isChild = groups.some(
+        (other) => other !== group && group.isChildOf(other, 100)
+      );
+      if (!isChild) return group;
+    }
+    return groups[0];
+  }
+  function collectDirectCubes(group) {
+    return group.children.filter((c) => c instanceof Cube);
+  }
+  function bakeCubeTransform(cube, targetBone) {
+    cube.mesh.updateMatrixWorld(true);
+    targetBone.mesh.updateMatrixWorld(true);
+    let worldOrigin = new THREE.Vector3();
+    cube.mesh.getWorldPosition(worldOrigin);
+    let worldQuat = new THREE.Quaternion();
+    cube.mesh.getWorldQuaternion(worldQuat);
+    let targetWorldPos = new THREE.Vector3();
+    let targetWorldQuat = new THREE.Quaternion();
+    targetBone.mesh.getWorldPosition(targetWorldPos);
+    targetBone.mesh.getWorldQuaternion(targetWorldQuat);
+    let localOrigin = worldOrigin.clone().sub(targetWorldPos);
+    let inverseTargetQuat = targetWorldQuat.clone().invert();
+    localOrigin.applyQuaternion(inverseTargetQuat);
+    let localQuat = inverseTargetQuat.clone().multiply(worldQuat);
+    let localEuler = new THREE.Euler().setFromQuaternion(localQuat, "ZYX");
+    let fromOffset = [
+      cube.from[0] - cube.origin[0],
+      cube.from[1] - cube.origin[1],
+      cube.from[2] - cube.origin[2]
+    ];
+    let toOffset = [
+      cube.to[0] - cube.origin[0],
+      cube.to[1] - cube.origin[1],
+      cube.to[2] - cube.origin[2]
+    ];
+    cube.origin[0] = localOrigin.x + targetBone.origin[0];
+    cube.origin[1] = localOrigin.y + targetBone.origin[1];
+    cube.origin[2] = localOrigin.z + targetBone.origin[2];
+    cube.from[0] = cube.origin[0] + fromOffset[0];
+    cube.from[1] = cube.origin[1] + fromOffset[1];
+    cube.from[2] = cube.origin[2] + fromOffset[2];
+    cube.to[0] = cube.origin[0] + toOffset[0];
+    cube.to[1] = cube.origin[1] + toOffset[1];
+    cube.to[2] = cube.origin[2] + toOffset[2];
+    cube.rotation[0] = Math.roundTo(Math.radToDeg(localEuler.x), 4);
+    cube.rotation[1] = Math.roundTo(Math.radToDeg(localEuler.y), 4);
+    cube.rotation[2] = Math.roundTo(Math.radToDeg(localEuler.z), 4);
+  }
+  function deleteEmptyGroups(groups, targetBone) {
+    let sortedGroups = groups.filter((g) => g !== targetBone).sort((a, b) => {
+      let depthA = 0, depthB = 0;
+      let parent = a.parent;
+      while (parent instanceof Group) {
+        depthA++;
+        parent = parent.parent;
+      }
+      parent = b.parent;
+      while (parent instanceof Group) {
+        depthB++;
+        parent = parent.parent;
+      }
+      return depthB - depthA;
+    });
+    for (let group of sortedGroups) {
+      let hasChildren = group.children.some(
+        (c) => c instanceof Cube || c instanceof Group
+      );
+      if (!hasChildren) {
+        group.remove(false);
+      }
+    }
+  }
+  function setupMergeBones() {
+    let action = new Action("hytale_merge_bones", {
+      name: "Merge Bones",
+      icon: "merge",
+      category: "edit",
+      condition: () => {
+        if (!isHytaleFormat()) return false;
+        if (!Modes.edit) return false;
+        return Group.selected.length >= 2;
+      },
+      click() {
+        let selectedGroups = Group.selected.slice();
+        let targetBone = findTargetBone(selectedGroups);
+        if (!targetBone) return;
+        Undo.initEdit({ outliner: true, elements: Cube.all, selection: true });
+        let allCubes = [];
+        for (let group of selectedGroups) {
+          for (let cube of collectDirectCubes(group)) {
+            allCubes.push({ cube, originalParent: group });
+          }
+        }
+        for (let { cube, originalParent } of allCubes) {
+          if (originalParent === targetBone) continue;
+          bakeCubeTransform(cube, targetBone);
+          cube.addTo(targetBone);
+          cube.preview_controller.updateTransform(cube);
+          cube.preview_controller.updateGeometry(cube);
+        }
+        deleteEmptyGroups(selectedGroups, targetBone);
+        Canvas.updateAll();
+        targetBone.select();
+        Undo.finishEdit("Merge bones", { outliner: true, elements: Cube.all, selection: true });
+      }
+    });
+    track(action);
+    Group.prototype.menu.addAction(action, "#manage");
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -3437,11 +3699,13 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupAnimationCodec();
       setupAttachments();
       setupOutlinerFilter();
+      setupBonesOnlyView();
       setupChecks();
       setupPhotoshopTools();
       setupUVCycling();
       setupTextureHandling();
       setupAltDuplicate();
+      setupMergeBones();
       setupNameOverlap();
       setupUVOutline();
       setupTempFixes();

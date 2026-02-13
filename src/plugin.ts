@@ -13,12 +13,14 @@ import { FORMAT_IDS, setupFormats } from "./formats";
 import { setupPhotoshopTools } from "./photoshop_copy_paste";
 import { CustomPivotMarker, GroupPivotIndicator } from "./pivot_marker"
 import { setupOutlinerFilter } from "./outliner_filter";
+import { setupBonesOnlyView } from "./bones_only_view";
 import { setupTextureHandling, updateUVSize } from "./texture";
 import { setupNameOverlap } from "./name_overlap";
 import { setupUVOutline } from "./uv_outline";
 import { setupTempFixes } from './temp_fixes'
 import { setupPreviewScenes } from "./preview_scenes";
 import { setupAltDuplicate } from "./alt_duplicate";
+import { setupMergeBones } from "./merge_bones";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -47,11 +49,13 @@ BBPlugin.register('hytale_plugin', {
         setupAnimationCodec();
         setupAttachments();
         setupOutlinerFilter();
+        setupBonesOnlyView();
         setupChecks();
         setupPhotoshopTools();
         setupUVCycling();
         setupTextureHandling();
         setupAltDuplicate();
+        setupMergeBones();
         setupNameOverlap();
         setupUVOutline();
         setupTempFixes();

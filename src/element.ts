@@ -208,6 +208,47 @@ export function setupElements() {
 	track(add_quad_action);
 	let add_element_menu = ((BarItems.add_element as Action).side_menu as Menu);
 	add_element_menu.addAction(add_quad_action);
+
+	// Add Bone with Cube action - uses native Add Group then adds cube inside
+	let add_bone_action = new Action('hytale_add_bone_with_cube', {
+		name: 'Add Bone with Cube',
+		icon: 'fa-cubes',
+		category: 'edit',
+		condition: {formats: FORMAT_IDS, modes: ['edit']},
+		click() {
+			// Use native Add Group action - handles all parenting/positioning correctly
+			let addGroupAction = BarItems.add_group as Action;
+			addGroupAction.trigger();
+
+			// Get the newly created group (should be selected)
+			let group = Group.selected[0];
+			if (!group) return;
+
+			// Now add a cube inside the group
+			Undo.initEdit({outliner: true, elements: [], selection: true}, true); // amend the previous edit
+
+			let cube = new Cube({
+				name: group.name,
+				autouv: (settings.autouv.value ? 1 : 0),
+				box_uv: false,
+				rotation: [0, 0, 0],
+				origin: group.origin.slice() as ArrayVector3,
+				from: [group.origin[0] - 4, group.origin[1], group.origin[2] - 4],
+				to: [group.origin[0] + 4, group.origin[1] + 8, group.origin[2] + 4],
+				color: group.color
+			}).init().addTo(group);
+
+			cube.mapAutoUV();
+
+			// Keep group selected
+			group.select();
+
+			Canvas.updateView({elements: [cube], element_aspects: {transform: true, geometry: true, faces: true}});
+			Undo.finishEdit('Add bone with cube', {outliner: true, elements: selected, selection: true});
+		}
+	});
+	track(add_bone_action);
+	add_element_menu.addAction(add_bone_action);
 	
 	// Box UV on quads
 	let set_uv_mode_original = Cube.prototype.setUVMode;

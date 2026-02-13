@@ -65,6 +65,9 @@ export function setupAnimation() {
         if (!cube) return;
 
         let updateUV = (offset?: number[]) => {
+            if (offset) {
+                offset = offset.map(v => Math.round(v));
+            }
 
             // Optimize
             if (!offset || (!offset[0] && !offset[1])) {

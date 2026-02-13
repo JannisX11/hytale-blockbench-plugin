@@ -144,8 +144,8 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 					delta = data_point.visibility;
 				} else if (channel == 'uv_offset') {
 					delta = {
-						x: parseFloat(data_point.x),
-						y: -parseFloat(data_point.y),
+						x: Math.round(parseFloat(data_point.x)),
+						y: -Math.round(parseFloat(data_point.y)),
 					};
 					delta = new oneLiner(delta);
 				} else {

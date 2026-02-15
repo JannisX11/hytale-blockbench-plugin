@@ -308,13 +308,13 @@
             node.shape.textureLayout[direction] = layout_face;
           }
         }
-        function getNodeOffset(group) {
+        function getNodeOffset(group, include_original_offset = true) {
           let cube = getMainShape(group);
           if (cube) {
             let center_pos = cube.from.slice().V3_add(cube.to).V3_divide(2, 2, 2);
             center_pos.V3_subtract(group.origin);
             return center_pos;
-          } else {
+          } else if (include_original_offset) {
             return group.original_offset;
           }
         }
@@ -341,7 +341,7 @@
           let offset = element instanceof Group ? getNodeOffset(element) : [0, 0, 0];
           if (element.parent instanceof Group) {
             origin.V3_subtract(element.parent.origin);
-            let parent_offset = getNodeOffset(element.parent);
+            let parent_offset = getNodeOffset(element.parent, !options.attachment);
             if (parent_offset) {
               origin.V3_subtract(parent_offset);
             }
@@ -465,6 +465,7 @@
             if (!parent_node && args.attachment) {
               group.name = args.attachment + ":" + group.name;
               group.color = 1;
+              group.rotation.V3_set(0, 0, 0);
             }
             group.init();
             let custom_data = {

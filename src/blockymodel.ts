@@ -379,13 +379,13 @@ export function setupBlockymodelCodec(): Codec {
 				}
 
 			}
-			function getNodeOffset(group: Group): ArrayVector3 | undefined {
+			function getNodeOffset(group: Group, include_original_offset: boolean = true): ArrayVector3 | undefined {
 				let cube = getMainShape(group);
 				if (cube) {
 					let center_pos = cube.from.slice().V3_add(cube.to).V3_divide(2, 2, 2);
 					center_pos.V3_subtract(group.origin);
 					return center_pos;
-				} else {
+				} else if (include_original_offset) {
 					return group.original_offset;
 				}
 			}
@@ -416,7 +416,7 @@ export function setupBlockymodelCodec(): Codec {
 				let offset: ArrayVector3 = element instanceof Group ? getNodeOffset(element) : [0, 0, 0];
 				if (element.parent instanceof Group) {
 					origin.V3_subtract(element.parent.origin);
-					let parent_offset = getNodeOffset(element.parent);
+					let parent_offset = getNodeOffset(element.parent, !options.attachment);
 					if (parent_offset) {
 						origin.V3_subtract(parent_offset);
 					}
@@ -551,6 +551,8 @@ export function setupBlockymodelCodec(): Codec {
 					if (!parent_node && args.attachment) {
 						group.name = args.attachment + ':' + group.name;
 						group.color = 1;
+						// Long-term this needs to be saved somewhere, as it is used in the model itself, but not if attached
+						group.rotation.V3_set(0, 0, 0);
 					}
 
 					group.init();

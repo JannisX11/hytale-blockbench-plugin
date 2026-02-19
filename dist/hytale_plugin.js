@@ -2618,12 +2618,14 @@
 
   // src/bones_only_view.ts
   var HIDDEN_CLASS2 = "hytale_main_shape_hidden";
-  var bonesViewActive = false;
+  var EMPTY_GROUP_CLASS = "hytale_empty_group";
+  var compactViewActive = false;
   var hiddenUUIDs = /* @__PURE__ */ new Set();
+  var emptyGroupUUIDs = /* @__PURE__ */ new Set();
   var visibilityUpdatePending2 = false;
   var outlinerObserver = null;
   function scheduleVisibilityUpdate2() {
-    if (!bonesViewActive || visibilityUpdatePending2) return;
+    if (!compactViewActive || visibilityUpdatePending2) return;
     visibilityUpdatePending2 = true;
     requestAnimationFrame(() => {
       visibilityUpdatePending2 = false;
@@ -2635,7 +2637,7 @@
     const outlinerNode = Panels.outliner?.node;
     if (!outlinerNode) return;
     outlinerObserver = new MutationObserver(() => {
-      if (bonesViewActive) {
+      if (compactViewActive) {
         scheduleVisibilityUpdate2();
       }
     });
@@ -2655,62 +2657,110 @@
     for (let group of Group.all) {
       let cubes = group.children.filter((c) => c instanceof Cube);
       if (cubes.length === 1 && qualifiesAsMainShape(cubes[0])) {
-        uuids.push(cubes[0].uuid);
+        const cube = cubes[0];
+        const hasCubeChildren = cube.children?.some((c) => c instanceof Cube);
+        if (!hasCubeChildren) {
+          uuids.push(cube.uuid);
+        }
       }
     }
     for (let element of Outliner.root) {
       if (element instanceof Cube && element.rotation.allEqual(0)) {
-        uuids.push(element.uuid);
+        const hasCubeChildren = element.children?.some((c) => c instanceof Cube);
+        if (!hasCubeChildren) {
+          uuids.push(element.uuid);
+        }
       }
     }
     return uuids;
+  }
+  function getEmptyGroupUUIDs(hiddenCubes) {
+    let emptyGroups = /* @__PURE__ */ new Set();
+    for (let group of Group.all) {
+      let hasVisibleChild = false;
+      for (let child of group.children) {
+        if (child instanceof Group) {
+          hasVisibleChild = true;
+          break;
+        } else if (child instanceof Cube) {
+          if (!hiddenCubes.has(child.uuid)) {
+            hasVisibleChild = true;
+            break;
+          }
+        }
+      }
+      if (!hasVisibleChild) {
+        emptyGroups.add(group.uuid);
+      }
+    }
+    return Array.from(emptyGroups);
   }
   function applyVisibility() {
     if (!isHytaleFormat()) return;
     const outlinerNode = Panels.outliner?.node;
     if (!outlinerNode) return;
-    if (!bonesViewActive) {
+    if (!compactViewActive) {
       outlinerNode.querySelectorAll(`.${HIDDEN_CLASS2}`).forEach((el) => {
         el.classList.remove(HIDDEN_CLASS2);
       });
+      outlinerNode.querySelectorAll(`.${EMPTY_GROUP_CLASS}`).forEach((el) => {
+        el.classList.remove(EMPTY_GROUP_CLASS);
+      });
       hiddenUUIDs.clear();
+      emptyGroupUUIDs.clear();
       disconnectOutlinerObserver();
       return;
     }
     setupOutlinerObserver();
     hiddenUUIDs = new Set(getMainShapeUUIDs());
+    emptyGroupUUIDs = new Set(getEmptyGroupUUIDs(hiddenUUIDs));
     for (let uuid of hiddenUUIDs) {
       let node = outlinerNode.querySelector(`[id="${uuid}"]`);
       if (node && !node.classList.contains(HIDDEN_CLASS2)) {
         node.classList.add(HIDDEN_CLASS2);
       }
     }
+    for (let uuid of emptyGroupUUIDs) {
+      let node = outlinerNode.querySelector(`[id="${uuid}"]`);
+      if (node && !node.classList.contains(EMPTY_GROUP_CLASS)) {
+        node.classList.add(EMPTY_GROUP_CLASS);
+      }
+    }
+    outlinerNode.querySelectorAll(`.${EMPTY_GROUP_CLASS}`).forEach((el) => {
+      if (!emptyGroupUUIDs.has(el.id)) {
+        el.classList.remove(EMPTY_GROUP_CLASS);
+      }
+    });
   }
-  function setupBonesOnlyView() {
+  function setupCompactView() {
     let style = Blockbench.addCSS(`
 		.outliner_node.${HIDDEN_CLASS2} {
 			display: none !important;
 		}
+		.outliner_node.${EMPTY_GROUP_CLASS} i.icon-open-state {
+			visibility: hidden !important;
+			pointer-events: none;
+		}
 	`);
     const originalSelect = Cube.prototype.select;
     Cube.prototype.select = function(event, isOutlinerClick) {
-      if (bonesViewActive && hiddenUUIDs.has(this.uuid) && this.parent instanceof Group) {
+      if (compactViewActive && hiddenUUIDs.has(this.uuid) && this.parent instanceof Group) {
         return this.parent.select(event, isOutlinerClick);
       }
       return originalSelect.call(this, event, isOutlinerClick);
     };
-    StateMemory.init("hytale_bones_view", "boolean");
-    bonesViewActive = StateMemory.get("hytale_bones_view") ?? false;
-    let toggle = new Toggle("toggle_bones_view", {
-      name: "Bones View",
+    StateMemory.init("hytale_compact_view", "boolean");
+    compactViewActive = StateMemory.get("hytale_compact_view") ?? false;
+    let toggle = new Toggle("toggle_compact_view", {
+      name: "Compact View",
       description: "Hide main shapes, work with bones directly",
-      icon: "fa-bone",
+      icon: "fa-compress",
       category: "view",
       condition: { formats: FORMAT_IDS },
-      default: bonesViewActive,
+      default: compactViewActive,
       onChange(value) {
-        bonesViewActive = value;
-        StateMemory.set("hytale_bones_view", value);
+        compactViewActive = value;
+        StateMemory.set("hytale_compact_view", value);
         applyVisibility();
       }
     });
@@ -2721,7 +2771,7 @@
     let hookFinishedEdit = Blockbench.on("finished_edit", scheduleVisibilityUpdate2);
     let hookSelectMode = Blockbench.on("select_mode", scheduleVisibilityUpdate2);
     let hookSelection = Blockbench.on("update_selection", scheduleVisibilityUpdate2);
-    if (bonesViewActive) {
+    if (compactViewActive) {
       setTimeout(applyVisibility, 100);
     }
     track(toggle, hookFinishedEdit, hookSelectMode, hookSelection, style, {
@@ -2730,6 +2780,9 @@
         disconnectOutlinerObserver();
         Panels.outliner?.node?.querySelectorAll(`.${HIDDEN_CLASS2}`).forEach((el) => {
           el.classList.remove(HIDDEN_CLASS2);
+        });
+        Panels.outliner?.node?.querySelectorAll(`.${EMPTY_GROUP_CLASS}`).forEach((el) => {
+          el.classList.remove(EMPTY_GROUP_CLASS);
         });
       }
     });
@@ -3787,7 +3840,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupAnimationCodec();
       setupAttachments();
       setupOutlinerFilter();
-      setupBonesOnlyView();
+      setupCompactView();
       setupChecks();
       setupPhotoshopTools();
       setupUVCycling();

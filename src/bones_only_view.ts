@@ -10,19 +10,22 @@ declare global {
 }
 
 /**
- * Bones View: Hides "main shape" cubes from the outliner to reduce clutter.
+ * Compact View: Hides "main shape" cubes from the outliner to reduce clutter.
  * Main shapes are cubes with rotation [0,0,0] that are the only cube in their group.
  * When clicking a hidden cube's mesh, selection redirects to the parent group.
+ * Groups with no visible children have their expand arrows hidden.
  */
 
 const HIDDEN_CLASS = 'hytale_main_shape_hidden';
-let bonesViewActive = false;
+const EMPTY_GROUP_CLASS = 'hytale_empty_group';
+let compactViewActive = false;
 let hiddenUUIDs = new Set<string>();
+let emptyGroupUUIDs = new Set<string>();
 let visibilityUpdatePending = false;
 let outlinerObserver: MutationObserver | null = null;
 
 function scheduleVisibilityUpdate() {
-	if (!bonesViewActive || visibilityUpdatePending) return;
+	if (!compactViewActive || visibilityUpdatePending) return;
 	visibilityUpdatePending = true;
 	requestAnimationFrame(() => {
 		visibilityUpdatePending = false;
@@ -40,7 +43,7 @@ function setupOutlinerObserver() {
 	if (!outlinerNode) return;
 
 	outlinerObserver = new MutationObserver(() => {
-		if (bonesViewActive) {
+		if (compactViewActive) {
 			scheduleVisibilityUpdate();
 		}
 	});
@@ -63,6 +66,7 @@ function disconnectOutlinerObserver() {
  * A cube is hidden if:
  * - It has rotation = [0, 0, 0]
  * - It's the only cube in its parent group
+ * - It's NOT involved in cube-to-cube parenting (parent or child is a cube)
  */
 function getMainShapeUUIDs(): string[] {
 	let uuids: string[] = [];
@@ -71,14 +75,23 @@ function getMainShapeUUIDs(): string[] {
 		let cubes = group.children.filter(c => c instanceof Cube) as Cube[];
 		// Only hide if single cube that qualifies as main shape
 		if (cubes.length === 1 && qualifiesAsMainShape(cubes[0])) {
-			uuids.push(cubes[0].uuid);
+			const cube = cubes[0];
+			// Don't hide if cube has cube children (is a parent in cube-to-cube)
+			const hasCubeChildren = cube.children?.some(c => c instanceof Cube);
+			if (!hasCubeChildren) {
+				uuids.push(cube.uuid);
+			}
 		}
 	}
 
 	// Also check root-level cubes with no rotation
 	for (let element of Outliner.root) {
 		if (element instanceof Cube && element.rotation.allEqual(0)) {
-			uuids.push(element.uuid);
+			// Don't hide if cube has cube children
+			const hasCubeChildren = element.children?.some(c => c instanceof Cube);
+			if (!hasCubeChildren) {
+				uuids.push(element.uuid);
+			}
 		}
 	}
 
@@ -86,7 +99,39 @@ function getMainShapeUUIDs(): string[] {
 }
 
 /**
- * Apply or remove hidden class from main shape elements
+ * Finds groups that have no visible children in compact view.
+ * A group is "empty" if all its direct children are hidden cubes (no sub-groups, no visible cubes).
+ */
+function getEmptyGroupUUIDs(hiddenCubes: Set<string>): string[] {
+	let emptyGroups = new Set<string>();
+
+	for (let group of Group.all) {
+		let hasVisibleChild = false;
+
+		for (let child of group.children) {
+			if (child instanceof Group) {
+				// Sub-groups are always visible in outliner
+				hasVisibleChild = true;
+				break;
+			} else if (child instanceof Cube) {
+				// Cube is visible if not hidden
+				if (!hiddenCubes.has(child.uuid)) {
+					hasVisibleChild = true;
+					break;
+				}
+			}
+		}
+
+		if (!hasVisibleChild) {
+			emptyGroups.add(group.uuid);
+		}
+	}
+
+	return Array.from(emptyGroups);
+}
+
+/**
+ * Apply or remove hidden/empty classes from outliner elements
  */
 function applyVisibility() {
 	if (!isHytaleFormat()) return;
@@ -94,12 +139,16 @@ function applyVisibility() {
 	const outlinerNode = Panels.outliner?.node;
 	if (!outlinerNode) return;
 
-	if (!bonesViewActive) {
-		// Remove hidden class from all elements
+	if (!compactViewActive) {
+		// Remove all classes when disabled
 		outlinerNode.querySelectorAll(`.${HIDDEN_CLASS}`).forEach(el => {
 			el.classList.remove(HIDDEN_CLASS);
 		});
+		outlinerNode.querySelectorAll(`.${EMPTY_GROUP_CLASS}`).forEach(el => {
+			el.classList.remove(EMPTY_GROUP_CLASS);
+		});
 		hiddenUUIDs.clear();
+		emptyGroupUUIDs.clear();
 		disconnectOutlinerObserver();
 		return;
 	}
@@ -110,47 +159,69 @@ function applyVisibility() {
 	// Calculate which cubes should be hidden
 	hiddenUUIDs = new Set(getMainShapeUUIDs());
 
-	// Apply hidden class to elements that don't already have it
+	// Calculate which groups have no visible children
+	emptyGroupUUIDs = new Set(getEmptyGroupUUIDs(hiddenUUIDs));
+
+	// Apply hidden class to cubes
 	for (let uuid of hiddenUUIDs) {
 		let node = outlinerNode.querySelector(`[id="${uuid}"]`);
 		if (node && !node.classList.contains(HIDDEN_CLASS)) {
 			node.classList.add(HIDDEN_CLASS);
 		}
 	}
+
+	// Apply empty group class to groups with no visible children
+	for (let uuid of emptyGroupUUIDs) {
+		let node = outlinerNode.querySelector(`[id="${uuid}"]`);
+		if (node && !node.classList.contains(EMPTY_GROUP_CLASS)) {
+			node.classList.add(EMPTY_GROUP_CLASS);
+		}
+	}
+
+	// Remove empty group class from groups that now have visible children
+	outlinerNode.querySelectorAll(`.${EMPTY_GROUP_CLASS}`).forEach(el => {
+		if (!emptyGroupUUIDs.has(el.id)) {
+			el.classList.remove(EMPTY_GROUP_CLASS);
+		}
+	});
 }
 
-export function setupBonesOnlyView() {
-	// CSS for hiding elements
+export function setupCompactView() {
+	// CSS for hiding elements and expand arrows on empty groups
 	let style = Blockbench.addCSS(`
 		.outliner_node.${HIDDEN_CLASS} {
 			display: none !important;
+		}
+		.outliner_node.${EMPTY_GROUP_CLASS} i.icon-open-state {
+			visibility: hidden !important;
+			pointer-events: none;
 		}
 	`);
 
 	// Selection redirect: clicking a hidden main shape selects its parent group
 	const originalSelect = Cube.prototype.select;
 	Cube.prototype.select = function(event?: any, isOutlinerClick?: boolean) {
-		if (bonesViewActive && hiddenUUIDs.has(this.uuid) && this.parent instanceof Group) {
+		if (compactViewActive && hiddenUUIDs.has(this.uuid) && this.parent instanceof Group) {
 			return this.parent.select(event, isOutlinerClick);
 		}
 		return originalSelect.call(this, event, isOutlinerClick);
 	};
 
 	// Initialize state from StateMemory
-	StateMemory.init('hytale_bones_view', 'boolean');
-	bonesViewActive = StateMemory.get('hytale_bones_view') ?? false;
+	StateMemory.init('hytale_compact_view', 'boolean');
+	compactViewActive = StateMemory.get('hytale_compact_view') ?? false;
 
 	// Create toggle for outliner toolbar
-	let toggle = new Toggle('toggle_bones_view', {
-		name: 'Bones View',
+	let toggle = new Toggle('toggle_compact_view', {
+		name: 'Compact View',
 		description: 'Hide main shapes, work with bones directly',
-		icon: 'fa-bone',
+		icon: 'fa-compress',
 		category: 'view',
 		condition: { formats: FORMAT_IDS },
-		default: bonesViewActive,
+		default: compactViewActive,
 		onChange(value) {
-			bonesViewActive = value;
-			StateMemory.set('hytale_bones_view', value);
+			compactViewActive = value;
+			StateMemory.set('hytale_compact_view', value);
 			applyVisibility();
 		}
 	});
@@ -167,7 +238,7 @@ export function setupBonesOnlyView() {
 	let hookSelection = Blockbench.on('update_selection', scheduleVisibilityUpdate);
 
 	// Initial application
-	if (bonesViewActive) {
+	if (compactViewActive) {
 		setTimeout(applyVisibility, 100);
 	}
 
@@ -177,9 +248,12 @@ export function setupBonesOnlyView() {
 			Cube.prototype.select = originalSelect;
 			// Disconnect observer
 			disconnectOutlinerObserver();
-			// Remove hidden class from all elements
+			// Remove all classes from elements
 			Panels.outliner?.node?.querySelectorAll(`.${HIDDEN_CLASS}`).forEach(el => {
 				el.classList.remove(HIDDEN_CLASS);
+			});
+			Panels.outliner?.node?.querySelectorAll(`.${EMPTY_GROUP_CLASS}`).forEach(el => {
+				el.classList.remove(EMPTY_GROUP_CLASS);
 			});
 		}
 	});

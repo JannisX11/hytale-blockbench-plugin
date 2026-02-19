@@ -1858,6 +1858,94 @@
         }
       }
     });
+    setupCubeParenting();
+  }
+  function setupCubeParenting() {
+    const childrenSymbol = Symbol("children");
+    Object.defineProperty(Cube.prototype, "children", {
+      get() {
+        return this[childrenSymbol] || (this[childrenSymbol] = []);
+      },
+      set(v) {
+        this[childrenSymbol] = v;
+      },
+      configurable: true
+    });
+    track({ delete() {
+      delete Cube.prototype.children;
+    } });
+    track(new Property(Cube, "boolean", "isOpen", {
+      default: true,
+      condition: { formats: FORMAT_IDS },
+      exposed: false
+    }));
+    track(Cube.addBehaviorOverride({
+      condition: { formats: FORMAT_IDS },
+      behavior: {
+        parent: true,
+        child_types: ["cube", "group"],
+        parent_types: ["group", "cube"]
+      }
+    }));
+    Cube.prototype["openUp"] = function() {
+      this.isOpen = true;
+      if (this.parent && typeof this.parent === "object" && "openUp" in this.parent) {
+        this.parent.openUp();
+      }
+    };
+    track({ delete() {
+      delete Cube.prototype["openUp"];
+    } });
+    const originalGetCurrentGroup = getCurrentGroup;
+    window.getCurrentGroup = function() {
+      if (isHytaleFormat() && Cube.selected.length === 1 && !Group.selected.length) {
+        return Cube.selected[0];
+      }
+      return originalGetCurrentGroup();
+    };
+    track({ delete() {
+      window.getCurrentGroup = originalGetCurrentGroup;
+    } });
+    const prevOrigins = /* @__PURE__ */ new WeakMap();
+    const originalUpdateTransform = Cube.preview_controller.updateTransform;
+    Cube.preview_controller.updateTransform = function(cube) {
+      if (!isHytaleFormat()) return originalUpdateTransform.call(this, cube);
+      const prev = prevOrigins.get(cube);
+      prevOrigins.set(cube, cube.origin.slice());
+      const result = originalUpdateTransform.call(this, cube);
+      if (prev && cube.children?.length) {
+        const delta = [
+          cube.origin[0] - prev[0],
+          cube.origin[1] - prev[1],
+          cube.origin[2] - prev[2]
+        ];
+        if (delta[0] || delta[1] || delta[2]) {
+          propagateToChildren(cube, delta);
+        }
+      }
+      return result;
+    };
+    track({ delete() {
+      Cube.preview_controller.updateTransform = originalUpdateTransform;
+    } });
+    function propagateToChildren(parent, delta) {
+      for (const child of parent.children) {
+        if (!(child instanceof Cube)) continue;
+        child.from[0] += delta[0];
+        child.from[1] += delta[1];
+        child.from[2] += delta[2];
+        child.to[0] += delta[0];
+        child.to[1] += delta[1];
+        child.to[2] += delta[2];
+        child.origin[0] += delta[0];
+        child.origin[1] += delta[1];
+        child.origin[2] += delta[2];
+        prevOrigins.set(child, child.origin.slice());
+        originalUpdateTransform.call(Cube.preview_controller, child);
+        child.preview_controller.updateGeometry?.(child);
+        if (child.children?.length) propagateToChildren(child, delta);
+      }
+    }
   }
 
   // src/uv_cycling.ts

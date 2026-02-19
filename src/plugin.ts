@@ -42,7 +42,6 @@ BBPlugin.register('hytale_plugin', {
     bug_tracker: 'https://github.com/JannisX11/hytale-blockbench-plugin/issues',
     contributors: ['Hedaox'],
     onload() {
-
         setupFormats();
         setupElements();
         setupAnimation();

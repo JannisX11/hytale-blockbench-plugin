@@ -302,4 +302,104 @@ export function setupElements() {
 			}
 		}
 	});
+
+	// Cube-to-cube parenting: make cubes work like groups in Hytale format
+	setupCubeParenting();
 };
+
+/**
+ * Enables cube-to-cube parenting in Hytale format.
+ * Cubes can have children and follow parent transforms like groups do.
+ */
+function setupCubeParenting() {
+	// 1. Lazy children array via Symbol (avoids serialization, works on all cubes)
+	const childrenSymbol = Symbol('children');
+	Object.defineProperty(Cube.prototype, 'children', {
+		get() { return this[childrenSymbol] || (this[childrenSymbol] = []); },
+		set(v) { this[childrenSymbol] = v; },
+		configurable: true
+	});
+	track({ delete() { delete Cube.prototype.children; } });
+
+	// 2. isOpen property for outliner expand/collapse
+	track(new Property(Cube, 'boolean', 'isOpen', {
+		default: true,
+		condition: {formats: FORMAT_IDS},
+		exposed: false
+	}));
+
+	// 3. Behavior override: enable parenting
+	track(Cube.addBehaviorOverride({
+		condition: {formats: FORMAT_IDS},
+		behavior: {
+			parent: true,
+			child_types: ['cube', 'group'],
+			parent_types: ['group', 'cube']
+		}
+	}));
+
+	// 4. openUp method for outliner navigation
+	Cube.prototype['openUp'] = function() {
+		(this as any).isOpen = true;
+		if (this.parent && typeof this.parent === 'object' && 'openUp' in this.parent) {
+			(this.parent as any).openUp();
+		}
+	};
+	track({ delete() { delete Cube.prototype['openUp']; } });
+
+	// 5. getCurrentGroup override: "Add Cube" adds to selected cube
+	const originalGetCurrentGroup = getCurrentGroup;
+	(window as any).getCurrentGroup = function(): Group | Cube | void {
+		if (isHytaleFormat() && Cube.selected.length === 1 && !Group.selected.length) {
+			return Cube.selected[0];
+		}
+		return originalGetCurrentGroup();
+	};
+	track({ delete() { (window as any).getCurrentGroup = originalGetCurrentGroup; } });
+
+	// 6. Propagate parent cube movements to children
+	const prevOrigins = new WeakMap<Cube, number[]>();
+	const originalUpdateTransform = Cube.preview_controller.updateTransform;
+
+	Cube.preview_controller.updateTransform = function(cube: Cube) {
+		if (!isHytaleFormat()) return originalUpdateTransform.call(this, cube);
+
+		const prev = prevOrigins.get(cube);
+		prevOrigins.set(cube, cube.origin.slice());
+
+		const result = originalUpdateTransform.call(this, cube);
+
+		// Propagate movement to children if origin changed
+		if (prev && cube.children?.length) {
+			const delta = [
+				cube.origin[0] - prev[0],
+				cube.origin[1] - prev[1],
+				cube.origin[2] - prev[2]
+			];
+			if (delta[0] || delta[1] || delta[2]) {
+				propagateToChildren(cube, delta);
+			}
+		}
+		return result;
+	};
+	track({ delete() { Cube.preview_controller.updateTransform = originalUpdateTransform; } });
+
+	function propagateToChildren(parent: Cube, delta: number[]) {
+		for (const child of parent.children) {
+			if (!(child instanceof Cube)) continue;
+
+			// Update child coordinates
+			child.from[0] += delta[0]; child.from[1] += delta[1]; child.from[2] += delta[2];
+			child.to[0] += delta[0]; child.to[1] += delta[1]; child.to[2] += delta[2];
+			child.origin[0] += delta[0]; child.origin[1] += delta[1]; child.origin[2] += delta[2];
+
+			// Update tracking and visuals
+			prevOrigins.set(child, child.origin.slice());
+			originalUpdateTransform.call(Cube.preview_controller, child);
+			child.preview_controller.updateGeometry?.(child);
+
+			// Recurse to grandchildren
+			if (child.children?.length) propagateToChildren(child, delta);
+		}
+	}
+}

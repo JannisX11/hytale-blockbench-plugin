@@ -215,7 +215,7 @@ export function setupCompactView() {
 	let toggle = new Toggle('toggle_compact_view', {
 		name: 'Compact View',
 		description: 'Hide main shapes, work with bones directly',
-		icon: 'fa-compress',
+		icon: 'fa-bone',
 		category: 'view',
 		condition: { formats: FORMAT_IDS },
 		default: compactViewActive,
@@ -226,10 +226,10 @@ export function setupCompactView() {
 		}
 	});
 
-	// Add to outliner toolbar
+	// Add to outliner toolbar (position 0 = before the + button)
 	let outlinerPanel = Panels.outliner;
 	if (outlinerPanel && outlinerPanel.toolbars.length > 0) {
-		outlinerPanel.toolbars[0].add(toggle, -1);
+		outlinerPanel.toolbars[0].add(toggle, 0);
 	}
 
 	// Refresh visibility when outliner updates (debounced)

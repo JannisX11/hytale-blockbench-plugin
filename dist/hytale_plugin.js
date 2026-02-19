@@ -1861,24 +1861,21 @@
     setupCubeParenting();
   }
   function setupCubeParenting() {
-    const childrenSymbol = Symbol("children");
+    const childrenKey = "_hytale_children";
     Object.defineProperty(Cube.prototype, "children", {
       get() {
-        return this[childrenSymbol] || (this[childrenSymbol] = []);
+        if (!this[childrenKey]) this[childrenKey] = [];
+        return this[childrenKey];
       },
       set(v) {
-        this[childrenSymbol] = v;
+        this[childrenKey] = v;
       },
-      configurable: true
+      configurable: true,
+      enumerable: false
     });
     track({ delete() {
       delete Cube.prototype.children;
     } });
-    track(new Property(Cube, "boolean", "isOpen", {
-      default: true,
-      condition: { formats: FORMAT_IDS },
-      exposed: false
-    }));
     track(Cube.addBehaviorOverride({
       condition: { formats: FORMAT_IDS },
       behavior: {
@@ -1886,6 +1883,11 @@
         child_types: ["cube", "group"],
         parent_types: ["group", "cube"]
       }
+    }));
+    track(new Property(Cube, "boolean", "isOpen", {
+      default: true,
+      condition: { formats: FORMAT_IDS },
+      exposed: false
     }));
     Cube.prototype["openUp"] = function() {
       this.isOpen = true;
@@ -1896,6 +1898,28 @@
     track({ delete() {
       delete Cube.prototype["openUp"];
     } });
+    let cubesWithCubeChildren = /* @__PURE__ */ new Set();
+    let preEdit = Blockbench.on("init_edit", () => {
+      if (!isHytaleFormat()) return;
+      cubesWithCubeChildren.clear();
+      for (const cube of Cube.all) {
+        if (cube.children?.some((c) => c instanceof Cube)) {
+          cubesWithCubeChildren.add(cube.uuid);
+        }
+      }
+    });
+    let finishEdit = Blockbench.on("finished_edit", (data) => {
+      if (!isHytaleFormat()) return;
+      if (data?.message !== "Delete outliner selection") return;
+      for (const cube of Cube.all) {
+        if (cubesWithCubeChildren.has(cube.uuid)) {
+          const wasSelected = cube.selected;
+          cube.selected = !wasSelected;
+          cube.selected = wasSelected;
+        }
+      }
+    });
+    track(preEdit, finishEdit);
     const originalGetCurrentGroup = getCurrentGroup;
     window.getCurrentGroup = function() {
       if (isHytaleFormat() && Cube.selected.length === 1 && !Group.selected.length) {
@@ -2754,7 +2778,7 @@
     let toggle = new Toggle("toggle_compact_view", {
       name: "Compact View",
       description: "Hide main shapes, work with bones directly",
-      icon: "fa-compress",
+      icon: "fa-bone",
       category: "view",
       condition: { formats: FORMAT_IDS },
       default: compactViewActive,
@@ -2766,7 +2790,7 @@
     });
     let outlinerPanel = Panels.outliner;
     if (outlinerPanel && outlinerPanel.toolbars.length > 0) {
-      outlinerPanel.toolbars[0].add(toggle, -1);
+      outlinerPanel.toolbars[0].add(toggle, 0);
     }
     let hookFinishedEdit = Blockbench.on("finished_edit", scheduleVisibilityUpdate2);
     let hookSelectMode = Blockbench.on("select_mode", scheduleVisibilityUpdate2);

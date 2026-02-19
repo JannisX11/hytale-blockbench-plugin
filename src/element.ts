@@ -312,23 +312,20 @@ export function setupElements() {
  * Cubes can have children and follow parent transforms like groups do.
  */
 function setupCubeParenting() {
-	// 1. Lazy children array via Symbol (avoids serialization, works on all cubes)
-	const childrenSymbol = Symbol('children');
+	// Children array stored per-instance, non-enumerable to avoid serialization
+	const childrenKey = '_hytale_children';
 	Object.defineProperty(Cube.prototype, 'children', {
-		get() { return this[childrenSymbol] || (this[childrenSymbol] = []); },
-		set(v) { this[childrenSymbol] = v; },
-		configurable: true
+		get() {
+			if (!this[childrenKey]) this[childrenKey] = [];
+			return this[childrenKey];
+		},
+		set(v) { this[childrenKey] = v; },
+		configurable: true,
+		enumerable: false
 	});
-	track({ delete() { delete Cube.prototype.children; } });
+	track({ delete() { delete (Cube.prototype as any).children; } });
 
-	// 2. isOpen property for outliner expand/collapse
-	track(new Property(Cube, 'boolean', 'isOpen', {
-		default: true,
-		condition: {formats: FORMAT_IDS},
-		exposed: false
-	}));
-
-	// 3. Behavior override: enable parenting
+	// Enable cubes to act as parents in the outliner
 	track(Cube.addBehaviorOverride({
 		condition: {formats: FORMAT_IDS},
 		behavior: {
@@ -338,7 +335,14 @@ function setupCubeParenting() {
 		}
 	}));
 
-	// 4. openUp method for outliner navigation
+	// Outliner expand/collapse state
+	track(new Property(Cube, 'boolean', 'isOpen', {
+		default: true,
+		condition: {formats: FORMAT_IDS},
+		exposed: false
+	}));
+
+	// Expand parent hierarchy when navigating to a nested cube
 	Cube.prototype['openUp'] = function() {
 		(this as any).isOpen = true;
 		if (this.parent && typeof this.parent === 'object' && 'openUp' in this.parent) {
@@ -347,7 +351,35 @@ function setupCubeParenting() {
 	};
 	track({ delete() { delete Cube.prototype['openUp']; } });
 
-	// 5. getCurrentGroup override: "Add Cube" adds to selected cube
+	// Force outliner refresh when child cubes are deleted by toggling parent's selected state
+	let cubesWithCubeChildren = new Set<string>();
+
+	let preEdit = Blockbench.on('init_edit', () => {
+		if (!isHytaleFormat()) return;
+		cubesWithCubeChildren.clear();
+		for (const cube of Cube.all) {
+			if (cube.children?.some((c: any) => c instanceof Cube)) {
+				cubesWithCubeChildren.add(cube.uuid);
+			}
+		}
+	});
+
+	let finishEdit = Blockbench.on('finished_edit', (data: any) => {
+		if (!isHytaleFormat()) return;
+		if (data?.message !== 'Delete outliner selection') return;
+
+		for (const cube of Cube.all) {
+			if (cubesWithCubeChildren.has(cube.uuid)) {
+				const wasSelected = cube.selected;
+				cube.selected = !wasSelected;
+				cube.selected = wasSelected;
+			}
+		}
+	});
+
+	track(preEdit, finishEdit);
+
+	// "Add Cube" creates child of selected cube instead of current group
 	const originalGetCurrentGroup = getCurrentGroup;
 	(window as any).getCurrentGroup = function(): Group | Cube | void {
 		if (isHytaleFormat() && Cube.selected.length === 1 && !Group.selected.length) {
@@ -357,7 +389,7 @@ function setupCubeParenting() {
 	};
 	track({ delete() { (window as any).getCurrentGroup = originalGetCurrentGroup; } });
 
-	// 6. Propagate parent cube movements to children
+	// Propagate parent cube movements to child cubes
 	const prevOrigins = new WeakMap<Cube, number[]>();
 	const originalUpdateTransform = Cube.preview_controller.updateTransform;
 
@@ -369,7 +401,6 @@ function setupCubeParenting() {
 
 		const result = originalUpdateTransform.call(this, cube);
 
-		// Propagate movement to children if origin changed
 		if (prev && cube.children?.length) {
 			const delta = [
 				cube.origin[0] - prev[0],
@@ -388,17 +419,14 @@ function setupCubeParenting() {
 		for (const child of parent.children) {
 			if (!(child instanceof Cube)) continue;
 
-			// Update child coordinates
 			child.from[0] += delta[0]; child.from[1] += delta[1]; child.from[2] += delta[2];
 			child.to[0] += delta[0]; child.to[1] += delta[1]; child.to[2] += delta[2];
 			child.origin[0] += delta[0]; child.origin[1] += delta[1]; child.origin[2] += delta[2];
 
-			// Update tracking and visuals
 			prevOrigins.set(child, child.origin.slice());
 			originalUpdateTransform.call(Cube.preview_controller, child);
 			child.preview_controller.updateGeometry?.(child);
 
-			// Recurse to grandchildren
 			if (child.children?.length) propagateToChildren(child, delta);
 		}
 	}

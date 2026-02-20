@@ -313,13 +313,20 @@ export function setupElements() {
  */
 function setupCubeParenting() {
 	// Children array stored per-instance, non-enumerable to avoid serialization
+	// Guard against Vue outliner setting DOM elements to children property
 	const childrenKey = '_hytale_children';
 	Object.defineProperty(Cube.prototype, 'children', {
 		get() {
 			if (!this[childrenKey]) this[childrenKey] = [];
 			return this[childrenKey];
 		},
-		set(v) { this[childrenKey] = v; },
+		set(v) {
+			// Only accept arrays, and filter out any non-OutlinerNode items (like DOM elements)
+			if (Array.isArray(v)) {
+				this[childrenKey] = v.filter((item: any) => item instanceof OutlinerNode);
+			}
+			// Silently ignore non-array assignments (Vue outliner sets DOM elements)
+		},
 		configurable: true,
 		enumerable: false
 	});
@@ -351,6 +358,23 @@ function setupCubeParenting() {
 	};
 	track({ delete() { delete Cube.prototype['openUp']; } });
 
+	// Tree traversal for cubes with children (matches Group.forEachChild signature)
+	Cube.prototype['forEachChild'] = function(cb: (node: any) => void, type?: any, forSelf?: boolean) {
+		if (forSelf) cb(this);
+		let i = 0;
+		while (i < this.children.length) {
+			const child = this.children[i];
+			if (!type || (type instanceof Array ? type.find((t2: any) => child instanceof t2) : child instanceof type)) {
+				cb(child);
+			}
+			if (child.forEachChild) {
+				child.forEachChild(cb, type);
+			}
+			i++;
+		}
+	};
+	track({ delete() { delete Cube.prototype['forEachChild']; } });
+
 	// Force outliner refresh when child cubes are deleted by toggling parent's selected state
 	let cubesWithCubeChildren = new Set<string>();
 
@@ -366,10 +390,17 @@ function setupCubeParenting() {
 
 	let finishEdit = Blockbench.on('finished_edit', (data: any) => {
 		if (!isHytaleFormat()) return;
-		if (data?.message !== 'Delete outliner selection') return;
+
+		// Handle both deletion and reparenting - both need outliner refresh
+		if (data?.message !== 'Delete outliner selection' &&
+			data?.message !== 'Move elements in outliner') return;
 
 		for (const cube of Cube.all) {
-			if (cubesWithCubeChildren.has(cube.uuid)) {
+			const hadChildren = cubesWithCubeChildren.has(cube.uuid);
+			const hasChildren = cube.children?.some((c: any) => c instanceof Cube);
+
+			// Refresh if children state changed (gained or lost children)
+			if (hadChildren || hasChildren) {
 				const wasSelected = cube.selected;
 				cube.selected = !wasSelected;
 				cube.selected = wasSelected;

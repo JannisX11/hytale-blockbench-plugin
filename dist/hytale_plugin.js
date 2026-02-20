@@ -1868,7 +1868,9 @@
         return this[childrenKey];
       },
       set(v) {
-        this[childrenKey] = v;
+        if (Array.isArray(v)) {
+          this[childrenKey] = v.filter((item) => item instanceof OutlinerNode);
+        }
       },
       configurable: true,
       enumerable: false
@@ -1898,6 +1900,23 @@
     track({ delete() {
       delete Cube.prototype["openUp"];
     } });
+    Cube.prototype["forEachChild"] = function(cb, type, forSelf) {
+      if (forSelf) cb(this);
+      let i = 0;
+      while (i < this.children.length) {
+        const child = this.children[i];
+        if (!type || (type instanceof Array ? type.find((t2) => child instanceof t2) : child instanceof type)) {
+          cb(child);
+        }
+        if (child.forEachChild) {
+          child.forEachChild(cb, type);
+        }
+        i++;
+      }
+    };
+    track({ delete() {
+      delete Cube.prototype["forEachChild"];
+    } });
     let cubesWithCubeChildren = /* @__PURE__ */ new Set();
     let preEdit = Blockbench.on("init_edit", () => {
       if (!isHytaleFormat()) return;
@@ -1910,9 +1929,11 @@
     });
     let finishEdit = Blockbench.on("finished_edit", (data) => {
       if (!isHytaleFormat()) return;
-      if (data?.message !== "Delete outliner selection") return;
+      if (data?.message !== "Delete outliner selection" && data?.message !== "Move elements in outliner") return;
       for (const cube of Cube.all) {
-        if (cubesWithCubeChildren.has(cube.uuid)) {
+        const hadChildren = cubesWithCubeChildren.has(cube.uuid);
+        const hasChildren = cube.children?.some((c) => c instanceof Cube);
+        if (hadChildren || hasChildren) {
           const wasSelected = cube.selected;
           cube.selected = !wasSelected;
           cube.selected = wasSelected;

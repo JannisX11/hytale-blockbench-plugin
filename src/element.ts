@@ -332,13 +332,13 @@ function setupCubeParenting() {
 	});
 	track({ delete() { delete (Cube.prototype as any).children; } });
 
-	// Enable cubes to act as parents in the outliner
+	// Enable cubes to act as parents in the outliner (only cubes can be children, not groups)
 	track(Cube.addBehaviorOverride({
 		condition: {formats: FORMAT_IDS},
 		behavior: {
 			parent: true,
-			child_types: ['cube', 'group'],
-			parent_types: ['group', 'cube']
+			child_types: ['cube'],
+			parent_types: ['group', 'cube', 'root']
 		}
 	}));
 
@@ -391,9 +391,14 @@ function setupCubeParenting() {
 	let finishEdit = Blockbench.on('finished_edit', (data: any) => {
 		if (!isHytaleFormat()) return;
 
-		// Handle both deletion and reparenting - both need outliner refresh
-		if (data?.message !== 'Delete outliner selection' &&
-			data?.message !== 'Move elements in outliner') return;
+		// Handle deletion, reparenting, and adding elements - all need outliner refresh
+		const relevantMessages = [
+			'Delete outliner selection',
+			'Move elements in outliner',
+			'Add cube',
+			'Add quad'
+		];
+		if (!relevantMessages.includes(data?.message)) return;
 
 		for (const cube of Cube.all) {
 			const hadChildren = cubesWithCubeChildren.has(cube.uuid);

@@ -21,6 +21,7 @@ import { setupTempFixes } from './temp_fixes'
 import { setupPreviewScenes } from "./preview_scenes";
 import { setupAltDuplicate } from "./alt_duplicate";
 import { setupMergeBones } from "./merge_bones";
+import { setupCreateBoneFromCube } from "./create_bone_from_cube";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -55,6 +56,7 @@ BBPlugin.register('hytale_plugin', {
         setupTextureHandling();
         setupAltDuplicate();
         setupMergeBones();
+        setupCreateBoneFromCube();
         setupNameOverlap();
         setupUVOutline();
         setupTempFixes();

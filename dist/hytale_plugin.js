@@ -1882,8 +1882,8 @@
       condition: { formats: FORMAT_IDS },
       behavior: {
         parent: true,
-        child_types: ["cube", "group"],
-        parent_types: ["group", "cube"]
+        child_types: ["cube"],
+        parent_types: ["group", "cube", "root"]
       }
     }));
     track(new Property(Cube, "boolean", "isOpen", {
@@ -1929,7 +1929,13 @@
     });
     let finishEdit = Blockbench.on("finished_edit", (data) => {
       if (!isHytaleFormat()) return;
-      if (data?.message !== "Delete outliner selection" && data?.message !== "Move elements in outliner") return;
+      const relevantMessages = [
+        "Delete outliner selection",
+        "Move elements in outliner",
+        "Add cube",
+        "Add quad"
+      ];
+      if (!relevantMessages.includes(data?.message)) return;
       for (const cube of Cube.all) {
         const hadChildren = cubesWithCubeChildren.has(cube.uuid);
         const hasChildren = cube.children?.some((c) => c instanceof Cube);
@@ -3858,6 +3864,113 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     Group.prototype.menu.addAction(action, "#manage");
   }
 
+  // src/create_bone_from_cube.ts
+  function setupCreateBoneFromCube() {
+    const addGroupAction = BarItems.add_group;
+    const originalClick = addGroupAction.click;
+    addGroupAction.click = function(event) {
+      if (!isHytaleFormat() || Cube.selected.length !== 1 || Group.selected.length > 0) {
+        return originalClick.call(this, event);
+      }
+      const cube = Cube.selected[0];
+      const originalParent = cube.parent;
+      Undo.initEdit({ outliner: true, elements: [cube], selection: true });
+      let groupParent = null;
+      let current = cube.parent;
+      while (current) {
+        if (current instanceof Group) {
+          groupParent = current;
+          break;
+        }
+        current = current.parent;
+      }
+      cube.mesh.updateMatrixWorld(true);
+      const worldOrigin = new THREE.Vector3();
+      cube.mesh.getWorldPosition(worldOrigin);
+      const worldQuat = new THREE.Quaternion();
+      cube.mesh.getWorldQuaternion(worldQuat);
+      let boneOrigin;
+      let boneRotation;
+      if (groupParent) {
+        groupParent.mesh.updateMatrixWorld(true);
+        const parentWorldPos = new THREE.Vector3();
+        const parentWorldQuat = new THREE.Quaternion();
+        groupParent.mesh.getWorldPosition(parentWorldPos);
+        groupParent.mesh.getWorldQuaternion(parentWorldQuat);
+        const localOrigin = worldOrigin.clone().sub(parentWorldPos);
+        const inverseParentQuat = parentWorldQuat.clone().invert();
+        localOrigin.applyQuaternion(inverseParentQuat);
+        const localQuat = inverseParentQuat.clone().multiply(worldQuat);
+        const localEuler = new THREE.Euler().setFromQuaternion(localQuat, "ZYX");
+        boneOrigin = [
+          localOrigin.x + groupParent.origin[0],
+          localOrigin.y + groupParent.origin[1],
+          localOrigin.z + groupParent.origin[2]
+        ];
+        boneRotation = [
+          Math.roundTo(Math.radToDeg(localEuler.x), 4),
+          Math.roundTo(Math.radToDeg(localEuler.y), 4),
+          Math.roundTo(Math.radToDeg(localEuler.z), 4)
+        ];
+      } else {
+        const worldEuler = new THREE.Euler().setFromQuaternion(worldQuat, "ZYX");
+        boneOrigin = [worldOrigin.x, worldOrigin.y, worldOrigin.z];
+        boneRotation = [
+          Math.roundTo(Math.radToDeg(worldEuler.x), 4),
+          Math.roundTo(Math.radToDeg(worldEuler.y), 4),
+          Math.roundTo(Math.radToDeg(worldEuler.z), 4)
+        ];
+      }
+      const newBone = new Group({
+        name: cube.name,
+        origin: boneOrigin,
+        rotation: boneRotation,
+        color: cube.color
+      }).init();
+      if (groupParent) {
+        newBone.addTo(groupParent);
+      }
+      const fromOffset = [
+        cube.from[0] - cube.origin[0],
+        cube.from[1] - cube.origin[1],
+        cube.from[2] - cube.origin[2]
+      ];
+      const toOffset = [
+        cube.to[0] - cube.origin[0],
+        cube.to[1] - cube.origin[1],
+        cube.to[2] - cube.origin[2]
+      ];
+      cube.origin[0] = newBone.origin[0];
+      cube.origin[1] = newBone.origin[1];
+      cube.origin[2] = newBone.origin[2];
+      cube.from[0] = cube.origin[0] + fromOffset[0];
+      cube.from[1] = cube.origin[1] + fromOffset[1];
+      cube.from[2] = cube.origin[2] + fromOffset[2];
+      cube.to[0] = cube.origin[0] + toOffset[0];
+      cube.to[1] = cube.origin[1] + toOffset[1];
+      cube.to[2] = cube.origin[2] + toOffset[2];
+      cube.rotation[0] = 0;
+      cube.rotation[1] = 0;
+      cube.rotation[2] = 0;
+      cube.addTo(newBone);
+      cube.preview_controller.updateTransform(cube);
+      cube.preview_controller.updateGeometry(cube);
+      Canvas.updateAll();
+      if (originalParent && typeof originalParent === "object" && "selected" in originalParent) {
+        const wasSelected = originalParent.selected;
+        originalParent.selected = !wasSelected;
+        originalParent.selected = wasSelected;
+      }
+      newBone.select();
+      Undo.finishEdit("Create bone from cube", { outliner: true, elements: [cube], selection: true });
+    };
+    track({
+      delete() {
+        addGroupAction.click = originalClick;
+      }
+    });
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -3892,6 +4005,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupTextureHandling();
       setupAltDuplicate();
       setupMergeBones();
+      setupCreateBoneFromCube();
       setupNameOverlap();
       setupUVOutline();
       setupTempFixes();

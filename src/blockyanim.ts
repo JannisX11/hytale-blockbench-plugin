@@ -90,12 +90,15 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 						}
 					}
 				}
-				ba.addKeyframe({
+				let kf = ba.addKeyframe({
 					time: kf_data.time / FPS,
 					channel,
 					interpolation: kf_data.interpolationType == 'smooth' ? 'catmullrom' : 'linear',
 					data_points: [data_point]
 				});
+				if (channel == 'scale') {
+					kf.uniform = data_point.x == data_point.y && data_point.x == data_point.z;
+				}
 			}
 		}
 

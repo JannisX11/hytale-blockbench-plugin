@@ -798,7 +798,6 @@
       animation_loop_wrapping: true,
       quaternion_interpolation: true,
       onActivation() {
-        settings.shading.set(false);
         Panels.animations.inside_vue.$data.group_animations_by_file = false;
       }
     };
@@ -1020,12 +1019,15 @@
               };
             }
           }
-          ba.addKeyframe({
+          let kf = ba.addKeyframe({
             time: kf_data.time / FPS,
             channel,
             interpolation: kf_data.interpolationType == "smooth" ? "catmullrom" : "linear",
             data_points: [data_point]
           });
+          if (channel == "scale") {
+            kf.uniform = data_point.x == data_point.y && data_point.x == data_point.z;
+          }
         }
       }
       if (group) copyAnimationToGroupsWithSameName(animation, group);

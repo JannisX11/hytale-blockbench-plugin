@@ -129,7 +129,6 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 	}
 	for (let uuid in animation.animators) {
 		let animator = animation.animators[uuid];
-		if (!animator.group) continue;
 		let name = animator.name;
 		let node_data: IAnimationObject = {};
 		let has_data = false;

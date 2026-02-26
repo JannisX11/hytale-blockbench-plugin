@@ -306,4 +306,13 @@ export function setupAnimationCodec() {
 			BarItems.export_animation_file.condition = original_condition;
 		}
 	});
+
+	let setting = new Setting('auto_load_hytale_animations', {
+        name: 'Auto-load Hytale Animations',
+        description: 'Automatically load blockyanim files when opening a Hytale model',
+        category: 'edit',
+        type: 'toggle',
+        value: true
+    })
+    track(setting);
 }

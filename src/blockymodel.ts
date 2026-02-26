@@ -795,7 +795,7 @@ export function setupBlockymodelCodec(): Codec {
 					}, 100);
 				}
 
-				if (!args?.attachment) {
+				if (!args?.attachment && settings.auto_load_hytale_animations.value) {
 					let listener = Blockbench.on('select_mode', ({mode}) => {
 						if (mode.id != 'animate' || project != Project) return;
 						listener.delete();

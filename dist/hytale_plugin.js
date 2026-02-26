@@ -688,7 +688,7 @@
               promptForTextures(dirname);
             }, 100);
           }
-          if (!args?.attachment) {
+          if (!args?.attachment && settings.auto_load_hytale_animations.value) {
             let listener = Blockbench.on("select_mode", ({ mode }) => {
               if (mode.id != "animate" || project != Project) return;
               listener.delete();
@@ -798,6 +798,7 @@
       animation_loop_wrapping: true,
       quaternion_interpolation: true,
       onActivation() {
+        settings.shading.set(false);
         Panels.animations.inside_vue.$data.group_animations_by_file = false;
       }
     };
@@ -1054,7 +1055,6 @@
     };
     for (let uuid in animation.animators) {
       let animator = animation.animators[uuid];
-      if (!animator.group) continue;
       let name = animator.name;
       let node_data = {};
       let has_data = false;
@@ -1220,6 +1220,14 @@
         BarItems.export_animation_file.condition = original_condition;
       }
     });
+    let setting = new Setting("auto_load_hytale_animations", {
+      name: "Auto-load Hytale Animations",
+      description: "Automatically load blockyanim files when opening a Hytale model",
+      category: "edit",
+      type: "toggle",
+      value: true
+    });
+    track(setting);
   }
 
   // src/texture.ts
@@ -2045,7 +2053,7 @@
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.8.1",
+    version: "0.8.2",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
@@ -2056,7 +2064,7 @@
     author: "JannisX11, Kanno",
     license: "GPL-3.0",
     dependencies: {
-      "blockbench-types": "^5.1.0-beta.0-next.4"
+      "blockbench-types": "^5.1.0-beta.0-next.5"
     },
     devDependencies: {
       esbuild: "^0.25.9"

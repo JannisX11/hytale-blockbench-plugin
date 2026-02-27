@@ -11,6 +11,7 @@ type BlockymodelJSON = {
 	nodes: BlockymodelNode[]
 	format?: string
 	lod?: 'auto'
+	editor?: 'blockbench'
 }
 type QuadNormal = '+X' | '+Y' | '+Z' | '-X' | '-Y' | '-Z';
 type BlockymodelNode = {
@@ -40,6 +41,8 @@ type BlockymodelNode = {
 			 * Indicates that the node should be convertex into a basic cube rather than a group containing a group
 			 */
 			isStaticBox?: true
+			/** Parent is a cube, not a group (Blockbench-specific) */
+			parentIsCube?: boolean
 		}
 		unwrapMode: "custom"
 		visible: boolean
@@ -231,7 +234,8 @@ export function setupBlockymodelCodec(): Codec {
 			let model: BlockymodelJSON = {
 				nodes: [],
 				format: Format.id == 'hytale_prop' ? 'prop' : 'character',
-				lod: 'auto'
+				lod: 'auto',
+				editor: 'blockbench'
 			}
 			let node_id = 1;
 
@@ -417,6 +421,8 @@ export function setupBlockymodelCodec(): Codec {
 					if (offset) {
 						origin.V3_subtract(offset);
 					}
+				} else if (element.parent instanceof Cube) {
+					origin.V3_subtract(element.parent.origin);
 				}
 				let node: BlockymodelNode = {
 					id: node_id.toString(),
@@ -441,6 +447,26 @@ export function setupBlockymodelCodec(): Codec {
 
 				if (element instanceof Cube) {
 					turnNodeIntoBox(node, element as CubeHytale, element as CubeHytale);
+					// Handle cube children (cube-to-cube parenting)
+					let cubeChildren = (element as any).children as OutlinerNode[];
+					if (cubeChildren?.length) {
+						let child_cube_count = 0;
+						for (let child of cubeChildren) {
+							if (!child.export) continue;
+							let result: BlockymodelNode;
+							if (child instanceof Cube) {
+								child_cube_count++;
+								result = compileNode(child, child.name + '--C'+child_cube_count);
+							} else if (child instanceof Group) {
+								result = compileNode(child);
+							}
+							if (result) {
+								if (result.shape) result.shape.settings.parentIsCube = true;
+								if (!node.children) node.children = [];
+								node.children.push(result);
+							}
+						}
+					}
 				} else if ('children' in element) {
 					let shape_count = 0;
 					let child_cube_count = 0;
@@ -450,7 +476,23 @@ export function setupBlockymodelCodec(): Codec {
 						if (qualifiesAsMainShape(child) && shape_count == 0) {
 							turnNodeIntoBox(node, child as CubeHytale, element);
 							shape_count++;
-
+							// Handle main shape's cube children
+							let mainShapeChildren = (child as any).children as OutlinerNode[];
+							if (mainShapeChildren?.length) {
+								let main_child_count = 0;
+								for (let mainChild of mainShapeChildren) {
+									if (!mainChild.export) continue;
+									if (mainChild instanceof Cube) {
+										main_child_count++;
+										let childResult = compileNode(mainChild, mainChild.name + '--C' + main_child_count);
+										if (childResult) {
+											childResult.shape.settings.parentIsCube = true;
+											if (!node.children) node.children = [];
+											node.children.push(childResult);
+										}
+									}
+								}
+							}
 						} else if (child instanceof Cube) {
 							child_cube_count++;
 							result = compileNode(child, child.name + '--C'+child_cube_count);
@@ -482,13 +524,14 @@ export function setupBlockymodelCodec(): Codec {
 			}
 		},
 		parse(model: BlockymodelJSON, path: string, args: {attachment?: string} = {}) {
+			const editorIsBlockbench = model.editor === 'blockbench';
 			function parseVector(vec: IVector, fallback: ArrayVector3 = [0, 0, 0]): ArrayVector3 | undefined {
 				if (!vec) return fallback;
 				return Object.values(vec).slice(0, 3) as ArrayVector3;
 			}
 			const new_groups: Group[] = [];
 			const existing_groups = Group.all.slice();
-			function parseNode(node: BlockymodelNode, parent_node: BlockymodelNode | null, parent_group: Group | 'root' = 'root', parent_offset?: ArrayVector3) {
+			function parseNode(node: BlockymodelNode, parent_node: BlockymodelNode | null, parent_group: Group | Cube | 'root' = 'root', parent_offset?: ArrayVector3) {
 				
 				if (args.attachment) {
 					// Attach groups marked with isPiece: true to matching bones in main model
@@ -518,7 +561,7 @@ export function setupBlockymodelCodec(): Codec {
 					let reference_node = getMainShape(parent_group) ?? parent_group;
 					origin = reference_node.origin.slice() as ArrayVector3;
 
-				} else if (parent_offset && parent_group instanceof Group) {
+				} else if (parent_offset && (parent_group instanceof Group || parent_group instanceof Cube)) {
 					origin.V3_add(parent_offset);
 					origin.V3_add(parent_group.origin);
 				}
@@ -551,6 +594,7 @@ export function setupBlockymodelCodec(): Codec {
 				}
 
 
+				let cube: Cube | null = null;
 				if (node.shape.type != 'none') {
 					let size = parseVector(node.shape.settings.size);
 					let stretch = parseVector(node.shape.stretch, [1, 1, 1]);
@@ -565,7 +609,7 @@ export function setupBlockymodelCodec(): Codec {
 						}
 					}
 
-					let cube = new Cube({
+					cube = new Cube({
 						name,
 						autouv: 1,
 						box_uv: false,
@@ -741,12 +785,21 @@ export function setupBlockymodelCodec(): Codec {
 					cube.addTo(group || parent_group).init();
 				}
 
-				if (node.children?.length && group instanceof Group) {
+				if (node.children?.length) {
 					if (args.attachment && node.shape.settings.isPiece) {
 						offset = [0, 0, 0];
 					}
 					for (let child of node.children) {
-						parseNode(child, node, group, offset);
+						let childParent: Group | Cube | 'root';
+						let childOffset = offset;
+						// Cube children get parented to cube, not group
+						if (editorIsBlockbench && child.shape?.settings?.parentIsCube && cube) {
+							childParent = cube;
+							childOffset = [0, 0, 0];
+						} else {
+							childParent = group || 'root';
+						}
+						parseNode(child, node, childParent, childOffset);
 					}
 				}
 			}

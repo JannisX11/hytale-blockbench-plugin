@@ -303,17 +303,11 @@ export function setupElements() {
 		}
 	});
 
-	// Cube-to-cube parenting: make cubes work like groups in Hytale format
 	setupCubeParenting();
 };
 
-/**
- * Enables cube-to-cube parenting in Hytale format.
- * Cubes can have children and follow parent transforms like groups do.
- */
+/** Enables cubes to have child cubes, like groups do. */
 function setupCubeParenting() {
-	// Children array stored per-instance, non-enumerable to avoid serialization
-	// Guard against Vue outliner setting DOM elements to children property
 	const childrenKey = '_hytale_children';
 	Object.defineProperty(Cube.prototype, 'children', {
 		get() {
@@ -321,16 +315,56 @@ function setupCubeParenting() {
 			return this[childrenKey];
 		},
 		set(v) {
-			// Only accept arrays, and filter out any non-OutlinerNode items (like DOM elements)
+			// Only accept arrays, filter out non-OutlinerNode items (Vue outliner sets DOM elements)
 			if (Array.isArray(v)) {
 				this[childrenKey] = v.filter((item: any) => item instanceof OutlinerNode);
 			}
-			// Silently ignore non-array assignments (Vue outliner sets DOM elements)
 		},
 		configurable: true,
 		enumerable: false
 	});
 	track({ delete() { delete (Cube.prototype as any).children; } });
+
+	// Hook into addTo to manage cube children arrays when parenting
+	const originalAddTo = OutlinerNode.prototype.addTo;
+	OutlinerNode.prototype.addTo = function(target?: OutlinerNode | 'root') {
+		// Remove from old parent's children if old parent is a Cube
+		if (this.parent instanceof Cube) {
+			const oldParent = this.parent as Cube;
+			const idx = oldParent.children.indexOf(this);
+			if (idx !== -1) {
+				oldParent.children.splice(idx, 1);
+			}
+		}
+
+		const result = originalAddTo.call(this, target);
+
+		// Add to new parent's children if new parent is a Cube
+		if (this.parent instanceof Cube) {
+			const newParent = this.parent as Cube;
+			if (!newParent.children.includes(this)) {
+				newParent.children.push(this);
+			}
+		}
+
+		return result;
+	};
+	track({ delete() { OutlinerNode.prototype.addTo = originalAddTo; } });
+
+	// Hook into remove to clean up cube children arrays when deleting
+	const originalRemove = OutlinerNode.prototype.remove;
+	OutlinerNode.prototype.remove = function(undo?: boolean) {
+		// Remove from parent's children if parent is a Cube
+		if (this.parent instanceof Cube) {
+			const parentCube = this.parent as Cube;
+			const idx = parentCube.children.indexOf(this);
+			if (idx !== -1) {
+				parentCube.children.splice(idx, 1);
+			}
+		}
+		return originalRemove.call(this, undo);
+	};
+	track({ delete() { OutlinerNode.prototype.remove = originalRemove; } });
 
 	// Enable cubes to act as parents in the outliner (only cubes can be children, not groups)
 	track(Cube.addBehaviorOverride({

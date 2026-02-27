@@ -164,7 +164,8 @@
         let model = {
           nodes: [],
           format: Format.id == "hytale_prop" ? "prop" : "character",
-          lod: "auto"
+          lod: "auto",
+          editor: "blockbench"
         };
         let node_id = 1;
         let formatVector = (input) => {
@@ -341,6 +342,8 @@
             if (offset) {
               origin.V3_subtract(offset);
             }
+          } else if (element.parent instanceof Cube) {
+            origin.V3_subtract(element.parent.origin);
           }
           let node = {
             id: node_id.toString(),
@@ -364,6 +367,25 @@
           node_id++;
           if (element instanceof Cube) {
             turnNodeIntoBox(node, element, element);
+            let cubeChildren = element.children;
+            if (cubeChildren?.length) {
+              let child_cube_count = 0;
+              for (let child of cubeChildren) {
+                if (!child.export) continue;
+                let result;
+                if (child instanceof Cube) {
+                  child_cube_count++;
+                  result = compileNode(child, child.name + "--C" + child_cube_count);
+                } else if (child instanceof Group) {
+                  result = compileNode(child);
+                }
+                if (result) {
+                  if (result.shape) result.shape.settings.parentIsCube = true;
+                  if (!node.children) node.children = [];
+                  node.children.push(result);
+                }
+              }
+            }
           } else if ("children" in element) {
             let shape_count = 0;
             let child_cube_count = 0;
@@ -373,6 +395,22 @@
               if (qualifiesAsMainShape(child) && shape_count == 0) {
                 turnNodeIntoBox(node, child, element);
                 shape_count++;
+                let mainShapeChildren = child.children;
+                if (mainShapeChildren?.length) {
+                  let main_child_count = 0;
+                  for (let mainChild of mainShapeChildren) {
+                    if (!mainChild.export) continue;
+                    if (mainChild instanceof Cube) {
+                      main_child_count++;
+                      let childResult = compileNode(mainChild, mainChild.name + "--C" + main_child_count);
+                      if (childResult) {
+                        childResult.shape.settings.parentIsCube = true;
+                        if (!node.children) node.children = [];
+                        node.children.push(childResult);
+                      }
+                    }
+                  }
+                }
               } else if (child instanceof Cube) {
                 child_cube_count++;
                 result = compileNode(child, child.name + "--C" + child_cube_count);
@@ -402,6 +440,7 @@
         }
       },
       parse(model, path, args = {}) {
+        const editorIsBlockbench = model.editor === "blockbench";
         function parseVector(vec, fallback = [0, 0, 0]) {
           if (!vec) return fallback;
           return Object.values(vec).slice(0, 3);
@@ -434,7 +473,7 @@
           if (args.attachment && !parent_node && parent_group instanceof Group) {
             let reference_node = getMainShape(parent_group) ?? parent_group;
             origin = reference_node.origin.slice();
-          } else if (parent_offset && parent_group instanceof Group) {
+          } else if (parent_offset && (parent_group instanceof Group || parent_group instanceof Cube)) {
             origin.V3_add(parent_offset);
             origin.V3_add(parent_group.origin);
           }
@@ -461,6 +500,7 @@
           } else {
             name = name.replace(/--C\d+$/, "");
           }
+          let cube = null;
           if (node.shape.type != "none") {
             let switchIndices = function(arr, i1, i2) {
               temp = arr[i1];
@@ -482,7 +522,7 @@
                 size[2] = 0;
               }
             }
-            let cube = new Cube({
+            cube = new Cube({
               name,
               autouv: 1,
               box_uv: false,
@@ -642,12 +682,20 @@
             }
             cube.addTo(group || parent_group).init();
           }
-          if (node.children?.length && group instanceof Group) {
+          if (node.children?.length) {
             if (args.attachment && node.shape.settings.isPiece) {
               offset = [0, 0, 0];
             }
             for (let child of node.children) {
-              parseNode(child, node, group, offset);
+              let childParent;
+              let childOffset = offset;
+              if (editorIsBlockbench && child.shape?.settings?.parentIsCube && cube) {
+                childParent = cube;
+                childOffset = [0, 0, 0];
+              } else {
+                childParent = group || "root";
+              }
+              parseNode(child, node, childParent, childOffset);
             }
           }
         }
@@ -1877,6 +1925,41 @@
     });
     track({ delete() {
       delete Cube.prototype.children;
+    } });
+    const originalAddTo = OutlinerNode.prototype.addTo;
+    OutlinerNode.prototype.addTo = function(target) {
+      if (this.parent instanceof Cube) {
+        const oldParent = this.parent;
+        const idx = oldParent.children.indexOf(this);
+        if (idx !== -1) {
+          oldParent.children.splice(idx, 1);
+        }
+      }
+      const result = originalAddTo.call(this, target);
+      if (this.parent instanceof Cube) {
+        const newParent = this.parent;
+        if (!newParent.children.includes(this)) {
+          newParent.children.push(this);
+        }
+      }
+      return result;
+    };
+    track({ delete() {
+      OutlinerNode.prototype.addTo = originalAddTo;
+    } });
+    const originalRemove = OutlinerNode.prototype.remove;
+    OutlinerNode.prototype.remove = function(undo) {
+      if (this.parent instanceof Cube) {
+        const parentCube = this.parent;
+        const idx = parentCube.children.indexOf(this);
+        if (idx !== -1) {
+          parentCube.children.splice(idx, 1);
+        }
+      }
+      return originalRemove.call(this, undo);
+    };
+    track({ delete() {
+      OutlinerNode.prototype.remove = originalRemove;
     } });
     track(Cube.addBehaviorOverride({
       condition: { formats: FORMAT_IDS },

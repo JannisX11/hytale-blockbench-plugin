@@ -219,4 +219,38 @@ export function setupAnimation() {
             Animator.showDefaultPose = original_show_default_pose;
         }
     })
+
+    // Warning if no default shape
+    const per_shape_channels = new Set(['scale', 'visibility', 'uv_offset']);
+    const on_init_edit = Blockbench.on('init_edit', arg => {
+        if (arg.aspects.keyframes?.length == 1 && per_shape_channels.has(arg.aspects.keyframes[0].channel)) {
+            let kf = arg.aspects.keyframes[0];
+            let group = (kf.animator as BoneAnimator).group;
+            if (!group.name) return;
+            let shape = getMainShape(group);
+            if (shape) return;
+            if (document.getElementById('toast_notification_list').children.length) return;
+
+            Blockbench.showToastNotification({
+                // @ts-expect-error
+                id: 'hytale_no_connected_shape_toast',
+                text: `The group "${group.name}" has no connected shape, so the ${kf.channel} animation will not apply. Click to learn more.`,
+                icon: 'fa-cube',
+                expire: 20*1000,
+                click: () => {
+                    Blockbench.showMessageBox({
+                        title: 'No connected shape',
+                        icon: 'info',
+                        width: 500,
+                        message: `Scale, visibility, and UV animations only apply to one cube that's directly connected to the group. No shape is directly connected to this group.`
+                        + '\n\nFor Hytale, the first cube inside a group qualifies as directly connected if it matches the following criteria:'
+                        + '\n* The cube must be directly parented to the group'
+                        + '\n* The rotation value of the cube itself must be 0'
+                    });
+                    return true;
+                }
+            });
+        }
+    });
+    track(on_init_edit);
 }

@@ -4,6 +4,7 @@
 import { FormatOptions, FormatPage } from "blockbench-types/generated/io/format";
 import { setupBlockymodelCodec } from "./blockymodel";
 import { track } from "./cleanup";
+import { setupAnimationCodec } from "./blockyanim";
 
 export const FORMAT_IDS = [
     'hytale_character',
@@ -12,11 +13,13 @@ export const FORMAT_IDS = [
 export function setupFormats() {
     
     let codec = setupBlockymodelCodec();
+    let animation_codec = setupAnimationCodec();
 
     let common: Partial<FormatOptions> = {
         category: 'hytale',
         target: 'Hytale',
         codec,
+        animation_codec,
 
         forward_direction: '+z',
         single_texture_default: true,

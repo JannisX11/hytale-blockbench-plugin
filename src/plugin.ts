@@ -1,7 +1,6 @@
 //! Copyright (C) 2025 Hypixel Studios Canada inc.
 //! Licensed under the GNU General Public License, see LICENSE.MD
 
-import { setupAnimationCodec } from "./blockyanim";
 import { setupAttachments } from "./attachments";
 import { setupAnimation } from "./animations";
 import { cleanup, track } from "./cleanup";
@@ -13,7 +12,7 @@ import { FORMAT_IDS, setupFormats } from "./formats";
 import { setupPhotoshopTools } from "./photoshop_copy_paste";
 import { CustomPivotMarker, GroupPivotIndicator } from "./pivot_marker"
 import { setupOutlinerFilter } from "./outliner_filter";
-import { setupTextureHandling, updateUVSize } from "./texture";
+import { setupTextureHandling } from "./texture";
 import { setupNameOverlap } from "./name_overlap";
 import { setupUVOutline } from "./uv_outline";
 import { setupTempFixes } from './temp_fixes'
@@ -28,7 +27,7 @@ BBPlugin.register('hytale_plugin', {
     description: 'Create models and animations for Hytale',
     tags: ['Hytale'],
     variant: 'both',
-    min_version: '5.0.5',
+    min_version: '5.1.0-beta.2',
     await_loading: true,
     has_changelog: true,
 	creation_date: "2025-12-22",
@@ -44,7 +43,6 @@ BBPlugin.register('hytale_plugin', {
         setupFormats();
         setupElements();
         setupAnimation();
-        setupAnimationCodec();
         setupAttachments();
         setupOutlinerFilter();
         setupChecks();

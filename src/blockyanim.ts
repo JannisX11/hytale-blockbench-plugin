@@ -29,7 +29,7 @@ interface IKeyframe {
 	interpolationType?: 'smooth' | 'linear'
 }
 
-export function parseAnimationFile(file: Filesystem.FileResult, content: IBlockyAnimJSON) {
+export function parseAnimationFile(file: Filesystem.FileResult, content: IBlockyAnimJSON): _Animation {
 	let animation = new Animation({
 		name: pathToName(file.name, false),
 		length: content.duration / FPS,
@@ -110,7 +110,7 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 	if (!Animation.selected && Animator.open) {
 		animation.select()
 	}
-
+	return animation;
 }
 function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 	const nodeAnimations: Record<string, IAnimationObject> = {};
@@ -194,28 +194,73 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 	return file;
 }
 
-export function setupAnimationCodec() {
-	// @ts-expect-error
-	BarItems.load_animation_file.click = function (...args) {
-		if (FORMAT_IDS.includes(Format.id)) {
+export function setupAnimationCodec(): AnimationCodec {
+
+	let anim_codec = new AnimationCodec('blockyanim', {
+		multiple_per_file: false,
+		compileAnimation: compileAnimationFile,
+		pickFile() {
 			Filesystem.importFile({
 				resource_id: 'blockyanim',
 				extensions: ['blockyanim'],
 				type: 'Blockyanim',
 				multiple: true,
-			}, async function(files) {
+			}, async (files) => {
 				for (let file of files) {
-					let content = autoParseJSON(file.content as string);
-					parseAnimationFile(file, content);
+					await this.importFile(file);
 				}
 			})
-			return;
-		} else {
-			this.dispatchEvent('use');
-			this.onClick(...args);
-			this.dispatchEvent('used');
-		}
-	}
+		},
+		importFile(file, auto_loaded) {
+			this.loadFile(file);
+		},
+		loadFile(file) {
+			let content = autoParseJSON(file.content as string);
+			return parseAnimationFile(file, content);
+		},
+		reloadAnimation(this: AnimationCodec, animation) {
+			Filesystem.read([animation.path], {}, ([file]) => {
+				Undo.initEdit({animations: [animation]});
+				let anim_index = Animation.all.indexOf(animation);
+				animation.remove(false, false);
+
+				let new_animation = this.loadFile(file) as _Animation;
+
+				if (new_animation) {
+					Animation.all.remove(new_animation);
+					Animation.all.splice(anim_index, 0, new_animation);
+					Undo.finishEdit('Reload animation', {animations: [new_animation]})
+				} else {
+					Undo.cancelEdit();
+				}
+			})
+		},
+		saveAnimation(animation, save_as) {
+			let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
+
+			if (isApp && animation.path && !save_as) {
+				// Write
+				Blockbench.writeFile(animation.path, {content}, (real_path: string) => {
+					animation.saved = true;
+					animation.saved_name = animation.name;
+					animation.path = real_path;
+				});
+			} else {
+				Blockbench.export({
+					resource_id: 'blockyanim',
+					type: 'Blockyanim',
+					extensions: ['blockyanim'],
+					name: animation.name,
+					startpath: animation.path,
+					content,
+				}, (real_path: string) => {
+					if (isApp) animation.path == real_path;
+					animation.saved = true;
+				})
+			}
+		},
+		
+	});
 
 	let export_anim = new Action('export_blockyanim', {
 		name: 'Export Blockyanim',
@@ -244,50 +289,11 @@ export function setupAnimationCodec() {
 		condition: {modes: ['animate']},
 	}, async function(files) {
 		for (let file of files) {
-			let content = autoParseJSON(file.content as string);
-			parseAnimationFile(file, content);
+			anim_codec.importFile(file);
 		}
 	});
 	track(handler);
 
-	// save
-	let original_save = Animation.prototype.save;
-	Animation.prototype.save = function(...args) {
-		if (!FORMAT_IDS.includes(Format.id)) {
-			return original_save.call(this, ...args);
-		}
-
-		let animation: _Animation;
-		animation = this;
-		let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
-
-		if (isApp && this.path) {
-			// Write
-			Blockbench.writeFile(this.path, {content}, (real_path) => {
-				this.saved = true;
-				this.saved_name = this.name;
-				this.path = real_path;
-			});
-		} else {
-			Blockbench.export({
-				resource_id: 'blockyanim',
-				type: 'Blockyanim',
-				extensions: ['blockyanim'],
-				name: animation.name,
-				startpath: this.path,
-				content,
-			}, (real_path: string) => {
-				if (isApp) this.path == real_path;
-				this.saved = true;
-			})
-		}
-		return this;
-	}
-	track({
-		delete() {
-			Animation.prototype.save = original_save;
-		}
-	});
 	let save_all_listener = BarItems.save_all_animations.on('use', () => {
 		if (!isHytaleFormat()) return;
 		Animation.all.forEach(animation => {
@@ -315,4 +321,6 @@ export function setupAnimationCodec() {
         value: true
     })
     track(setting);
+
+	return anim_codec;
 }

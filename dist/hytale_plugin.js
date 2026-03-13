@@ -705,8 +705,7 @@
                     if (file_name.match(/\.blockyanim$/i)) {
                       let file_path = PathModule.resolve(path2, file_name);
                       let content = fs.readFileSync(file_path, "utf-8");
-                      let json = autoParseJSON(content);
-                      parseAnimationFile({ name: file_name, path: file_path }, json);
+                      AnimationCodec.codecs.blockyanim.importFile({ name: file_name, path: file_path, content }, true);
                     }
                   }
                 }
@@ -767,108 +766,6 @@
     });
     track(hook);
     return codec;
-  }
-
-  // src/formats.ts
-  var FORMAT_IDS = [
-    "hytale_character",
-    "hytale_prop"
-  ];
-  function setupFormats() {
-    let codec = setupBlockymodelCodec();
-    let common = {
-      category: "hytale",
-      target: "Hytale",
-      codec,
-      forward_direction: "+z",
-      single_texture_default: true,
-      animation_files: true,
-      animation_grouping: "custom",
-      animation_mode: true,
-      bone_rig: true,
-      centered_grid: true,
-      box_uv: false,
-      optional_box_uv: true,
-      box_uv_float_size: true,
-      integer_size: true,
-      uv_rotation: true,
-      rotate_cubes: true,
-      per_texture_uv_size: true,
-      texture_wrap_default: "clamp",
-      stretch_cubes: true,
-      model_identifier: false,
-      animation_loop_wrapping: true,
-      quaternion_interpolation: true,
-      onActivation() {
-        settings.shading.set(false);
-        Panels.animations.inside_vue.$data.group_animations_by_file = false;
-      }
-    };
-    let format_page = {
-      content: [
-        { type: "h3", text: tl("mode.start.format.informations") },
-        {
-          text: `* One texture can be applied to a model at a time
-                    * UV sizes are linked to the size of each cube and cannot be modified, except by stretching the cube
-                    * Models can have a maximum of 255 nodes`.replace(/(\t| {4,4})+/g, "")
-        },
-        { type: "h3", text: tl("mode.start.format.resources") },
-        {
-          text: [
-            "* [Modeling Overview and Style Guide](https://hytale.com/news/2025/12/an-introduction-to-making-models-for-hytale)",
-            "* [Modeling Tutorial](https://youtu.be/Q07i3wmGy0Y)"
-          ].join("\n")
-        }
-      ]
-    };
-    let format_character = new ModelFormat("hytale_character", {
-      name: "Hytale Character",
-      description: "Create character and attachment models using Hytale's blockymodel format",
-      icon: "icon-format_hytale",
-      format_page,
-      block_size: 64,
-      ...common
-      // TODO: Auto-reload attachments on tab switch. Needs dirty tracking and setting toggle to avoid losing unsaved changes
-      /*
-      onActivation() {
-          common.onActivation?.();
-          setTimeout(() => reload_all_attachments?.click(), 0);
-      }
-      */
-    });
-    let format_prop = new ModelFormat("hytale_prop", {
-      name: "Hytale Prop",
-      description: "Create prop models using Hytale's blockymodel format",
-      icon: "icon-format_hytale",
-      format_page,
-      block_size: 32,
-      ...common
-    });
-    let int_setting = new Setting("hytale_integer_size", {
-      name: "Hytale Integer Size",
-      category: "edit",
-      description: "Restrict cube sizes in hytale formats to full integers. Float values are technically supported but make UV mapping more difficult. Using stretch is recommended instead.",
-      type: "toggle",
-      value: true
-    });
-    track(int_setting);
-    const integer_size = { get: () => int_setting.value };
-    Object.defineProperty(format_character, "integer_size", integer_size);
-    Object.defineProperty(format_prop, "integer_size", integer_size);
-    const single_texture = { get: () => Collection.all.length == 0 };
-    Object.defineProperty(format_character, "single_texture", single_texture);
-    Object.defineProperty(format_prop, "single_texture", single_texture);
-    codec.format = format_character;
-    format_character.codec = codec;
-    format_prop.codec = codec;
-    track(format_character);
-    track(format_prop);
-    Language.addTranslations("en", {
-      "format_category.hytale": "Hytale"
-    });
-  }
-  function isHytaleFormat() {
-    return Format && FORMAT_IDS.includes(Format.id);
   }
 
   // src/name_overlap.ts
@@ -1039,6 +936,7 @@
     if (!Animation2.selected && Animator.open) {
       animation.select();
     }
+    return animation;
   }
   function compileAnimationFile(animation) {
     const nodeAnimations = {};
@@ -1120,26 +1018,66 @@
     return file;
   }
   function setupAnimationCodec() {
-    BarItems.load_animation_file.click = function(...args) {
-      if (FORMAT_IDS.includes(Format.id)) {
+    let anim_codec = new AnimationCodec("blockyanim", {
+      multiple_per_file: false,
+      compileAnimation: compileAnimationFile,
+      pickFile() {
         Filesystem.importFile({
           resource_id: "blockyanim",
           extensions: ["blockyanim"],
           type: "Blockyanim",
           multiple: true
-        }, async function(files) {
+        }, async (files) => {
           for (let file of files) {
-            let content = autoParseJSON(file.content);
-            parseAnimationFile(file, content);
+            await this.importFile(file);
           }
         });
-        return;
-      } else {
-        this.dispatchEvent("use");
-        this.onClick(...args);
-        this.dispatchEvent("used");
+      },
+      importFile(file, auto_loaded) {
+        this.loadFile(file);
+      },
+      loadFile(file) {
+        let content = autoParseJSON(file.content);
+        return parseAnimationFile(file, content);
+      },
+      reloadAnimation(animation) {
+        Filesystem.read([animation.path], {}, ([file]) => {
+          Undo.initEdit({ animations: [animation] });
+          let anim_index = Animation2.all.indexOf(animation);
+          animation.remove(false, false);
+          let new_animation = this.loadFile(file);
+          if (new_animation) {
+            Animation2.all.remove(new_animation);
+            Animation2.all.splice(anim_index, 0, new_animation);
+            Undo.finishEdit("Reload animation", { animations: [new_animation] });
+          } else {
+            Undo.cancelEdit();
+          }
+        });
+      },
+      saveAnimation(animation, save_as) {
+        let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
+        if (isApp && animation.path && !save_as) {
+          Blockbench.writeFile(animation.path, { content }, (real_path) => {
+            animation.saved = true;
+            animation.saved_name = animation.name;
+            animation.path = real_path;
+          });
+        } else {
+          Blockbench.export({
+            resource_id: "blockyanim",
+            type: "Blockyanim",
+            extensions: ["blockyanim"],
+            name: animation.name,
+            startpath: animation.path,
+            content
+          }, (real_path) => {
+            if (isApp) animation.path == real_path;
+            animation.saved = true;
+          });
+        }
       }
-    };
+    });
     let export_anim = new Action("export_blockyanim", {
       name: "Export Blockyanim",
       icon: "cinematic_blur",
@@ -1166,45 +1104,10 @@
       condition: { modes: ["animate"] }
     }, async function(files) {
       for (let file of files) {
-        let content = autoParseJSON(file.content);
-        parseAnimationFile(file, content);
+        anim_codec.importFile(file);
       }
     });
     track(handler);
-    let original_save = Animation2.prototype.save;
-    Animation2.prototype.save = function(...args) {
-      if (!FORMAT_IDS.includes(Format.id)) {
-        return original_save.call(this, ...args);
-      }
-      let animation;
-      animation = this;
-      let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
-      if (isApp && this.path) {
-        Blockbench.writeFile(this.path, { content }, (real_path) => {
-          this.saved = true;
-          this.saved_name = this.name;
-          this.path = real_path;
-        });
-      } else {
-        Blockbench.export({
-          resource_id: "blockyanim",
-          type: "Blockyanim",
-          extensions: ["blockyanim"],
-          name: animation.name,
-          startpath: this.path,
-          content
-        }, (real_path) => {
-          if (isApp) this.path == real_path;
-          this.saved = true;
-        });
-      }
-      return this;
-    };
-    track({
-      delete() {
-        Animation2.prototype.save = original_save;
-      }
-    });
     let save_all_listener = BarItems.save_all_animations.on("use", () => {
       if (!isHytaleFormat()) return;
       Animation2.all.forEach((animation) => {
@@ -1230,6 +1133,111 @@
       value: true
     });
     track(setting);
+    return anim_codec;
+  }
+
+  // src/formats.ts
+  var FORMAT_IDS = [
+    "hytale_character",
+    "hytale_prop"
+  ];
+  function setupFormats() {
+    let codec = setupBlockymodelCodec();
+    let animation_codec = setupAnimationCodec();
+    let common = {
+      category: "hytale",
+      target: "Hytale",
+      codec,
+      animation_codec,
+      forward_direction: "+z",
+      single_texture_default: true,
+      animation_files: true,
+      animation_grouping: "custom",
+      animation_mode: true,
+      bone_rig: true,
+      centered_grid: true,
+      box_uv: false,
+      optional_box_uv: true,
+      box_uv_float_size: true,
+      integer_size: true,
+      uv_rotation: true,
+      rotate_cubes: true,
+      per_texture_uv_size: true,
+      texture_wrap_default: "clamp",
+      stretch_cubes: true,
+      model_identifier: false,
+      animation_loop_wrapping: true,
+      quaternion_interpolation: true,
+      onActivation() {
+        settings.shading.set(false);
+        Panels.animations.inside_vue.$data.group_animations_by_file = false;
+      }
+    };
+    let format_page = {
+      content: [
+        { type: "h3", text: tl("mode.start.format.informations") },
+        {
+          text: `* One texture can be applied to a model at a time
+                    * UV sizes are linked to the size of each cube and cannot be modified, except by stretching the cube
+                    * Models can have a maximum of 255 nodes`.replace(/(\t| {4,4})+/g, "")
+        },
+        { type: "h3", text: tl("mode.start.format.resources") },
+        {
+          text: [
+            "* [Modeling Overview and Style Guide](https://hytale.com/news/2025/12/an-introduction-to-making-models-for-hytale)",
+            "* [Modeling Tutorial](https://youtu.be/Q07i3wmGy0Y)"
+          ].join("\n")
+        }
+      ]
+    };
+    let format_character = new ModelFormat("hytale_character", {
+      name: "Hytale Character",
+      description: "Create character and attachment models using Hytale's blockymodel format",
+      icon: "icon-format_hytale",
+      format_page,
+      block_size: 64,
+      ...common
+      // TODO: Auto-reload attachments on tab switch. Needs dirty tracking and setting toggle to avoid losing unsaved changes
+      /*
+      onActivation() {
+          common.onActivation?.();
+          setTimeout(() => reload_all_attachments?.click(), 0);
+      }
+      */
+    });
+    let format_prop = new ModelFormat("hytale_prop", {
+      name: "Hytale Prop",
+      description: "Create prop models using Hytale's blockymodel format",
+      icon: "icon-format_hytale",
+      format_page,
+      block_size: 32,
+      ...common
+    });
+    let int_setting = new Setting("hytale_integer_size", {
+      name: "Hytale Integer Size",
+      category: "edit",
+      description: "Restrict cube sizes in hytale formats to full integers. Float values are technically supported but make UV mapping more difficult. Using stretch is recommended instead.",
+      type: "toggle",
+      value: true
+    });
+    track(int_setting);
+    const integer_size = { get: () => int_setting.value };
+    Object.defineProperty(format_character, "integer_size", integer_size);
+    Object.defineProperty(format_prop, "integer_size", integer_size);
+    const single_texture = { get: () => Collection.all.length == 0 };
+    Object.defineProperty(format_character, "single_texture", single_texture);
+    Object.defineProperty(format_prop, "single_texture", single_texture);
+    codec.format = format_character;
+    format_character.codec = codec;
+    format_prop.codec = codec;
+    track(format_character);
+    track(format_prop);
+    Language.addTranslations("en", {
+      "format_category.hytale": "Hytale"
+    });
+  }
+  function isHytaleFormat() {
+    return Format && FORMAT_IDS.includes(Format.id);
   }
 
   // src/texture.ts
@@ -1473,7 +1481,7 @@
     let reload_attachment_action = new Action("reload_hytale_attachment", {
       name: "Reload Attachment",
       icon: "refresh",
-      condition: () => Collection.selected.length && Modes.edit,
+      condition: () => Collection.selected.length && Modes.edit && isHytaleFormat(),
       click() {
         for (let collection of Collection.selected) {
           reloadAttachment(collection);
@@ -3491,7 +3499,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     description: "Create models and animations for Hytale",
     tags: ["Hytale"],
     variant: "both",
-    min_version: "5.0.5",
+    min_version: "5.1.0-beta.2",
     await_loading: true,
     has_changelog: true,
     creation_date: "2025-12-22",
@@ -3506,7 +3514,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupFormats();
       setupElements();
       setupAnimation();
-      setupAnimationCodec();
       setupAttachments();
       setupOutlinerFilter();
       setupChecks();

@@ -1,7 +1,6 @@
 //! Copyright (C) 2025 Hypixel Studios Canada inc.
 //! Licensed under the GNU General Public License, see LICENSE.MD
 
-import { parseAnimationFile } from "./blockyanim"
 import { track } from "./cleanup"
 import { Config } from "./config"
 import { FORMAT_IDS } from "./formats"
@@ -812,8 +811,7 @@ export function setupBlockymodelCodec(): Codec {
 									if (file_name.match(/\.blockyanim$/i)) {
 										let file_path = PathModule.resolve(path, file_name);
 										let content = fs.readFileSync(file_path, 'utf-8');
-										let json = autoParseJSON(content);
-										parseAnimationFile({name: file_name, path: file_path}, json)
+										AnimationCodec.codecs.blockyanim.importFile({name: file_name, path: file_path, content}, true);
 									}
 								}
 							}

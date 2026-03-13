@@ -150,7 +150,7 @@ export function setupAttachments() {
 	let reload_attachment_action = new Action('reload_hytale_attachment', {
 		name: 'Reload Attachment',
 		icon: 'refresh',
-		condition: () => Collection.selected.length && Modes.edit,
+		condition: () => Collection.selected.length && Modes.edit && isHytaleFormat(),
 		click() {
 			for (let collection of Collection.selected) {
 				reloadAttachment(collection);

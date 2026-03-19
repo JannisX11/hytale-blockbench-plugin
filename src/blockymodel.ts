@@ -844,11 +844,13 @@ export function setupBlockymodelCodec(): Codec {
 		async exportCollection(collection: Collection) {
 			this.context = collection;
 			await this.export({attachment: collection});
+			if ("saved" in collection) collection.saved = true;
 			this.context = null;
 		},
 		async writeCollection(collection: Collection) {
 			this.context = collection;
 			this.write(this.compile({attachment: collection}), collection.export_path);
+			if ("saved" in collection) collection.saved = true;
 			this.context = null;
 		},
 	})

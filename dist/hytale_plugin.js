@@ -737,11 +737,13 @@
       async exportCollection(collection) {
         this.context = collection;
         await this.export({ attachment: collection });
+        if ("saved" in collection) collection.saved = true;
         this.context = null;
       },
       async writeCollection(collection) {
         this.context = collection;
         this.write(this.compile({ attachment: collection }), collection.export_path);
+        if ("saved" in collection) collection.saved = true;
         this.context = null;
       }
     });
@@ -1456,6 +1458,7 @@
     track(import_as_attachment);
     let toolbar = Panels.collections.toolbars[0];
     toolbar.add(import_as_attachment);
+    MenuBar.menus.file.addAction(import_as_attachment, "import");
     function reloadAttachment(collection) {
       for (let child of collection.getChildren()) {
         child.remove();

@@ -138,7 +138,9 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 			let timeline: IKeyframe[];
 			let hytale_channel_key = channels[channel];
 			timeline = timeline = node_data[hytale_channel_key] = [];
-			let keyframe_list = (animator[channel].slice() as _Keyframe[]);
+			let keyframe_list = (animator[channel] && Array.isArray(animator[channel]))
+            ? animator[channel].slice()
+            : [];
 			keyframe_list.sort((a, b) => a.time - b.time);
 			for (let kf of keyframe_list) {
 				let data_point = kf.data_points[0];

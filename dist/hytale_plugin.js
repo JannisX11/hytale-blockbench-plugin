@@ -3638,6 +3638,44 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("pointermove", onPointerMove, false);
     document.addEventListener("pointerup", onPointerUp, true);
+    let toolOptions = {
+      move_tool: "Move",
+      resize_tool: "Resize",
+      rotate_tool: "Rotate",
+      pivot_tool: "Pivot",
+      vertex_snap_tool: "Vertex Snap"
+    };
+    let dblClickToolA = new Setting("hytale_dblclick_tool_a", {
+      name: "Double Click Tool A",
+      description: 'First tool in the double-click toggle pair. Requires "Double Click Switch Tools" to be enabled in Blockbench controls settings.',
+      category: "controls",
+      type: "select",
+      value: "move_tool",
+      options: toolOptions
+    });
+    track(dblClickToolA);
+    let dblClickToolB = new Setting("hytale_dblclick_tool_b", {
+      name: "Double Click Tool B",
+      description: 'Second tool in the double-click toggle pair. Requires "Double Click Switch Tools" to be enabled in Blockbench controls settings.',
+      category: "controls",
+      type: "select",
+      value: "pivot_tool",
+      options: toolOptions
+    });
+    track(dblClickToolB);
+    let originalToggleTransforms = Toolbox.toggleTransforms;
+    Toolbox.toggleTransforms = function() {
+      if (!isHytaleFormat()) {
+        return originalToggleTransforms.call(this);
+      }
+      let a = dblClickToolA.value;
+      let b = dblClickToolB.value;
+      if (Toolbox.selected.id === a) {
+        BarItems[b]?.select();
+      } else if (Toolbox.selected.id === b) {
+        BarItems[a]?.select();
+      }
+    };
     track(toggle, {
       delete() {
         document.removeEventListener("pointerdown", onPointerDown, true);
@@ -3647,6 +3685,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
           Canvas.updatePivotMarker = savedUpdatePivotMarker;
           savedUpdatePivotMarker = null;
         }
+        Toolbox.toggleTransforms = originalToggleTransforms;
       }
     });
   }

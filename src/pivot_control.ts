@@ -204,6 +204,52 @@ export function setupPivotControl() {
 	document.addEventListener('pointermove', onPointerMove, false);
 	document.addEventListener('pointerup', onPointerUp, true);
 
+	// TODO: Should this be a vanilla Blockbench feature? Replace hardcoded move to resize toggle with two configurable tool selects.
+	// toggle could be made configurable upstream instead of overriding it here.
+	// Double-click tool switch override.
+	// Replaces Blockbench's hardcoded move↔resize toggle with two configurable tool selects.
+	let toolOptions: Record<string, string> = {
+		move_tool: 'Move',
+		resize_tool: 'Resize',
+		rotate_tool: 'Rotate',
+		pivot_tool: 'Pivot',
+		vertex_snap_tool: 'Vertex Snap',
+	};
+
+	let dblClickToolA = new Setting('hytale_dblclick_tool_a', {
+		name: 'Double Click Tool A',
+		description: 'First tool in the double-click toggle pair. Requires "Double Click Switch Tools" to be enabled in Blockbench controls settings.',
+		category: 'controls',
+		type: 'select',
+		value: 'move_tool',
+		options: toolOptions
+	});
+	track(dblClickToolA);
+
+	let dblClickToolB = new Setting('hytale_dblclick_tool_b', {
+		name: 'Double Click Tool B',
+		description: 'Second tool in the double-click toggle pair. Requires "Double Click Switch Tools" to be enabled in Blockbench controls settings.',
+		category: 'controls',
+		type: 'select',
+		value: 'pivot_tool',
+		options: toolOptions
+	});
+	track(dblClickToolB);
+
+	let originalToggleTransforms = Toolbox.toggleTransforms;
+	Toolbox.toggleTransforms = function() {
+		if (!isHytaleFormat()) {
+			return originalToggleTransforms.call(this);
+		}
+		let a = dblClickToolA.value as string;
+		let b = dblClickToolB.value as string;
+		if (Toolbox.selected.id === a) {
+			BarItems[b]?.select();
+		} else if (Toolbox.selected.id === b) {
+			BarItems[a]?.select();
+		}
+	};
+
 	track(toggle, {
 		delete() {
 			document.removeEventListener('pointerdown', onPointerDown, true);
@@ -213,6 +259,7 @@ export function setupPivotControl() {
 				Canvas.updatePivotMarker = savedUpdatePivotMarker;
 				savedUpdatePivotMarker = null;
 			}
+			Toolbox.toggleTransforms = originalToggleTransforms;
 		}
 	});
 }

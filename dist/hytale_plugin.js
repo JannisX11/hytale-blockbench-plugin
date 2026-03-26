@@ -3552,41 +3552,30 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       savedUpdatePivotMarker = Canvas.updatePivotMarker;
       Canvas.updatePivotMarker = () => {
       };
-      let worldQuat = new THREE.Quaternion();
-      Canvas.pivot_marker.getWorldQuaternion(worldQuat);
-      el.mesh.parent.add(Canvas.pivot_marker);
-      Canvas.pivot_marker.position.set(
-        el.origin[0],
-        el.origin[1],
-        el.origin[2]
-      );
-      let parentWorldQuat = new THREE.Quaternion();
-      el.mesh.parent.getWorldQuaternion(parentWorldQuat);
-      Canvas.pivot_marker.quaternion.copy(parentWorldQuat.invert().multiply(worldQuat));
+      if (!pivotFollowEnabled) {
+        let worldPos = new THREE.Vector3();
+        let worldQuat = new THREE.Quaternion();
+        el.mesh.getWorldPosition(worldPos);
+        Canvas.pivot_marker.getWorldQuaternion(worldQuat);
+        Canvas.scene.add(Canvas.pivot_marker);
+        Canvas.pivot_marker.position.copy(worldPos);
+        Canvas.pivot_marker.quaternion.copy(worldQuat);
+      }
     }
     function onPointerMove() {
       if (!pivotFollowEnabled || !snapshots || !trackedCubeUuid) return;
       let snap = snapshots.get(trackedCubeUuid);
       let el = OutlinerNode.uuids[trackedCubeUuid];
       if (!snap || !(el instanceof Cube) || !el.mesh) return;
-      let ox = el.origin[0], oy = el.origin[1], oz = el.origin[2];
-      if (ox === snap.initialOrigin[0] && oy === snap.initialOrigin[1] && oz === snap.initialOrigin[2]) {
-        let dx = el.from[0] - snap.initialFrom[0];
-        let dy = el.from[1] - snap.initialFrom[1];
-        let dz = el.from[2] - snap.initialFrom[2];
-        let q = el.mesh.quaternion;
-        let qx = q.x, qy = q.y, qz = q.z, qw = q.w;
-        let ix = qw * dx + qy * dz - qz * dy;
-        let iy = qw * dy + qz * dx - qx * dz;
-        let iz = qw * dz + qx * dy - qy * dx;
-        let iw = -qx * dx - qy * dy - qz * dz;
+      let originMoved = el.origin[0] !== snap.initialOrigin[0] || el.origin[1] !== snap.initialOrigin[1] || el.origin[2] !== snap.initialOrigin[2];
+      if (!originMoved) {
         Canvas.pivot_marker.position.set(
-          snap.initialOrigin[0] + ix * qw + iw * -qx + iy * -qz - iz * -qy,
-          snap.initialOrigin[1] + iy * qw + iw * -qy + iz * -qx - ix * -qz,
-          snap.initialOrigin[2] + iz * qw + iw * -qz + ix * -qy - iy * -qx
+          el.from[0] - snap.initialFrom[0],
+          el.from[1] - snap.initialFrom[1],
+          el.from[2] - snap.initialFrom[2]
         );
       } else {
-        Canvas.pivot_marker.position.set(ox, oy, oz);
+        Canvas.pivot_marker.position.set(0, 0, 0);
       }
     }
     function onPointerUp() {

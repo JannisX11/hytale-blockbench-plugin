@@ -58,11 +58,8 @@ export function setupPivotControl() {
 	let trackedCubeUuid: string | null = null;
 	let savedUpdatePivotMarker: (typeof Canvas.updatePivotMarker) | null = null;
 
-	// Capture phase: snapshots state before movement begins.
-	// Re-parents the pivot marker as a sibling of the cube mesh in the parent's space
-	// so Blockbench can't interfere. Position is set to el.origin (same world position).
-	//   ON  → pointermove will track geometry
-	//   OFF → position stays frozen at initial origin
+	// Snapshot state and prepare pivot marker for drag.
+	// ON: marker stays on mesh. OFF: re-parent to scene root (frozen).
 	function onPointerDown() {
 		if (!isHytaleFormat() || !Modes.edit) return;
 		if (Toolbox.selected?.id !== 'move_tool') return;
@@ -94,23 +91,20 @@ export function setupPivotControl() {
 		savedUpdatePivotMarker = Canvas.updatePivotMarker;
 		Canvas.updatePivotMarker = () => {};
 
-		// Preserve the marker's world rotation when moving it to a different parent
-		let worldQuat = new THREE.Quaternion();
-		Canvas.pivot_marker.getWorldQuaternion(worldQuat);
+		if (!pivotFollowEnabled) {
+			// Freeze marker at current world position
+			let worldPos = new THREE.Vector3();
+			let worldQuat = new THREE.Quaternion();
+			el.mesh.getWorldPosition(worldPos);
+			Canvas.pivot_marker.getWorldQuaternion(worldQuat);
 
-		el.mesh.parent.add(Canvas.pivot_marker);
-		Canvas.pivot_marker.position.set(
-			el.origin[0], el.origin[1], el.origin[2]
-		);
-
-		// Convert world quaternion to local quaternion in the new parent's space
-		let parentWorldQuat = new THREE.Quaternion();
-		el.mesh.parent.getWorldQuaternion(parentWorldQuat);
-		Canvas.pivot_marker.quaternion.copy(parentWorldQuat.invert().multiply(worldQuat));
+			Canvas.scene.add(Canvas.pivot_marker);
+			Canvas.pivot_marker.position.copy(worldPos);
+			Canvas.pivot_marker.quaternion.copy(worldQuat);
+		}
 	}
 
-	// Bubble phase (toggle ON only): updates the marker position in parent space
-	// to track geometry. No jitter since we own the marker (updatePivotMarker is blocked).
+	// Toggle ON: offset marker in mesh-local space to track geometry when origin doesn't move.
 	function onPointerMove() {
 		if (!pivotFollowEnabled || !snapshots || !trackedCubeUuid) return;
 
@@ -118,31 +112,23 @@ export function setupPivotControl() {
 		let el = OutlinerNode.uuids[trackedCubeUuid];
 		if (!snap || !(el instanceof Cube) || !el.mesh) return;
 
-		// If Blockbench moved origin, just track it directly.
-		// Otherwise compute the visual-space displacement from the from delta.
-		let ox = el.origin[0], oy = el.origin[1], oz = el.origin[2];
-		if (ox === snap.initialOrigin[0] && oy === snap.initialOrigin[1] && oz === snap.initialOrigin[2]) {
-			let dx = el.from[0] - snap.initialFrom[0];
-			let dy = el.from[1] - snap.initialFrom[1];
-			let dz = el.from[2] - snap.initialFrom[2];
-			// Rotate data-space delta by cube quaternion → visual displacement in parent space
-			let q = el.mesh.quaternion;
-			let qx = q.x, qy = q.y, qz = q.z, qw = q.w;
-			let ix = qw*dx + qy*dz - qz*dy;
-			let iy = qw*dy + qz*dx - qx*dz;
-			let iz = qw*dz + qx*dy - qy*dx;
-			let iw = -qx*dx - qy*dy - qz*dz;
+		let originMoved =
+			el.origin[0] !== snap.initialOrigin[0] ||
+			el.origin[1] !== snap.initialOrigin[1] ||
+			el.origin[2] !== snap.initialOrigin[2];
+
+		if (!originMoved) {
 			Canvas.pivot_marker.position.set(
-				snap.initialOrigin[0] + ix*qw + iw*-qx + iy*-qz - iz*-qy,
-				snap.initialOrigin[1] + iy*qw + iw*-qy + iz*-qx - ix*-qz,
-				snap.initialOrigin[2] + iz*qw + iw*-qz + ix*-qy - iy*-qx
+				el.from[0] - snap.initialFrom[0],
+				el.from[1] - snap.initialFrom[1],
+				el.from[2] - snap.initialFrom[2]
 			);
 		} else {
-			Canvas.pivot_marker.position.set(ox, oy, oz);
+			Canvas.pivot_marker.position.set(0, 0, 0);
 		}
 	}
 
-	// Deferred adjustment: runs after Transformer finalises positions and Undo captures state.
+	// Adjust origin data after Transformer finalises.
 	function onPointerUp() {
 		if (!snapshots) return;
 		let snapshotsCopy = snapshots;
@@ -151,8 +137,6 @@ export function setupPivotControl() {
 		trackedCubeUuid = null;
 		savedUpdatePivotMarker = null;
 
-		// Keep updatePivotMarker blocked until after our deferred adjustment
-		// to prevent a single-frame flicker where Blockbench re-parents the marker.
 		setTimeout(() => {
 			if (savedUpdate) {
 				Canvas.updatePivotMarker = savedUpdate;

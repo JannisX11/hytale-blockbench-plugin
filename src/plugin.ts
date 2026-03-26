@@ -19,6 +19,7 @@ import { setupUVOutline } from "./uv_outline";
 import { setupTempFixes } from './temp_fixes'
 import { setupPreviewScenes } from "./preview_scenes";
 import { setupAltDuplicate } from "./alt_duplicate";
+import { setupPivotControl } from "./pivot_control";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -43,6 +44,7 @@ BBPlugin.register('hytale_plugin', {
 
         setupFormats();
         setupElements();
+        setupPivotControl();
         setupAnimation();
         setupAnimationCodec();
         setupAttachments();

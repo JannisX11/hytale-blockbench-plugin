@@ -1067,7 +1067,7 @@
         let timeline;
         let hytale_channel_key = channels[channel];
         timeline = timeline = node_data[hytale_channel_key] = [];
-        let keyframe_list = animator[channel].slice();
+        let keyframe_list = animator[channel] && Array.isArray(animator[channel]) ? animator[channel].slice() : [];
         keyframe_list.sort((a, b) => a.time - b.time);
         for (let kf of keyframe_list) {
           let data_point = kf.data_points[0];
@@ -1273,7 +1273,7 @@
     track(handler);
   }
 
-  // src/attachment_texture.ts
+  // src/attachments/texture.ts
   function getCollection(cube) {
     return Collection.all.find((c) => c.contains(cube));
   }
@@ -1360,10 +1360,8 @@
     });
   }
 
-  // src/attachments.ts
-  var reload_all_attachments;
-  function setupAttachments() {
-    setupAttachmentTextures();
+  // src/attachments/delete.ts
+  function setupDelete() {
     let shared_delete = SharedActions.add("delete", {
       subject: "collection",
       priority: 1,
@@ -1412,6 +1410,11 @@
       }
     });
     track(shared_delete);
+  }
+
+  // src/attachments/import.ts
+  var reload_all_attachments;
+  function setupImport() {
     let import_as_attachment = new Action("import_as_hytale_attachment", {
       name: "Import Attachment",
       icon: "fa-hat-cowboy",
@@ -1498,6 +1501,177 @@
     });
     track(reload_all_attachments);
     toolbar.add(reload_all_attachments);
+  }
+
+  // src/attachments/create.ts
+  function getSelectedRootGroups() {
+    let selected2 = Group.all.filter((g) => g.selected);
+    selected2 = selected2.filter((g) => !Collection.all.some((c) => c.export_codec === "blockymodel" && c.contains(g)));
+    return selected2.filter((group) => {
+      let parent = group.parent;
+      while (parent instanceof Group) {
+        if (selected2.includes(parent)) return false;
+        parent = parent.parent;
+      }
+      return true;
+    });
+  }
+  function createIsPieceWrappers(attachmentName, selectedGroups) {
+    let wrappersByParent = /* @__PURE__ */ new Map();
+    let collectionRoots = [];
+    for (let group of selectedGroups) {
+      let parent = group.parent;
+      if (parent instanceof Group) {
+        let wrapper = wrappersByParent.get(parent);
+        if (!wrapper) {
+          let referenceNode = getMainShape(parent) ?? parent;
+          wrapper = new Group({
+            name: attachmentName + ":" + parent.name,
+            autouv: 1,
+            origin: referenceNode.origin.slice(),
+            rotation: [0, 0, 0],
+            visibility: true
+          });
+          wrapper.addTo(parent);
+          wrapper.init();
+          wrapper.extend({
+            is_piece: true,
+            original_position: [0, 0, 0],
+            original_offset: [0, 0, 0]
+          });
+          wrapper.color = 1;
+          wrappersByParent.set(parent, wrapper);
+          collectionRoots.push(wrapper);
+        }
+        group.addTo(wrapper);
+      } else {
+        group.name = attachmentName + ":" + group.name;
+        group.color = 1;
+        collectionRoots.push(group);
+      }
+    }
+    return collectionRoots;
+  }
+  function loadTexturesFromFolder(folderPath) {
+    let fs = requireNativeModule("fs");
+    let textures = [];
+    try {
+      let files = fs.readdirSync(folderPath);
+      for (let fileName of files) {
+        if (fileName.match(/\.png$/i)) {
+          let fullPath = PathModule.join(folderPath, fileName);
+          let existing = Texture.all.find((t) => t.path === fullPath);
+          if (existing) {
+            textures.push(existing);
+          } else {
+            textures.push(new Texture().fromPath(fullPath).add(false, true));
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to read texture folder:", err);
+    }
+    return textures;
+  }
+  function setupCreateAttachment() {
+    let create_attachment = new Action("create_hytale_attachment", {
+      name: "Create Attachment",
+      icon: "fa-object-group",
+      category: "file",
+      condition: () => Modes.edit && isHytaleFormat() && getSelectedRootGroups().length > 0,
+      click() {
+        let selectedGroups = getSelectedRootGroups();
+        let defaultName = selectedGroups.length === 1 ? selectedGroups[0].name : "";
+        new Dialog({
+          id: "create_hytale_attachment",
+          title: "Create Attachment",
+          width: 540,
+          form: {
+            name: {
+              label: "Attachment Name",
+              value: defaultName
+            },
+            _divider: "_",
+            texture_file: {
+              label: "Texture File (optional)",
+              type: "file",
+              extensions: ["png"],
+              resource_id: "texture"
+            },
+            texture_folder: {
+              label: "Texture Folder (optional)",
+              type: "folder",
+              resource_id: "texture"
+            }
+          },
+          onConfirm(result) {
+            let name = result.name;
+            if (!name) {
+              Blockbench.showQuickMessage("Attachment name is required", 2e3);
+              return;
+            }
+            if (Collection.all.some((c) => c.name === name)) {
+              Blockbench.showQuickMessage("An attachment with this name already exists", 2e3);
+              return;
+            }
+            selectedGroups = getSelectedRootGroups();
+            if (selectedGroups.length === 0) {
+              Blockbench.showQuickMessage("No valid groups selected", 2e3);
+              return;
+            }
+            Undo.initEdit({
+              collections: [],
+              groups: selectedGroups,
+              outliner: true,
+              textures: [],
+              // @ts-expect-error
+              texture_groups: []
+            });
+            let collectionRoots = createIsPieceWrappers(name, selectedGroups);
+            let collection = new Collection({
+              name,
+              children: collectionRoots.map((g) => g.uuid),
+              export_codec: "blockymodel",
+              visibility: true
+            }).add();
+            let newTextures = [];
+            let textureFile = result.texture_file;
+            let textureFolder = result.texture_folder;
+            if (textureFile) {
+              let existing = Texture.all.find((t) => t.path === textureFile);
+              newTextures.push(existing ?? new Texture().fromPath(textureFile).add(false, true));
+            } else if (textureFolder) {
+              newTextures = loadTexturesFromFolder(textureFolder);
+            }
+            let textureUuid = processAttachmentTextures(name, newTextures);
+            if (textureUuid) {
+              collection.texture = textureUuid;
+            }
+            let textureGroup = TextureGroup.all.find((tg) => tg.name === name);
+            let newWrapperGroups = collectionRoots.filter((g) => !selectedGroups.includes(g));
+            Undo.finishEdit("Create attachment", {
+              collections: [collection],
+              groups: [...selectedGroups, ...newWrapperGroups],
+              outliner: true,
+              textures: newTextures,
+              // @ts-expect-error
+              texture_groups: textureGroup ? [textureGroup] : []
+            });
+            Canvas.updateAllFaces();
+            Codecs.blockymodel.exportCollection(collection);
+          }
+        }).show();
+      }
+    });
+    track(create_attachment);
+  }
+
+  // src/attachments/index.ts
+  function setupAttachments() {
+    setupAttachmentTextures();
+    setupDelete();
+    setupImport();
+    setupCreateAttachment();
   }
 
   // src/animations.ts

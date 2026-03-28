@@ -499,7 +499,7 @@ class UVCropTool {
         // Shift UVs so elements stay mapped to the same visual area
         const cubes = elementsToAffect.filter((el): el is Cube => el instanceof Cube && !!el.faces);
 
-        if (cubes.length) {
+        if (cubes.length && (this.bounds.left || this.bounds.top)) {
             Undo.initEdit({ elements: cubes });
 
             const offsetX = this.bounds.left;

@@ -3607,7 +3607,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       }
       Undo.finishEdit(isAttachmentTexture ? "Crop attachment texture" : "Crop model textures");
       const cubes = elementsToAffect.filter((el) => el instanceof Cube && !!el.faces);
-      if (cubes.length) {
+      if (cubes.length && (this.bounds.left || this.bounds.top)) {
         Undo.initEdit({ elements: cubes });
         const offsetX = this.bounds.left;
         const offsetY = this.bounds.top;

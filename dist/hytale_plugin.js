@@ -3325,7 +3325,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     }
     hideQuickMessage() {
       const el = document.getElementById("quick_message_box");
-      if (el) el.style.display = "none";
+      if (el) el.remove();
     }
     removeOverlay() {
       this.overlay?.remove();
@@ -3527,6 +3527,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       this.overlay?.addEventListener("mousedown", this.handleMouseDown);
       this.uvFrame?.addEventListener("wheel", () => this.updateDisplay());
       document.addEventListener("keydown", this.handleKeyDown);
+      Blockbench.on("resize_window", this.updateDisplay.bind(this));
       const vue = UVEditor.vue;
       if (vue?.$watch) {
         for (const prop of ["zoom", "inner_left", "inner_top"]) {
@@ -3540,6 +3541,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       document.removeEventListener("mousemove", this.handleMouseMove);
       document.removeEventListener("mouseup", this.handleMouseUp);
       document.removeEventListener("keydown", this.handleKeyDown);
+      Blockbench.removeListener("resize_window", this.updateDisplay);
       this.unwatchers.forEach((fn) => fn());
       this.unwatchers = [];
     }
@@ -3638,11 +3640,21 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     cropTool = new UVCropTool(() => {
       resizeToggle?.set(false);
     });
+    let originalReverseSelect = UVEditor.reverseSelect;
+    UVEditor.reverseSelect = function(...args) {
+      if (cropTool.active) return;
+      originalReverseSelect.call(UVEditor, ...args);
+    };
+    track({
+      delete() {
+        UVEditor.reverseSelect = originalReverseSelect;
+      }
+    });
     resizeToggle = new Toggle("hytale_resize_uv_canvas", {
       name: "Resize UV Canvas",
       icon: "crop",
       category: "uv",
-      condition: { formats: FORMAT_IDS },
+      condition: { formats: FORMAT_IDS, modes: ["edit"] },
       onChange: (value) => {
         if (value) {
           cropTool?.activate();
@@ -3653,7 +3665,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     });
     track(resizeToggle);
     Toolbars.uv_editor?.add(resizeToggle, 0);
-    track(Blockbench.on("select_project", () => {
+    track(Blockbench.on("select_mode", () => {
       cropTool?.deactivate();
       resizeToggle?.set(false);
     }));

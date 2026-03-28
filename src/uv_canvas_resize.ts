@@ -91,7 +91,7 @@ class UVCropTool {
     private dragStart = { x: 0, y: 0 };
     private boundsStart: CropBounds = { left: 0, top: 0, right: 0, bottom: 0 };
     private texture: Texture | null = null;
-    private active = false;
+    public active = false;
     private unwatchers: (() => void)[] = [];
     private onDeactivate: (() => void) | null = null;
 
@@ -166,7 +166,7 @@ class UVCropTool {
 
     private hideQuickMessage() {
         const el = document.getElementById('quick_message_box');
-        if (el) el.style.display = 'none';
+        if (el) el.remove();
     }
 
     private removeOverlay() {
@@ -389,6 +389,7 @@ class UVCropTool {
         this.overlay?.addEventListener('mousedown', this.handleMouseDown);
         this.uvFrame?.addEventListener('wheel', () => this.updateDisplay());
         document.addEventListener('keydown', this.handleKeyDown);
+        Blockbench.on('resize_window', this.updateDisplay.bind(this));
 
         const vue = UVEditor.vue as any;
         if (vue?.$watch) {
@@ -405,6 +406,7 @@ class UVCropTool {
         document.removeEventListener('mousemove', this.handleMouseMove);
         document.removeEventListener('mouseup', this.handleMouseUp);
         document.removeEventListener('keydown', this.handleKeyDown);
+        Blockbench.removeListener('resize_window', this.updateDisplay);
         this.unwatchers.forEach(fn => fn());
         this.unwatchers = [];
     }
@@ -538,11 +540,22 @@ export function setupUVCanvasResize() {
         resizeToggle?.set(false);
     });
 
+    let originalReverseSelect = UVEditor.reverseSelect;
+    UVEditor.reverseSelect = function(...args) {
+        if (cropTool.active) return;
+        originalReverseSelect.call(UVEditor, ...args);
+    }
+    track({
+        delete() {
+            UVEditor.reverseSelect = originalReverseSelect;
+        }
+    })
+
     resizeToggle = new Toggle('hytale_resize_uv_canvas', {
         name: 'Resize UV Canvas',
         icon: 'crop',
         category: 'uv',
-        condition: { formats: FORMAT_IDS },
+        condition: { formats: FORMAT_IDS, modes: ['edit'] },
         onChange: (value) => {
             if (value) {
                 cropTool?.activate();
@@ -555,7 +568,7 @@ export function setupUVCanvasResize() {
 
     (Toolbars as any).uv_editor?.add(resizeToggle, 0);
 
-    track(Blockbench.on('select_project', () => {
+    track(Blockbench.on('select_mode', () => {
         cropTool?.deactivate();
         resizeToggle?.set(false);
     }));

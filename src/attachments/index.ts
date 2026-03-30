@@ -5,6 +5,7 @@ import { setupAttachmentTextures } from "./texture";
 import { setupDelete } from "./delete";
 import { setupImport } from "./import";
 import { setupCreateAttachment } from "./create";
+import { setupAddToAttachment } from "./add_to";
 import { setupAttachmentValidation } from "./validation";
 
 export { AttachmentCollection } from "./texture";
@@ -15,5 +16,6 @@ export function setupAttachments() {
 	setupDelete();
 	setupImport();
 	setupCreateAttachment();
+	setupAddToAttachment();
 	setupAttachmentValidation();
 }

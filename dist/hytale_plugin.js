@@ -1575,7 +1575,7 @@
   }
   function setupCreateAttachment() {
     let create_attachment = new Action("create_hytale_attachment", {
-      name: "Create Attachment",
+      name: "Create Attachment from Selection",
       icon: "fa-object-group",
       category: "file",
       condition: () => Modes.edit && isHytaleFormat() && getSelectedRootGroups().length > 0,
@@ -1664,6 +1664,95 @@
       }
     });
     track(create_attachment);
+    Panels.collections.toolbars[0].add(create_attachment);
+  }
+
+  // src/attachments/add_to.ts
+  function getSelectedAttachmentCollections() {
+    return Collection.selected.filter((c) => c.export_codec === "blockymodel");
+  }
+  function getSelectedRootGroups2() {
+    let selected2 = Group.all.filter((g) => g.selected);
+    selected2 = selected2.filter((g) => !Collection.all.some((c) => c.export_codec === "blockymodel" && c.contains(g)));
+    return selected2.filter((group) => {
+      let parent = group.parent;
+      while (parent instanceof Group) {
+        if (selected2.includes(parent)) return false;
+        parent = parent.parent;
+      }
+      return true;
+    });
+  }
+  function addGroupsToAttachment(attachmentName, selectedGroups, collection) {
+    let wrappersByParent = /* @__PURE__ */ new Map();
+    let newRoots = [];
+    for (let group of selectedGroups) {
+      let parent = group.parent;
+      if (parent instanceof Group) {
+        let wrapper = wrappersByParent.get(parent);
+        if (!wrapper) {
+          let referenceNode = getMainShape(parent) ?? parent;
+          wrapper = new Group({
+            name: attachmentName + ":" + parent.name,
+            autouv: 1,
+            origin: referenceNode.origin.slice(),
+            rotation: [0, 0, 0],
+            visibility: true
+          });
+          wrapper.addTo(parent);
+          wrapper.init();
+          wrapper.extend({
+            is_piece: true,
+            original_position: [0, 0, 0],
+            original_offset: [0, 0, 0]
+          });
+          wrapper.color = 1;
+          wrappersByParent.set(parent, wrapper);
+          newRoots.push(wrapper);
+        }
+        group.addTo(wrapper);
+      } else {
+        group.name = attachmentName + ":" + group.name;
+        group.color = 1;
+        newRoots.push(group);
+      }
+    }
+    for (let root of newRoots) {
+      collection.children.push(root.uuid);
+    }
+    return newRoots;
+  }
+  function setupAddToAttachment() {
+    let add_to_attachment = new Action("add_to_hytale_attachment", {
+      name: "Add to Attachment",
+      icon: "box_add",
+      category: "file",
+      condition: () => Modes.edit && isHytaleFormat() && getSelectedRootGroups2().length > 0 && getSelectedAttachmentCollections().length > 0,
+      click() {
+        let collections = getSelectedAttachmentCollections();
+        let selectedGroups = getSelectedRootGroups2();
+        if (selectedGroups.length === 0) return;
+        Undo.initEdit({
+          collections,
+          groups: selectedGroups,
+          outliner: true
+        });
+        let allNewWrappers = [];
+        for (let collection of collections) {
+          let newRoots = addGroupsToAttachment(collection.name, selectedGroups, collection);
+          let newWrapperGroups = newRoots.filter((g) => !selectedGroups.includes(g));
+          allNewWrappers.push(...newWrapperGroups);
+        }
+        Undo.finishEdit("Add to attachment", {
+          collections,
+          groups: [...selectedGroups, ...allNewWrappers],
+          outliner: true
+        });
+        Canvas.updateAllFaces();
+      }
+    });
+    track(add_to_attachment);
+    Panels.collections.toolbars[0].add(add_to_attachment);
   }
 
   // src/attachments/validation.ts
@@ -1799,6 +1888,7 @@
     setupDelete();
     setupImport();
     setupCreateAttachment();
+    setupAddToAttachment();
     setupAttachmentValidation();
   }
 

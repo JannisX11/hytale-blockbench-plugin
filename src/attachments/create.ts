@@ -122,7 +122,7 @@ function loadTexturesFromFolder(folderPath: string): Texture[] {
 
 export function setupCreateAttachment() {
 	let create_attachment = new Action('create_hytale_attachment', {
-		name: 'Create Attachment',
+		name: 'Create Attachment from Selection',
 		icon: 'fa-object-group',
 		category: 'file',
 		condition: () => Modes.edit && isHytaleFormat() && getSelectedRootGroups().length > 0,
@@ -233,4 +233,5 @@ export function setupCreateAttachment() {
 		}
 	});
 	track(create_attachment);
+	Panels.collections.toolbars[0].add(create_attachment);
 }

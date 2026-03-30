@@ -84,7 +84,7 @@ function addGroupsToAttachment(attachmentName: string, selectedGroups: Group[], 
 
 export function setupAddToAttachment() {
 	let add_to_attachment = new Action('add_to_hytale_attachment', {
-		name: 'Add to Attachment',
+		name: 'Add Selection to Attachment',
 		icon: 'box_add',
 		category: 'file',
 		condition: () => Modes.edit && isHytaleFormat() && getSelectedRootGroups().length > 0 && getSelectedAttachmentCollections().length > 0,

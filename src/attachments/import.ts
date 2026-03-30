@@ -5,8 +5,29 @@ import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
 import { discoverTexturePaths } from "../blockymodel";
 import { AttachmentCollection, processAttachmentTextures } from "./texture";
+import { watchCollection } from "./watcher";
 
 export let reload_all_attachments: Action;
+
+export function reloadAttachment(collection: Collection) {
+	for (let child of collection.getChildren()) {
+		child.remove();
+	}
+
+	Filesystem.readFile([collection.export_path], {}, ([file]) => {
+		let json = autoParseJSON(file.content as string);
+		let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: collection.name});
+
+		let new_groups = content.new_groups as Group[];
+		let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));
+
+		collection.extend({
+			children: root_groups.map(g => g.uuid),
+		}).add();
+
+		Canvas.updateAllFaces();
+	})
+}
 
 export function setupImport() {
 	let import_as_attachment = new Action('import_as_hytale_attachment', {
@@ -54,6 +75,7 @@ export function setupImport() {
 					}
 
 					Canvas.updateAllFaces();
+					watchCollection(collection);
 				}
 			})
 		}
@@ -62,26 +84,6 @@ export function setupImport() {
 	let toolbar = Panels.collections.toolbars[0];
 	toolbar.add(import_as_attachment);
 	MenuBar.menus.file.addAction(import_as_attachment, 'import');
-
-	function reloadAttachment(collection: Collection) {
-		for (let child of collection.getChildren()) {
-			child.remove();
-		}
-
-		Filesystem.readFile([collection.export_path], {}, ([file]) => {
-			let json = autoParseJSON(file.content as string);
-			let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: collection.name});
-
-			let new_groups = content.new_groups as Group[];
-			let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));
-
-			collection.extend({
-				children: root_groups.map(g => g.uuid),
-			}).add();
-
-			Canvas.updateAllFaces();
-		})
-	}
 
 	let reload_attachment_action = new Action('reload_hytale_attachment', {
 		name: 'Reload Attachment',

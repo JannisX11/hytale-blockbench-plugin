@@ -3,6 +3,7 @@
 
 import { track } from "../cleanup";
 import { isHytaleFormat } from "../formats";
+import { unwatchCollection } from "./watcher";
 
 export function setupDelete() {
 	let shared_delete = SharedActions.add('delete', {
@@ -42,7 +43,10 @@ export function setupDelete() {
 				textures,
 			});
 
-			collections.forEach(c => Collection.all.remove(c));
+			collections.forEach(c => {
+				unwatchCollection(c);
+				Collection.all.remove(c);
+			});
 			collections.empty();
 
 			textures.forEach(t => t.remove(true));

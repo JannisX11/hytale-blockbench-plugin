@@ -6,6 +6,7 @@ import { track } from "./cleanup"
 import { Config } from "./config"
 import { FORMAT_IDS } from "./formats"
 import { cubeIsQuad, getMainShape, qualifiesAsMainShape } from "./util"
+import { markSelfWrite } from "./attachments/watcher"
 
 type BlockymodelJSON = {
 	nodes: BlockymodelNode[]
@@ -843,12 +844,14 @@ export function setupBlockymodelCodec(): Codec {
 		},
 		async exportCollection(collection: Collection) {
 			this.context = collection;
+			if (collection.export_path) markSelfWrite(collection.export_path);
 			await this.export({attachment: collection});
 			if ("saved" in collection) collection.saved = true;
 			this.context = null;
 		},
 		async writeCollection(collection: Collection) {
 			this.context = collection;
+			if (collection.export_path) markSelfWrite(collection.export_path);
 			this.write(this.compile({attachment: collection}), collection.export_path);
 			if ("saved" in collection) collection.saved = true;
 			this.context = null;
@@ -871,6 +874,7 @@ export function setupBlockymodelCodec(): Codec {
 	
 	let hook = Blockbench.on('quick_save_model', () => {
 		if (FORMAT_IDS.includes(Format.id) == false) return;
+		if (Project.export_path) markSelfWrite(Project.export_path);
 		for (let collection of Collection.all) {
 			if (collection.export_codec != codec.id) continue;
 			codec.writeCollection(collection);

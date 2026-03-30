@@ -3491,19 +3491,36 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
   }
 
   // src/change_orientation.ts
+  function canChangeParentGroup(cube) {
+    let parent = cube.parent;
+    if (parent instanceof Group == false || !parent.selected) return false;
+    if (parent.children.find((c) => c instanceof Cube == false || !c.selected)) return false;
+    return true;
+  }
   function changeCubeOrientation(axis, direction) {
-    Undo.initEdit({ elements: Cube.selected });
+    let affected_groups = [];
+    let changed_groups = [];
+    for (let cube of Cube.selected) {
+      if (canChangeParentGroup(cube)) affected_groups.safePush(cube.parent);
+    }
+    Undo.initEdit({ elements: Cube.selected, groups: affected_groups });
     for (let cube of Cube.selected) {
       let flip_direction = direction == -1;
       if (axis == 1) flip_direction = !flip_direction;
-      let quat_initial = Reusable.quat2.copy(cube.mesh.quaternion);
-      cube.roll(axis, flip_direction ? 3 : 1, cube.origin);
+      let node_to_rotate = canChangeParentGroup(cube) ? cube.parent : cube;
+      let quat_initial = Reusable.quat2.copy(node_to_rotate.mesh.quaternion);
+      cube.roll(axis, flip_direction ? 3 : 1, node_to_rotate.origin);
+      if (changed_groups.includes(node_to_rotate)) {
+        continue;
+      } else if (node_to_rotate instanceof Group) {
+        changed_groups.push(node_to_rotate);
+      }
       let change_euler = Reusable.euler1.set(0, 0, 0);
       change_euler[getAxisLetter(axis)] = Math.degToRad(-direction * 90);
-      cube.mesh.quaternion.multiplyQuaternions(quat_initial, Reusable.quat1.setFromEuler(change_euler));
-      let new_rotation = cube.mesh.rotation.toArray().slice(0, 3).map((r) => Math.radToDeg(r));
-      cube.rotation.V3_set(new_rotation.map((r) => Math.roundTo(r, 2)));
-      Cube.preview_controller.updateTransform(cube);
+      node_to_rotate.mesh.quaternion.multiplyQuaternions(quat_initial, Reusable.quat1.setFromEuler(change_euler));
+      let new_rotation = node_to_rotate.mesh.rotation.toArray().slice(0, 3).map((r) => Math.radToDeg(r));
+      node_to_rotate.rotation.V3_set(new_rotation.map((r) => Math.roundTo(r, 2)));
+      node_to_rotate.preview_controller.updateTransform(node_to_rotate);
     }
     ;
     Undo.finishEdit("Change cube orientation");
@@ -3511,7 +3528,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
   }
   function setupChangeOrientation() {
     let action = new Action("change_cube_orientation", {
-      name: "Change Cube Orientation",
+      name: "Change Orientation",
       icon: "screen_rotation_up",
       condition: { modes: ["edit"], selected: { cube: true } },
       children: [

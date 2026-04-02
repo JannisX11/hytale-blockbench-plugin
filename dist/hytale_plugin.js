@@ -1067,7 +1067,7 @@
         let timeline;
         let hytale_channel_key = channels[channel];
         timeline = timeline = node_data[hytale_channel_key] = [];
-        let keyframe_list = animator[channel].slice();
+        let keyframe_list = animator[channel] && Array.isArray(animator[channel]) ? animator[channel].slice() : [];
         keyframe_list.sort((a, b) => a.time - b.time);
         for (let kf of keyframe_list) {
           let data_point = kf.data_points[0];
@@ -1656,7 +1656,7 @@
       }
       return original_display_scale.call(this, array, multiplier);
     };
-    if (Blockbench.isOlderThan("5.1.0-beta.4")) {
+    if (Blockbench.isOlderThan("5.1.0")) {
       BoneAnimator.prototype.displayRotation = function displayRotation(array, multiplier = 1) {
         if (isHytaleFormat() && array) {
           let bone = this.group.scene_object;
@@ -2095,7 +2095,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.8.4",
+    version: "0.8.5",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
@@ -2125,10 +2125,10 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     track(setting);
     let shared_copy = SharedActions.add("copy", {
       subject: "image_content_photoshop",
-      condition: () => Prop.active_panel == "uv" && Modes.paint && Texture.getDefault() && FORMAT_IDS.includes(Format.id) && setting.value == true,
+      condition: () => Prop.active_panel == "uv" && Modes.paint && UVEditor.texture && FORMAT_IDS.includes(Format.id) && setting.value == true,
       priority: 2,
       run(event, cut) {
-        let texture = Texture.getDefault();
+        let texture = UVEditor.texture;
         let selection = texture.selection;
         let { canvas, ctx, offset } = texture.getActiveCanvas();
         if (selection.override != null) {
@@ -2184,10 +2184,10 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     track(shared_copy);
     let shared_paste = SharedActions.add("paste", {
       subject: "image_content_photoshop",
-      condition: () => Prop.active_panel == "uv" && Modes.paint && Texture.getDefault() && FORMAT_IDS.includes(Format.id) && setting.value == true,
+      condition: () => Prop.active_panel == "uv" && Modes.paint && UVEditor.texture && FORMAT_IDS.includes(Format.id) && setting.value == true,
       priority: 2,
       run(event) {
-        let texture = Texture.getDefault();
+        let texture = UVEditor.texture;
         async function loadFromDataUrl(data_url) {
           let frame = new CanvasFrame();
           await frame.loadFromURL(data_url);

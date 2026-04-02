@@ -21,10 +21,10 @@ export function setupPhotoshopTools() {
 
     let shared_copy = SharedActions.add('copy', {
         subject: 'image_content_photoshop',
-        condition: () => Prop.active_panel == 'uv' && Modes.paint && Texture.getDefault() && FORMAT_IDS.includes(Format.id) && setting.value == true,
+        condition: () => Prop.active_panel == 'uv' && Modes.paint && UVEditor.texture && FORMAT_IDS.includes(Format.id) && setting.value == true,
         priority: 2,
         run(event, cut) {
-            let texture = Texture.getDefault();
+            let texture = UVEditor.texture;
             let selection = texture.selection;
 
             let {canvas, ctx, offset} = texture.getActiveCanvas();
@@ -89,11 +89,11 @@ export function setupPhotoshopTools() {
     track(shared_copy);
     let shared_paste = SharedActions.add('paste', {
         subject: 'image_content_photoshop',
-        condition: () => Prop.active_panel == 'uv' && Modes.paint && Texture.getDefault() && FORMAT_IDS.includes(Format.id) && setting.value == true,
+        condition: () => Prop.active_panel == 'uv' && Modes.paint && UVEditor.texture && FORMAT_IDS.includes(Format.id) && setting.value == true,
         priority: 2,
         run(event) {
 
-            let texture = Texture.getDefault();
+            let texture = UVEditor.texture;
 
             async function loadFromDataUrl(data_url: string) {
                 let frame = new CanvasFrame();

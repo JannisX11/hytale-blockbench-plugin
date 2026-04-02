@@ -65,6 +65,9 @@ export function setupAnimation() {
         if (!cube) return;
 
         let updateUV = (offset?: number[]) => {
+            if (offset) {
+                offset = offset.map(v => Math.round(v));
+            }
 
             // Optimize
             if (!offset || (!offset[0] && !offset[1])) {
@@ -185,21 +188,23 @@ export function setupAnimation() {
         
         return original_display_scale.call(this, array, multiplier);
     }
-    BoneAnimator.prototype.displayRotation = function displayRotation(array, multiplier = 1) {
-        if (isHytaleFormat() && array) {
-		    let bone = this.group.scene_object;
-			let euler = Reusable.euler1.set(
-				Math.degToRad(array[0]) * multiplier,
-				Math.degToRad(array[1]) * multiplier,
-				Math.degToRad(array[2]) * multiplier,
-				bone.rotation.order
-			)
-			let q2 = Reusable.quat2.setFromEuler(euler);
-			bone.quaternion.multiply(q2);
-			return this;
+    if (Blockbench.isOlderThan('5.1.0-beta.4')) {
+        BoneAnimator.prototype.displayRotation = function displayRotation(array, multiplier = 1) {
+            if (isHytaleFormat() && array) {
+                let bone = this.group.scene_object;
+                let euler = Reusable.euler1.set(
+                    Math.degToRad(array[0]) * multiplier,
+                    Math.degToRad(array[1]) * multiplier,
+                    Math.degToRad(array[2]) * multiplier,
+                    bone.rotation.order
+                )
+                let q2 = Reusable.quat2.setFromEuler(euler);
+                bone.quaternion.multiply(q2);
+                return this;
+            }
+            
+            return original_display_rotation.call(this, array, multiplier);
         }
-        
-        return original_display_rotation.call(this, array, multiplier);
     }
     Animator.showDefaultPose = function(reduced_updates, ...args) {
         original_show_default_pose(reduced_updates, ...args);
@@ -212,8 +217,44 @@ export function setupAnimation() {
     track({
         delete() {
             BoneAnimator.prototype.displayScale = original_display_scale;
-            BoneAnimator.prototype.displayRotation = original_display_rotation;
+            if (Blockbench.isOlderThan('5.1.0-beta.4')) {
+                BoneAnimator.prototype.displayRotation = original_display_rotation;
+            }
             Animator.showDefaultPose = original_show_default_pose;
         }
     })
+
+    // Warning if no default shape
+    const per_shape_channels = new Set(['scale', 'visibility', 'uv_offset']);
+    const on_init_edit = Blockbench.on('init_edit', arg => {
+        if (arg.aspects.keyframes?.length == 1 && per_shape_channels.has(arg.aspects.keyframes[0].channel)) {
+            let kf = arg.aspects.keyframes[0];
+            let group = (kf.animator as BoneAnimator).group;
+            if (!group.name) return;
+            let shape = getMainShape(group);
+            if (shape) return;
+            if (document.getElementById('toast_notification_list').children.length) return;
+
+            Blockbench.showToastNotification({
+                // @ts-expect-error
+                id: 'hytale_no_connected_shape_toast',
+                text: `The group "${group.name}" has no connected shape, so the ${kf.channel} animation will not apply. Click to learn more.`,
+                icon: 'fa-cube',
+                expire: 20*1000,
+                click: () => {
+                    Blockbench.showMessageBox({
+                        title: 'No connected shape',
+                        icon: 'info',
+                        width: 500,
+                        message: `Scale, visibility, and UV animations only apply to one cube that's directly connected to the group. No shape is directly connected to this group.`
+                        + '\n\nFor Hytale, the first cube inside a group qualifies as directly connected if it matches the following criteria:'
+                        + '\n* The cube must be directly parented to the group'
+                        + '\n* The rotation value of the cube itself must be 0'
+                    });
+                    return true;
+                }
+            });
+        }
+    });
+    track(on_init_edit);
 }

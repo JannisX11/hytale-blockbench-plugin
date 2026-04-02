@@ -48,6 +48,7 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 
 		let ba = new BoneAnimator(uuid, animation, group_name);
 		animation.animators[uuid] = ba;
+		ba.group = group;
 
 		//Channels
 		const anim_channels = [
@@ -90,12 +91,15 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 						}
 					}
 				}
-				ba.addKeyframe({
+				let kf = ba.addKeyframe({
 					time: kf_data.time / FPS,
 					channel,
 					interpolation: kf_data.interpolationType == 'smooth' ? 'catmullrom' : 'linear',
 					data_points: [data_point]
 				});
+				if (channel == 'scale') {
+					kf.uniform = data_point.x == data_point.y && data_point.x == data_point.z;
+				}
 			}
 		}
 
@@ -126,7 +130,6 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 	}
 	for (let uuid in animation.animators) {
 		let animator = animation.animators[uuid];
-		if (!animator.group) continue;
 		let name = animator.name;
 		let node_data: IAnimationObject = {};
 		let has_data = false;
@@ -135,7 +138,9 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 			let timeline: IKeyframe[];
 			let hytale_channel_key = channels[channel];
 			timeline = timeline = node_data[hytale_channel_key] = [];
-			let keyframe_list = (animator[channel].slice() as _Keyframe[]);
+			let keyframe_list = (animator[channel] && Array.isArray(animator[channel]))
+            ? animator[channel].slice()
+            : [];
 			keyframe_list.sort((a, b) => a.time - b.time);
 			for (let kf of keyframe_list) {
 				let data_point = kf.data_points[0];
@@ -144,8 +149,8 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 					delta = data_point.visibility;
 				} else if (channel == 'uv_offset') {
 					delta = {
-						x: parseFloat(data_point.x),
-						y: -parseFloat(data_point.y),
+						x: Math.round(parseFloat(data_point.x)),
+						y: -Math.round(parseFloat(data_point.y)),
 					};
 					delta = new oneLiner(delta);
 				} else {
@@ -221,7 +226,6 @@ export function setupAnimationCodec() {
 		condition: {formats: FORMAT_IDS, selected: {animation: true}},
 		click() {
 			let animation: _Animation;
-			// @ts-ignore
 			animation = Animation.selected;
 			let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
 			Filesystem.exportFile({
@@ -257,7 +261,6 @@ export function setupAnimationCodec() {
 		}
 
 		let animation: _Animation;
-		// @ts-ignore
 		animation = this;
 		let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
 
@@ -306,4 +309,13 @@ export function setupAnimationCodec() {
 			BarItems.export_animation_file.condition = original_condition;
 		}
 	});
+
+	let setting = new Setting('auto_load_hytale_animations', {
+        name: 'Auto-load Hytale Animations',
+        description: 'Automatically load blockyanim files when opening a Hytale model',
+        category: 'edit',
+        type: 'toggle',
+        value: true
+    })
+    track(setting);
 }

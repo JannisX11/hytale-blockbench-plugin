@@ -126,6 +126,7 @@ export function setupAttachments() {
 	track(import_as_attachment);
 	let toolbar = Panels.collections.toolbars[0];
 	toolbar.add(import_as_attachment);
+	MenuBar.menus.file.addAction(import_as_attachment, 'import');
 
 	function reloadAttachment(collection: Collection) {
 		for (let child of collection.getChildren()) {
@@ -150,7 +151,7 @@ export function setupAttachments() {
 	let reload_attachment_action = new Action('reload_hytale_attachment', {
 		name: 'Reload Attachment',
 		icon: 'refresh',
-		condition: () => Collection.selected.length && Modes.edit,
+		condition: () => Collection.selected.length && Modes.edit && isHytaleFormat(),
 		click() {
 			for (let collection of Collection.selected) {
 				reloadAttachment(collection);

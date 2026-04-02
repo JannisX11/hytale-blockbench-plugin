@@ -26,7 +26,7 @@ export function setupNameOverlap() {
 
     // Bones with same names
     Blockbench.on('finish_edit', (arg) => {
-        if (arg.aspects.keyframes && Animation.selected) {
+        if (isHytaleFormat() && arg.aspects.keyframes && Animation.selected) {
             let changes = false;
             let groups: Record<string, Group[]> = {};
             if (Timeline.selected_animator) {
@@ -98,7 +98,6 @@ export function setupNameOverlap() {
     })
     let override = Group.addBehaviorOverride({
         condition: () => isHytaleFormat() && setting.value == true,
-        // @ts-ignore
         priority: 2,
         behavior: {
             unique_name: false

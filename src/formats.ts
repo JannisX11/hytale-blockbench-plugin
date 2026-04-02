@@ -1,6 +1,7 @@
 //! Copyright (C) 2025 Hypixel Studios Canada inc.
 //! Licensed under the GNU General Public License, see LICENSE.MD
 
+import { FormatOptions, FormatPage } from "blockbench-types/generated/io/format";
 import { setupBlockymodelCodec } from "./blockymodel";
 import { track } from "./cleanup";
 
@@ -31,7 +32,6 @@ export function setupFormats() {
         uv_rotation: true,
         rotate_cubes: true,
         per_texture_uv_size: true,
-        // @ts-ignore
         texture_wrap_default: 'clamp',
         stretch_cubes: true,
         model_identifier: false,

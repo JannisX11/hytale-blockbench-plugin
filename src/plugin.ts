@@ -19,6 +19,7 @@ import { setupUVOutline } from "./uv_outline";
 import { setupTempFixes } from './temp_fixes'
 import { setupPreviewScenes } from "./preview_scenes";
 import { setupUVCanvasResize } from "./uv_canvas_resize";
+import { setupAltDuplicate } from "./alt_duplicate";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -34,7 +35,6 @@ BBPlugin.register('hytale_plugin', {
 	creation_date: "2025-12-22",
     contributes: {
         formats: FORMAT_IDS,
-        // @ts-expect-error
         open_extensions: ['blockymodel']
     },
     repository: 'https://github.com/JannisX11/hytale-blockbench-plugin',
@@ -52,6 +52,7 @@ BBPlugin.register('hytale_plugin', {
         setupPhotoshopTools();
         setupUVCycling();
         setupTextureHandling();
+        setupAltDuplicate();
         setupNameOverlap();
         setupUVOutline();
         setupTempFixes();

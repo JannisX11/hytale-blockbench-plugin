@@ -114,6 +114,16 @@ export function setupElements() {
 	});
 	track(is_piece_property);
 
+	let original_position_property = new Property(Group, 'vector', 'original_position', {
+		condition: {formats: FORMAT_IDS},
+	});
+	track(original_position_property);
+
+	let original_offset_property = new Property(Group, 'vector', 'original_offset', {
+		condition: {formats: FORMAT_IDS},
+	});
+	track(original_offset_property);
+
 	let add_quad_action = new Action('hytale_add_quad', {
 		name: 'Add Quad',
 		icon: 'highlighter_size_5',

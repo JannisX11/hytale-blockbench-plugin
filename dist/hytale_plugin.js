@@ -2092,6 +2092,109 @@
     });
   }
 
+  // src/attachments/detach.ts
+  function findAttachmentCollection(group) {
+    return Collection.all.find((c) => c.export_codec === "blockymodel" && c.contains(group));
+  }
+  function findPieceWrapper(group, collection) {
+    let current = group;
+    while (current instanceof Group) {
+      if (current.is_piece && collection.children.includes(current.uuid)) {
+        return current;
+      }
+      current = current.parent;
+    }
+    return void 0;
+  }
+  function setupDetachFromAttachment() {
+    let detach_action = new Action("detach_from_hytale_attachment", {
+      name: "Detach from Attachment",
+      icon: "move_up",
+      category: "edit",
+      condition: () => {
+        if (!Modes.edit || !isHytaleFormat()) return false;
+        let group = Group.first_selected;
+        if (!group) return false;
+        return !!findAttachmentCollection(group);
+      },
+      click() {
+        let selectedGroups = Group.all.filter((g) => g.selected);
+        selectedGroups = selectedGroups.filter((g) => findAttachmentCollection(g));
+        if (selectedGroups.length === 0) return;
+        selectedGroups = selectedGroups.filter((group) => {
+          let parent = group.parent;
+          while (parent instanceof Group) {
+            if (selectedGroups.includes(parent)) return false;
+            parent = parent.parent;
+          }
+          return true;
+        });
+        let allElements = [];
+        let allGroups = [];
+        let affectedCollections = [];
+        for (let group of selectedGroups) {
+          let collection = findAttachmentCollection(group);
+          affectedCollections.safePush(collection);
+          allGroups.safePush(group);
+          group.forEachChild((obj) => {
+            if (obj instanceof Group) allGroups.safePush(obj);
+            else allElements.safePush(obj);
+          }, Group, true);
+          let wrapper = findPieceWrapper(group, collection);
+          if (wrapper) allGroups.safePush(wrapper);
+        }
+        Undo.initEdit({
+          collections: affectedCollections,
+          groups: allGroups,
+          elements: allElements,
+          outliner: true
+        });
+        for (let group of selectedGroups) {
+          let collection = findAttachmentCollection(group);
+          let wrapper = findPieceWrapper(group, collection);
+          if (wrapper && wrapper !== group) {
+            let wrapperParent = wrapper.parent;
+            let insertIndex = wrapper.getParentArray().indexOf(wrapper);
+            group.addTo(wrapperParent, insertIndex);
+            if (wrapper.children.length === 0) {
+              collection.children.remove(wrapper.uuid);
+              wrapper.remove(false);
+            }
+          } else if (wrapper === group) {
+            collection.children.remove(group.uuid);
+            let children = group.children.slice();
+            let parent = group.parent;
+            let insertIndex = group.getParentArray().indexOf(group);
+            for (let child of children) {
+              child.addTo(parent, insertIndex);
+            }
+            group.remove(false);
+          } else {
+            collection.children.remove(group.uuid);
+            let prefix = collection.name + ":";
+            if (group.name.startsWith(prefix)) {
+              group.name = group.name.substring(prefix.length);
+            }
+            group.color = 0;
+          }
+          if (collection.children.length === 0) {
+            Collection.all.remove(collection);
+          }
+        }
+        Canvas.updateAllPositions();
+        Undo.finishEdit("Detach from attachment");
+        updateSelection();
+      }
+    });
+    track(detach_action);
+    Group.prototype.menu.addAction(detach_action, "#manage");
+    track({
+      delete() {
+        Group.prototype.menu.removeAction(detach_action);
+      }
+    });
+  }
+
   // src/attachments/index.ts
   function setupCollectionDoubleClick() {
     let originalPropertiesDialog = Collection.prototype.propertiesDialog;
@@ -2117,6 +2220,7 @@
     setupImport();
     setupCreateAttachment();
     setupAddToAttachment();
+    setupDetachFromAttachment();
     setupAttachmentValidation();
     setupAttachmentWatcher();
     setupCollectionDoubleClick();

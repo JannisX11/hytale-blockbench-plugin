@@ -10,6 +10,7 @@ import { setupCreateAttachment } from "./create";
 import { setupAddToAttachment } from "./add_to";
 import { setupAttachmentValidation } from "./validation";
 import { setupAttachmentWatcher } from "./watcher";
+import { setupDetachFromAttachment } from "./detach";
 
 export { AttachmentCollection } from "./texture";
 export { reload_all_attachments, reloadAttachment } from "./import";
@@ -40,6 +41,7 @@ export function setupAttachments() {
 	setupImport();
 	setupCreateAttachment();
 	setupAddToAttachment();
+	setupDetachFromAttachment();
 	setupAttachmentValidation();
 	setupAttachmentWatcher();
 	setupCollectionDoubleClick();

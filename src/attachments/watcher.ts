@@ -101,6 +101,24 @@ function promptProjectReload(project: ModelProject) {
 	});
 }
 
+// Store compiled JSON snapshots and re-parse on undo/redo instead of using BB's object-level undo
+export function pushReloadUndo(beforeJson: any, afterJson: any, message: string, restore: (json: any) => void) {
+	let entry: any = {
+		before: { load: () => restore(beforeJson) },
+		post:   { load: () => restore(afterJson) },
+		action: message,
+		type: 'edit',
+		time: Date.now()
+	};
+
+	if (Undo.history.length > Undo.index) Undo.history.length = Undo.index;
+	Undo.history.push(entry);
+	if (Undo.history.length > (settings as any).undo_limit.value) Undo.history.shift();
+	Undo.index = Undo.history.length;
+	Project.saved = false;
+	Blockbench.dispatchEvent('finished_edit', {aspects: {}, message});
+}
+
 function reloadProject(project: ModelProject) {
 	let path = project.export_path;
 	if (!path) return;
@@ -110,18 +128,21 @@ function reloadProject(project: ModelProject) {
 
 	project.select();
 
-	// Clear existing geometry and textures
+	let beforeJson = Codecs.blockymodel.compile({raw: true});
+
 	for (let node of [...Outliner.root]) {
 		if (node instanceof OutlinerNode) node.remove();
 	}
-	for (let tex of [...Texture.all]) tex.remove();
-	for (let tg of [...TextureGroup.all]) tg.remove();
-	for (let col of [...Collection.all]) Collection.all.remove(col);
+	let afterJson = autoParseJSON(fs.readFileSync(path, 'utf-8'));
+	Codecs.blockymodel.parse(afterJson, path);
 
-	// Re-parse in place
-	let content = fs.readFileSync(path, 'utf-8');
-	let json = autoParseJSON(content);
-	Codecs.blockymodel.parse(json, path);
+	pushReloadUndo(beforeJson, afterJson, 'Reload project', (json) => {
+		for (let node of [...Outliner.root]) {
+			if (node instanceof OutlinerNode) node.remove();
+		}
+		Codecs.blockymodel.parse(json, path);
+		Canvas.updateAll();
+	});
 
 	Canvas.updateAll();
 }

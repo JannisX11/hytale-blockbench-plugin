@@ -5,28 +5,40 @@ import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
 import { discoverTexturePaths } from "../blockymodel";
 import { AttachmentCollection, processAttachmentTextures } from "./texture";
-import { watchCollection } from "./watcher";
+import { pushReloadUndo, watchCollection } from "./watcher";
 
 export let reload_all_attachments: Action;
 
 export function reloadAttachment(collection: Collection) {
-	for (let child of collection.getChildren()) {
-		child.remove();
-	}
+	let path = collection.export_path;
+	if (!path) return;
 
-	Filesystem.readFile([collection.export_path], {}, ([file]) => {
-		let json = autoParseJSON(file.content as string);
-		let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: collection.name});
+	let fs = requireNativeModule('fs');
+	if (!fs.existsSync(path)) return;
 
-		let new_groups = content.new_groups as Group[];
-		let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));
+	let beforeJson = Codecs.blockymodel.compile({attachment: collection, raw: true});
 
-		collection.extend({
-			children: root_groups.map(g => g.uuid),
-		}).add();
+	for (let child of collection.getChildren()) child.remove();
+	let afterJson = autoParseJSON(fs.readFileSync(path, 'utf-8'));
+	parseAttachmentJson(collection, afterJson, path);
 
-		Canvas.updateAllFaces();
-	})
+	pushReloadUndo(
+		beforeJson, afterJson, 'Reload attachment',
+		(json) => {
+			for (let child of collection.getChildren()) child.remove();
+			parseAttachmentJson(collection, json, path);
+			Canvas.updateAllFaces();
+		}
+	);
+
+	Canvas.updateAllFaces();
+}
+
+function parseAttachmentJson(collection: Collection, json: any, path: string) {
+	let result: any = Codecs.blockymodel.parse(json, path, {attachment: collection.name});
+	let new_groups = result.new_groups as Group[];
+	let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));
+	collection.extend({ children: root_groups.map(g => g.uuid) }).add();
 }
 
 export function setupImport() {

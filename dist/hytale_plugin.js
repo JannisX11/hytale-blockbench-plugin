@@ -165,19 +165,31 @@
   // src/attachments/import.ts
   var reload_all_attachments;
   function reloadAttachment(collection) {
-    for (let child of collection.getChildren()) {
-      child.remove();
-    }
-    Filesystem.readFile([collection.export_path], {}, ([file]) => {
-      let json = autoParseJSON(file.content);
-      let content = Codecs.blockymodel.parse(json, file.path, { attachment: collection.name });
-      let new_groups = content.new_groups;
-      let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
-      collection.extend({
-        children: root_groups.map((g) => g.uuid)
-      }).add();
-      Canvas.updateAllFaces();
-    });
+    let path = collection.export_path;
+    if (!path) return;
+    let fs = requireNativeModule("fs");
+    if (!fs.existsSync(path)) return;
+    let beforeJson = Codecs.blockymodel.compile({ attachment: collection, raw: true });
+    for (let child of collection.getChildren()) child.remove();
+    let afterJson = autoParseJSON(fs.readFileSync(path, "utf-8"));
+    parseAttachmentJson(collection, afterJson, path);
+    pushReloadUndo(
+      beforeJson,
+      afterJson,
+      "Reload attachment",
+      (json) => {
+        for (let child of collection.getChildren()) child.remove();
+        parseAttachmentJson(collection, json, path);
+        Canvas.updateAllFaces();
+      }
+    );
+    Canvas.updateAllFaces();
+  }
+  function parseAttachmentJson(collection, json, path) {
+    let result = Codecs.blockymodel.parse(json, path, { attachment: collection.name });
+    let new_groups = result.new_groups;
+    let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
+    collection.extend({ children: root_groups.map((g) => g.uuid) }).add();
   }
   function setupImport() {
     let import_as_attachment = new Action("import_as_hytale_attachment", {
@@ -332,21 +344,40 @@
       }
     });
   }
+  function pushReloadUndo(beforeJson, afterJson, message, restore) {
+    let entry = {
+      before: { load: () => restore(beforeJson) },
+      post: { load: () => restore(afterJson) },
+      action: message,
+      type: "edit",
+      time: Date.now()
+    };
+    if (Undo.history.length > Undo.index) Undo.history.length = Undo.index;
+    Undo.history.push(entry);
+    if (Undo.history.length > settings.undo_limit.value) Undo.history.shift();
+    Undo.index = Undo.history.length;
+    Project.saved = false;
+    Blockbench.dispatchEvent("finished_edit", { aspects: {}, message });
+  }
   function reloadProject(project) {
     let path = project.export_path;
     if (!path) return;
     let fs = requireNativeModule("fs");
     if (!fs.existsSync(path)) return;
     project.select();
+    let beforeJson = Codecs.blockymodel.compile({ raw: true });
     for (let node of [...Outliner.root]) {
       if (node instanceof OutlinerNode) node.remove();
     }
-    for (let tex of [...Texture.all]) tex.remove();
-    for (let tg of [...TextureGroup.all]) tg.remove();
-    for (let col of [...Collection.all]) Collection.all.remove(col);
-    let content = fs.readFileSync(path, "utf-8");
-    let json = autoParseJSON(content);
-    Codecs.blockymodel.parse(json, path);
+    let afterJson = autoParseJSON(fs.readFileSync(path, "utf-8"));
+    Codecs.blockymodel.parse(afterJson, path);
+    pushReloadUndo(beforeJson, afterJson, "Reload project", (json) => {
+      for (let node of [...Outliner.root]) {
+        if (node instanceof OutlinerNode) node.remove();
+      }
+      Codecs.blockymodel.parse(json, path);
+      Canvas.updateAll();
+    });
     Canvas.updateAll();
   }
   function markSelfWrite(path) {

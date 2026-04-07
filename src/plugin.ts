@@ -20,6 +20,7 @@ import { setupTempFixes } from './temp_fixes'
 import { setupPreviewScenes } from "./preview_scenes";
 import { setupUVCanvasResize } from "./uv_canvas_resize";
 import { setupAltDuplicate } from "./alt_duplicate";
+import { setupChangeOrientation } from "./change_orientation";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -56,6 +57,7 @@ BBPlugin.register('hytale_plugin', {
         setupNameOverlap();
         setupUVOutline();
         setupTempFixes();
+        setupChangeOrientation();
         setupPreviewScenes();
         setupUVCanvasResize();
 

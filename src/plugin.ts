@@ -18,8 +18,10 @@ import { setupNameOverlap } from "./name_overlap";
 import { setupUVOutline } from "./uv_outline";
 import { setupTempFixes } from './temp_fixes'
 import { setupPreviewScenes } from "./preview_scenes";
+import { setupUVCanvasResize } from "./uv_canvas_resize";
 import { setupAltDuplicate } from "./alt_duplicate";
 import { setupChangeOrientation } from "./change_orientation";
+import { setupShortcuts } from "./shortcuts";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -58,6 +60,8 @@ BBPlugin.register('hytale_plugin', {
         setupTempFixes();
         setupChangeOrientation();
         setupPreviewScenes();
+        setupUVCanvasResize();
+        setupShortcuts();
 
         // Collections panel setting
         let panel_setup_listener: Deletable;

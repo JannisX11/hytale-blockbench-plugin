@@ -53,6 +53,7 @@ type IUvFace = {
 	offset: {x: number, y: number}
 	mirror: {x: boolean, y: boolean}
 	angle: IUvRot
+	lockUVs?: boolean
 }
 type IVector = {x: number, y: number, z: number}
 type IQuaternion = {x: number, y: number, z: number, w: number}
@@ -375,6 +376,9 @@ export function setupBlockymodelCodec(): Codec {
 						mirror: new oneLiner({x: mirror_x, y: mirror_y}) as any,
 						angle: uv_rot,
 					};
+					if ("uv_lock" in face && face.uv_lock) {
+						layout_face.lockUVs = true;
+					}
 					node.shape.textureLayout[direction] = layout_face;
 				}
 
@@ -753,6 +757,8 @@ export function setupBlockymodelCodec(): Codec {
 							}
 							cube.faces[face_name].rotation = uv_rotation;
 							cube.faces[face_name].uv = result;
+							// @ts-ignore
+							cube.faces[face_name].uv_lock = uv_source.lockUVs == true;
 						}
 					}
 

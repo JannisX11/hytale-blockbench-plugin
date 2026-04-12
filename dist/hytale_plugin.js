@@ -1047,7 +1047,7 @@
     const nodeAnimations = {};
     const file = {
       formatVersion: 1,
-      duration: Math.round(animation.length * FPS),
+      duration: Math.round(animation.length * FPS) || FPS * 2,
       holdLastKeyframe: animation.loop == "hold",
       nodeAnimations
     };
@@ -1081,11 +1081,6 @@
             };
             delta = new oneLiner(delta);
           } else {
-            delta = {
-              x: parseFloat(data_point.x),
-              y: parseFloat(data_point.y),
-              z: parseFloat(data_point.z)
-            };
             if (channel == "rotation") {
               let euler = new THREE.Euler(
                 Math.degToRad(kf.calc("x")),
@@ -1099,6 +1094,12 @@
                 y: quaternion.y,
                 z: quaternion.z,
                 w: quaternion.w
+              };
+            } else {
+              delta = {
+                x: kf.calc("x"),
+                y: kf.calc("y"),
+                z: kf.calc("z")
               };
             }
             delta = new oneLiner(delta);
@@ -2095,7 +2096,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.8.5",
+    version: "0.9.0",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
@@ -4149,7 +4150,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     },
     repository: "https://github.com/JannisX11/hytale-blockbench-plugin",
     bug_tracker: "https://github.com/JannisX11/hytale-blockbench-plugin/issues",
-    contributors: ["Hedaox"],
+    contributors: ["Hedaox", "MelodicAlbuild"],
     onload() {
       setupFormats();
       setupElements();

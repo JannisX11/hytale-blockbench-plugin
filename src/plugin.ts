@@ -41,7 +41,7 @@ BBPlugin.register('hytale_plugin', {
     },
     repository: 'https://github.com/JannisX11/hytale-blockbench-plugin',
     bug_tracker: 'https://github.com/JannisX11/hytale-blockbench-plugin/issues',
-    contributors: ['Hedaox'],
+    contributors: ['Hedaox', 'MelodicAlbuild'],
     onload() {
 
         setupFormats();

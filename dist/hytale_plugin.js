@@ -76,6 +76,20 @@
   }
 
   // src/attachments/texture.ts
+  function cloneTexture(tex) {
+    let copy = tex.getSaveCopy();
+    delete copy.path;
+    delete copy.uuid;
+    let cloned = new Texture(copy);
+    cloned.convertToInternal(tex.getDataURL());
+    cloned.load();
+    return cloned;
+  }
+  function isAttachmentTextureGroup(groupUuid) {
+    let tg = TextureGroup.all.find((tg2) => tg2.uuid === groupUuid);
+    if (!tg) return false;
+    return Collection.all.some((c) => c.name === tg.name && c.export_codec === "blockymodel");
+  }
   function getCollection(cube) {
     return Collection.all.find((c) => c.contains(cube));
   }
@@ -84,7 +98,14 @@
     textureGroup.folded = true;
     textureGroup.add();
     if (newTextures.length === 0) return "";
-    for (let tex of newTextures) {
+    for (let i = 0; i < newTextures.length; i++) {
+      let tex = newTextures[i];
+      if (tex.group && tex.group !== textureGroup.uuid) {
+        let cloned = cloneTexture(tex);
+        cloned.add(false);
+        tex = cloned;
+        newTextures[i] = cloned;
+      }
       tex.group = textureGroup.uuid;
       updateUVSize(tex);
     }
@@ -115,6 +136,34 @@
     track({
       delete() {
         CubeFace.prototype.getTexture = originalGetTexture;
+      }
+    });
+    let originalRemove = Texture.prototype.remove;
+    Texture.prototype.remove = function(...args) {
+      if (isHytaleFormat() && this.group && isAttachmentTextureGroup(this.group)) {
+        return;
+      }
+      return originalRemove.apply(this, args);
+    };
+    track({
+      delete() {
+        Texture.prototype.remove = originalRemove;
+      }
+    });
+    let originalAdd = Texture.prototype.add;
+    Texture.prototype.add = function(...args) {
+      if (isHytaleFormat() && this.path) {
+        let savedPath = this.path;
+        this.path = "";
+        let result = originalAdd.apply(this, args);
+        this.path = savedPath;
+        return result;
+      }
+      return originalAdd.apply(this, args);
+    };
+    track({
+      delete() {
+        Texture.prototype.add = originalAdd;
       }
     });
     let assignTexture = {
@@ -160,6 +209,58 @@
         Collection.menu.removeAction("set_texture");
       }
     });
+    let pendingCloneFixups = [];
+    let finishEditListener = Blockbench.on("finish_edit", (event) => {
+      try {
+        if (!isHytaleFormat()) return;
+        let aspects = event.aspects;
+        let beforeSave = Undo.current_save;
+        if (!beforeSave?.textures || !aspects?.textures) return;
+        let clones = [];
+        for (let tex of aspects.textures) {
+          let saved = beforeSave.textures[tex.uuid];
+          if (!saved) continue;
+          let oldGroup = saved.group;
+          if (!oldGroup || oldGroup === tex.group) continue;
+          if (!isAttachmentTextureGroup(oldGroup)) continue;
+          let targetGroup = tex.group;
+          tex.group = oldGroup;
+          let cloned = cloneTexture(tex);
+          cloned.group = targetGroup;
+          cloned.add(false);
+          clones.push(cloned);
+          pendingCloneFixups.push(cloned);
+        }
+        if (clones.length) {
+          aspects.textures.push(...clones);
+          Canvas.updateLayeredTextures();
+        }
+      } catch (e) {
+        console.error("[Hytale] texture clone error:", e);
+      }
+    });
+    track(finishEditListener);
+    let finishedEditListener = Blockbench.on("finished_edit", (event) => {
+      if (!isHytaleFormat()) return;
+      for (let clone of pendingCloneFixups) {
+        if (Texture.all.includes(clone)) {
+          clone.saved = true;
+        }
+      }
+      pendingCloneFixups.length = 0;
+      let aspects = event.aspects;
+      if (!aspects?.textures) return;
+      for (let tex of aspects.textures) {
+        if (!tex.group || !isAttachmentTextureGroup(tex.group)) continue;
+        let tg = TextureGroup.all.find((tg2) => tg2.uuid === tex.group);
+        if (!tg) continue;
+        let collection = Collection.all.find((c) => c.name === tg.name && c.export_codec === "blockymodel");
+        if (!collection || collection.texture) continue;
+        collection.texture = tex.uuid;
+        Canvas.updateAllFaces();
+      }
+    });
+    track(finishedEditListener);
   }
 
   // src/attachments/import.ts

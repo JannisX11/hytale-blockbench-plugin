@@ -2214,6 +2214,16 @@
       }
     });
   }
+  function setupUnsavedIndicator() {
+    let style = Blockbench.addCSS(`
+		#collections_list .collection .in_list_button[title]:not(.unclickable):not(.hytale_piece_error_icon) {
+			color: var(--color-warning);
+		}
+	`);
+    track({ delete() {
+      style.delete();
+    } });
+  }
   function setupAttachments() {
     setupAttachmentTextures();
     setupDelete();
@@ -2224,6 +2234,7 @@
     setupAttachmentValidation();
     setupAttachmentWatcher();
     setupCollectionDoubleClick();
+    setupUnsavedIndicator();
   }
 
   // src/animations.ts

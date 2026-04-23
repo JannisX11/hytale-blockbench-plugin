@@ -2096,7 +2096,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.9.0",
+    version: "0.9.1",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
@@ -2107,7 +2107,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     author: "JannisX11, Kanno",
     license: "GPL-3.0",
     dependencies: {
-      "blockbench-types": "^5.1.0-beta.2-next.1"
+      "blockbench-types": "^5.1.0"
     },
     devDependencies: {
       esbuild: "^0.25.9"

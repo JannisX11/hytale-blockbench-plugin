@@ -19,6 +19,7 @@ import { setupUVOutline } from "./uv_outline";
 import { setupTempFixes } from './temp_fixes'
 import { setupPreviewScenes } from "./preview_scenes";
 import { setupAltDuplicate } from "./alt_duplicate";
+import { setupMirrorFix } from "./mirror_fix";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -54,6 +55,7 @@ BBPlugin.register('hytale_plugin', {
         setupAltDuplicate();
         setupNameOverlap();
         setupUVOutline();
+        setupMirrorFix();
         setupTempFixes();
         setupPreviewScenes();
 

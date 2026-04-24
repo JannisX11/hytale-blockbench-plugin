@@ -2198,22 +2198,167 @@
     });
   }
 
-  // src/attachments/index.ts
-  function setupCollectionDoubleClick() {
-    let originalPropertiesDialog = Collection.prototype.propertiesDialog;
-    Collection.prototype.propertiesDialog = function() {
-      if (isHytaleFormat() && this.export_path) {
-        let openEntry = Collection.menu.structure.find((e) => e?.id === "open");
-        if (openEntry && Condition(openEntry.condition, this)) {
-          openEntry.click(this);
-          return;
+  // src/attachments/collection_color.ts
+  var COLOR_CLASS = "hytale_collection_colored";
+  var COLOR_VAR = "--hytale-collection-color";
+  var colorUpdatePending = false;
+  function scheduleColorUpdate() {
+    if (colorUpdatePending) return;
+    colorUpdatePending = true;
+    requestAnimationFrame(() => {
+      colorUpdatePending = false;
+      applyCollectionColors();
+    });
+  }
+  function hexToRgba(hex, alpha) {
+    let r = parseInt(hex.slice(1, 3), 16);
+    let g = parseInt(hex.slice(3, 5), 16);
+    let b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  function applyCollectionColors() {
+    if (!isHytaleFormat()) return;
+    const outlinerPanel = Panels.outliner?.node;
+    if (outlinerPanel) {
+      outlinerPanel.querySelectorAll(`.${COLOR_CLASS}`).forEach((el) => {
+        el.style.removeProperty(COLOR_VAR);
+        el.classList.remove(COLOR_CLASS);
+      });
+    }
+    const collectionsPanel = Panels.collections?.node;
+    if (collectionsPanel) {
+      collectionsPanel.querySelectorAll(".hytale_collection_icon_colored").forEach((el) => {
+        el.style.removeProperty("color");
+        el.classList.remove("hytale_collection_icon_colored");
+      });
+    }
+    for (let collection of Collection.all) {
+      if (collection.export_codec !== "blockymodel") continue;
+      let colorIndex = collection.color;
+      if (colorIndex == null || colorIndex < 0) continue;
+      let marker = markerColors[colorIndex % markerColors.length];
+      let bgColor = hexToRgba(marker.pastel, 0.35);
+      if (outlinerPanel) {
+        for (let child of collection.getAllChildren()) {
+          let li = outlinerPanel.querySelector(`[id="${child.uuid}"]`);
+          if (!li) continue;
+          let obj = li.querySelector(":scope > .outliner_object");
+          if (obj) {
+            obj.style.setProperty(COLOR_VAR, bgColor);
+            obj.classList.add(COLOR_CLASS);
+          }
         }
       }
-      return originalPropertiesDialog.call(this);
+      if (collectionsPanel) {
+        let li = collectionsPanel.querySelector(`[uuid="${collection.uuid}"]`);
+        if (li) {
+          let icon = li.querySelector(":scope > i.material-icons");
+          if (icon) {
+            icon.style.color = marker.standard;
+            icon.classList.add("hytale_collection_icon_colored");
+          }
+        }
+      }
+    }
+  }
+  function setupCollectionColor() {
+    let colorProperty = new Property(Collection, "number", "color", {
+      default: -1,
+      condition: { formats: FORMAT_IDS }
+    });
+    track(colorProperty);
+    let colorMenuItem = {
+      id: "set_collection_color",
+      name: "menu.cube.color",
+      icon: "color_lens",
+      condition: { formats: FORMAT_IDS },
+      children() {
+        let items = [
+          {
+            icon: "block",
+            name: "generic.none",
+            click() {
+              Undo.initEdit({ collections: Collection.selected });
+              for (let collection of Collection.selected) {
+                collection.color = -1;
+              }
+              Undo.finishEdit("Remove collection color");
+              applyCollectionColors();
+            }
+          }
+        ];
+        for (let i = 0; i < markerColors.length; i++) {
+          let color = markerColors[i];
+          items.push({
+            icon: "bubble_chart",
+            color: color.standard,
+            name: color.name || "cube.color." + color.id,
+            click() {
+              Undo.initEdit({ collections: Collection.selected });
+              for (let collection of Collection.selected) {
+                collection.color = i;
+              }
+              Undo.finishEdit("Set collection color");
+              applyCollectionColors();
+            }
+          });
+        }
+        return items;
+      }
     };
+    Collection.menu.addAction(colorMenuItem, "#settings");
     track({
       delete() {
-        Collection.prototype.propertiesDialog = originalPropertiesDialog;
+        Collection.menu.removeAction("set_collection_color");
+      }
+    });
+    let style = Blockbench.addCSS(`
+		.outliner_object.${COLOR_CLASS}:not(.selected) {
+			background-color: var(${COLOR_VAR});
+		}
+	`);
+    let hookFinishedEdit = Blockbench.on("finished_edit", scheduleColorUpdate);
+    let hookSelectMode = Blockbench.on("select_mode", scheduleColorUpdate);
+    let hookSelection = Blockbench.on("update_selection", scheduleColorUpdate);
+    setTimeout(applyCollectionColors, 100);
+    track(hookFinishedEdit, hookSelectMode, hookSelection, style, {
+      delete() {
+        Panels.outliner?.node?.querySelectorAll(`.${COLOR_CLASS}`).forEach((el) => {
+          el.style.removeProperty(COLOR_VAR);
+          el.classList.remove(COLOR_CLASS);
+        });
+        Panels.collections?.node?.querySelectorAll(".hytale_collection_icon_colored").forEach((el) => {
+          el.style.removeProperty("color");
+          el.classList.remove("hytale_collection_icon_colored");
+        });
+      }
+    });
+  }
+
+  // src/attachments/index.ts
+  function setupCollectionDoubleClick() {
+    let collectionsNode = Panels.collections?.node;
+    if (!collectionsNode) return;
+    function onDblClick(e) {
+      if (!isHytaleFormat()) return;
+      let target = e.target;
+      while (target && !target.classList?.contains("collection")) {
+        target = target.parentElement;
+      }
+      if (!target) return;
+      let uuid = target.getAttribute("uuid");
+      let collection = Collection.all.find((c) => c.uuid === uuid);
+      if (!collection?.export_path) return;
+      let openEntry = Collection.menu.structure.find((entry) => entry?.id === "open");
+      if (openEntry && Condition(openEntry.condition, collection)) {
+        e.stopPropagation();
+        openEntry.click(collection);
+      }
+    }
+    collectionsNode.addEventListener("dblclick", onDblClick, true);
+    track({
+      delete() {
+        collectionsNode.removeEventListener("dblclick", onDblClick, true);
       }
     });
   }
@@ -2238,6 +2383,7 @@
     setupAttachmentWatcher();
     setupCollectionDoubleClick();
     setupUnsavedIndicator();
+    setupCollectionColor();
   }
 
   // src/animations.ts
@@ -4230,6 +4376,159 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     track({ delete: () => events.forEach(([type, handler]) => document.removeEventListener(type, handler, true)) });
   }
 
+  // src/mirror_fix.ts
+  var SNAP_EPSILON = 0.01;
+  function snapAncestors(element) {
+    if (!isHytaleFormat()) return;
+    let center = Format.centered_grid ? 0 : 8;
+    let node = element.parent;
+    while (node instanceof Group) {
+      if (node.origin[0] !== center && Math.abs(node.origin[0] - center) < SNAP_EPSILON) {
+        node.origin[0] = center;
+      }
+      if (node.rotation[1] !== 0 && Math.abs(node.rotation[1]) < SNAP_EPSILON) {
+        node.rotation[1] = 0;
+      }
+      if (node.rotation[2] !== 0 && Math.abs(node.rotation[2]) < SNAP_EPSILON) {
+        node.rotation[2] = 0;
+      }
+      node = node.parent;
+    }
+  }
+  function hasDescendantElements(group) {
+    for (let child of group.children) {
+      if (child instanceof OutlinerElement) return true;
+      if (child instanceof Group && hasDescendantElements(child)) return true;
+    }
+    return false;
+  }
+  function isAncestrySymmetrical(child, center) {
+    let node = child.parent;
+    while (node instanceof Group) {
+      if (Math.abs(node.origin[0] - center) >= SNAP_EPSILON) return false;
+      if (Math.abs(node.rotation[1]) >= SNAP_EPSILON) return false;
+      if (Math.abs(node.rotation[2]) >= SNAP_EPSILON) return false;
+      node = node.parent;
+    }
+    return true;
+  }
+  function findOrCreateMirrorParent(child, center) {
+    let parent = child.parent;
+    if (!(parent instanceof Group)) return "root";
+    if (Math.abs(parent.origin[0] - center) < SNAP_EPSILON && isAncestrySymmetrical(child, center)) {
+      return parent;
+    }
+    let mirrorGrandparent = findOrCreateMirrorParent(parent, center);
+    let mirrorOriginX = MirrorModeling.flipCoord(parent.origin[0]);
+    let mirrorRotY = -parent.rotation[1];
+    let mirrorRotZ = -parent.rotation[2];
+    let searchList = mirrorGrandparent instanceof Group ? mirrorGrandparent.children : Outliner.root;
+    let match = searchList.find((node) => {
+      if (!(node instanceof Group)) return false;
+      if (!node.origin.equals) return false;
+      return Math.epsilon(node.origin[0], mirrorOriginX) && Math.epsilon(node.origin[1], parent.origin[1]) && Math.epsilon(node.origin[2], parent.origin[2]) && Math.epsilon(node.rotation[1], mirrorRotY) && Math.epsilon(node.rotation[2], mirrorRotZ);
+    });
+    if (match) return match;
+    let mirror = new Group(parent);
+    flipGroupName(mirror);
+    mirror.origin[0] = mirrorOriginX;
+    mirror.rotation[1] = mirrorRotY;
+    mirror.rotation[2] = mirrorRotZ;
+    mirror.isOpen = parent.isOpen;
+    mirror.addTo(mirrorGrandparent).init();
+    mirror.createUniqueName();
+    return mirror;
+  }
+  function flipGroupName(node) {
+    const pairs = {
+      right: "left",
+      Right: "Left",
+      RIGHT: "LEFT",
+      R: "L",
+      r: "l"
+    };
+    for (let [a, b] of Object.entries(pairs)) {
+      if (tryReplaceName(node, a, b)) return;
+      if (tryReplaceName(node, b, a)) return;
+    }
+  }
+  function tryReplaceName(node, from, to) {
+    if (!node.name.includes(from)) return false;
+    let regex = from;
+    if (from.length === 1) {
+      regex = new RegExp(`(?<=^|[_. -])${from}(?=[_. -]|$)`);
+    }
+    let result = node.name.replace(regex, to);
+    if (result === node.name) return false;
+    node.name = result;
+    return true;
+  }
+  function mirrorGroupTree(source, targetParent, center) {
+    let mirrorOriginX = MirrorModeling.flipCoord(source.origin[0]);
+    let searchList = targetParent instanceof Group ? targetParent.children : Outliner.root;
+    let exists = searchList.some(
+      (node) => node instanceof Group && Math.epsilon(node.origin[0], mirrorOriginX) && Math.epsilon(node.origin[1], source.origin[1]) && Math.epsilon(node.origin[2], source.origin[2])
+    );
+    if (exists) return;
+    let mirror = new Group(source);
+    flipGroupName(mirror);
+    mirror.origin[0] = mirrorOriginX;
+    mirror.rotation[1] *= -1;
+    mirror.rotation[2] *= -1;
+    mirror.isOpen = source.isOpen;
+    mirror.addTo(targetParent).init();
+    mirror.createUniqueName();
+    for (let child of source.children) {
+      if (child instanceof Group) {
+        mirrorGroupTree(child, mirror, center);
+      }
+    }
+  }
+  function setupMirrorFix() {
+    const origIsCentered = MirrorModeling.isCentered;
+    MirrorModeling.isCentered = function(element) {
+      snapAncestors(element);
+      return origIsCentered(element);
+    };
+    const origCreateClone = MirrorModeling.createClone;
+    MirrorModeling.createClone = function(original, undo_aspects) {
+      snapAncestors(original);
+      return origCreateClone(original, undo_aspects);
+    };
+    let action = BarItems.apply_mirror_modeling;
+    let origClick = action.click;
+    action.click = function(...args) {
+      if (!isHytaleFormat()) return origClick.apply(this, args);
+      let center = Format.centered_grid ? 0 : 8;
+      let toggle = BarItems.mirror_modeling;
+      let valueBefore = toggle.value;
+      toggle.value = true;
+      let selectedGroups = Group.all.filter((g) => g.selected);
+      let emptyGroups = selectedGroups.filter((g) => !hasDescendantElements(g));
+      Undo.initEdit({
+        elements: Outliner.selected,
+        groups: Group.selected,
+        outliner: true
+      });
+      for (let group of emptyGroups) {
+        snapAncestors(group);
+        let isCentered = Math.abs(group.origin[0] - center) < SNAP_EPSILON && isAncestrySymmetrical(group, center);
+        if (isCentered) continue;
+        let mirrorParent = findOrCreateMirrorParent(group, center);
+        mirrorGroupTree(group, mirrorParent, center);
+      }
+      Undo.finishEdit("Applied mirror modeling");
+      toggle.value = valueBefore;
+    };
+    track({
+      delete() {
+        MirrorModeling.isCentered = origIsCentered;
+        MirrorModeling.createClone = origCreateClone;
+        action.click = origClick;
+      }
+    });
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -4264,6 +4563,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupAltDuplicate();
       setupNameOverlap();
       setupUVOutline();
+      setupMirrorFix();
       setupTempFixes();
       setupPreviewScenes();
       let panel_setup_listener;

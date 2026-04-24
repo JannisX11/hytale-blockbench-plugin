@@ -204,6 +204,10 @@
           startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, "") + osfs + "Attachments"
         }, (files) => {
           for (let file of files) {
+            if (Collection.all.some((c) => c.export_path === file.path)) {
+              Blockbench.showQuickMessage(`Attachment "${file.name}" is already imported`, 2e3);
+              continue;
+            }
             let json = autoParseJSON(file.content);
             let attachment_name = file.name.replace(/\.\w+$/, "");
             let content = Codecs.blockymodel.parse(json, file.path, { attachment: attachment_name });
@@ -735,16 +739,14 @@
             node.shape.textureLayout[direction] = layout_face;
           }
         }
-        function getNodeOffset(group, include_original_offset = true) {
+        function getNodeOffset(group) {
           let cube = getMainShape(group);
           if (cube) {
             let center_pos = cube.from.slice().V3_add(cube.to).V3_divide(2, 2, 2);
             center_pos.V3_subtract(group.origin);
             return center_pos;
-          } else if (include_original_offset) {
-            return group.original_offset;
           } else {
-            return [0, 0, 0];
+            return group.original_offset;
           }
         }
         function compileNode(element, name = element.name) {
@@ -770,7 +772,7 @@
           let offset = element instanceof Group ? getNodeOffset(element) : [0, 0, 0];
           if (element.parent instanceof Group) {
             origin.V3_subtract(element.parent.origin);
-            let parent_offset = getNodeOffset(element.parent, !options.attachment);
+            let parent_offset = getNodeOffset(element.parent);
             if (parent_offset) {
               origin.V3_subtract(parent_offset);
             }
@@ -1109,7 +1111,8 @@
           if (texture_paths.length > 0 && !args.attachment) {
             new_textures = loadTexturesFromPaths(texture_paths, Project.name);
           } else if (texture_paths.length > 0) {
-            new_textures = loadTexturesFromPaths(texture_paths);
+            let new_paths = texture_paths.filter((p) => !Texture.all.find((t) => t.path == p));
+            new_textures = loadTexturesFromPaths(new_paths);
           }
           if (new_textures.length === 0 && !args.attachment) {
             setTimeout(() => {

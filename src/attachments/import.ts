@@ -54,6 +54,10 @@ export function setupImport() {
 				startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, '') + osfs + 'Attachments'
 			}, (files) => {
 				for (let file of files) {
+					if (Collection.all.some(c => c.export_path === file.path)) {
+						Blockbench.showQuickMessage(`Attachment "${file.name}" is already imported`, 2000);
+						continue;
+					}
 					let json = autoParseJSON(file.content as string);
 					let attachment_name = file.name.replace(/\.\w+$/, '');
 					let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: attachment_name});

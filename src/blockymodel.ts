@@ -380,16 +380,14 @@ export function setupBlockymodelCodec(): Codec {
 				}
 
 			}
-			function getNodeOffset(group: Group, include_original_offset: boolean = true): ArrayVector3 | undefined {
+			function getNodeOffset(group: Group): ArrayVector3 | undefined {
 				let cube = getMainShape(group);
 				if (cube) {
 					let center_pos = cube.from.slice().V3_add(cube.to).V3_divide(2, 2, 2);
 					center_pos.V3_subtract(group.origin);
 					return center_pos;
-				} else if (include_original_offset) {
-					return group.original_offset;
 				} else {
-					return [0, 0, 0];
+					return group.original_offset;
 				}
 			}
 
@@ -419,7 +417,7 @@ export function setupBlockymodelCodec(): Codec {
 				let offset: ArrayVector3 = element instanceof Group ? getNodeOffset(element) : [0, 0, 0];
 				if (element.parent instanceof Group) {
 					origin.V3_subtract(element.parent.origin);
-					let parent_offset = getNodeOffset(element.parent, !options.attachment);
+					let parent_offset = getNodeOffset(element.parent);
 					if (parent_offset) {
 						origin.V3_subtract(parent_offset);
 					}
@@ -787,7 +785,8 @@ export function setupBlockymodelCodec(): Codec {
 				if (texture_paths.length > 0 && !args.attachment) {
 					new_textures = loadTexturesFromPaths(texture_paths, Project.name);
 				} else if (texture_paths.length > 0) {
-					new_textures = loadTexturesFromPaths(texture_paths);
+					let new_paths = texture_paths.filter(p => !Texture.all.find(t => t.path == p));
+					new_textures = loadTexturesFromPaths(new_paths);
 				}
 
 				// If no textures found automatically, prompt user to import

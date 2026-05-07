@@ -188,7 +188,7 @@ export function setupAnimation() {
         
         return original_display_scale.call(this, array, multiplier);
     }
-    if (Blockbench.isOlderThan('5.1.0-beta.4')) {
+    if (Blockbench.isOlderThan('5.1.0')) {
         BoneAnimator.prototype.displayRotation = function displayRotation(array, multiplier = 1) {
             if (isHytaleFormat() && array) {
                 let bone = this.group.scene_object;

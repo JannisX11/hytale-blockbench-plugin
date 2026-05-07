@@ -2336,6 +2336,409 @@
     });
   }
 
+  // src/attachments/collection_folder.ts
+  var GROUP_CLASS = "hytale_collection_folder";
+  var HEAD_CLASS = "hytale_collection_folder_head";
+  var LIST_CLASS = "hytale_collection_folder_list";
+  var MEMBER_ATTR = "data-hytale-folder";
+  var folders = [];
+  var updatePending = false;
+  var observer = null;
+  function fc(c) {
+    return c;
+  }
+  function fp() {
+    return Project;
+  }
+  function uniqueFolderName(base) {
+    let names = new Set(folders.map((f) => f.name));
+    if (!names.has(base)) return base;
+    for (let i = 2; ; i++) {
+      let name = `${base} ${i}`;
+      if (!names.has(name)) return name;
+    }
+  }
+  function syncToProject() {
+    if (!Project) return;
+    fp().collection_folders = folders.map((f) => f.getSaveCopy());
+  }
+  function loadFromProject() {
+    folders.length = 0;
+    if (!Project) return;
+    let data = fp().collection_folders;
+    if (!Array.isArray(data)) return;
+    for (let entry of data) folders.push(new CollectionFolder(entry));
+    folders.sort((a, b) => a.order - b.order);
+  }
+  function setFolder(collections, folderUuid, undoLabel) {
+    Undo.initEdit({ collections });
+    for (let c of collections) fc(c).folder = folderUuid;
+    Undo.finishEdit(undoLabel);
+    scheduleUpdate();
+  }
+  function scheduleUpdate() {
+    if (updatePending) return;
+    updatePending = true;
+    requestAnimationFrame(() => {
+      updatePending = false;
+      injectFolderDOM();
+    });
+  }
+  var CollectionFolder = class {
+    uuid;
+    name;
+    folded;
+    order;
+    menu;
+    constructor(data) {
+      this.uuid = data?.uuid ?? guid();
+      this.name = data?.name ?? uniqueFolderName("Folder");
+      this.folded = data?.folded ?? false;
+      this.order = data?.order ?? folders.length;
+      this.menu = new Menu("collection_folder", [
+        { id: "rename", name: "generic.rename", icon: "text_format", click: () => this.rename() },
+        { id: "remove", name: "generic.delete", icon: "delete", click: () => this.remove() }
+      ]);
+    }
+    add() {
+      if (!folders.includes(this)) folders.push(this);
+      syncToProject();
+      scheduleUpdate();
+      return this;
+    }
+    remove() {
+      setFolder(this.getCollections(), "", "Remove collection folder");
+      folders.remove(this);
+      syncToProject();
+    }
+    rename() {
+      Blockbench.textPrompt("generic.rename", this.name, (name) => {
+        if (name && name !== this.name) {
+          this.name = name;
+          syncToProject();
+          scheduleUpdate();
+        }
+      });
+    }
+    toggle() {
+      this.folded = !this.folded;
+      syncToProject();
+      scheduleUpdate();
+    }
+    getCollections() {
+      return Collection.all.filter((c) => c.folder === this.uuid);
+    }
+    getSaveCopy() {
+      return { uuid: this.uuid, name: this.name, folded: this.folded, order: this.order };
+    }
+    showContextMenu(event) {
+      this.menu.open(event, this);
+    }
+    static get all() {
+      return folders;
+    }
+  };
+  function getUngroupedCollections() {
+    return Collection.all.filter((c) => {
+      let f = fc(c).folder;
+      return !f || !folders.find((folder) => folder.uuid === f);
+    });
+  }
+  function injectFolderDOM() {
+    if (!isHytaleFormat()) return;
+    let list2 = Panels.collections?.node?.querySelector("#collections_list");
+    if (!list2) return;
+    observer?.disconnect();
+    list2.querySelectorAll(`.${GROUP_CLASS}`).forEach((group) => {
+      let children = group.querySelectorAll(":scope > ." + LIST_CLASS + " > li.collection");
+      children.forEach((el) => {
+        el.style.removeProperty("display");
+        el.removeAttribute(MEMBER_ATTR);
+        list2.insertBefore(el, group);
+      });
+      group.remove();
+    });
+    let collectionEls = Array.from(list2.querySelectorAll(":scope > li.collection"));
+    function findEl(uuid) {
+      return collectionEls.find((el) => el.getAttribute("uuid") === uuid) ?? null;
+    }
+    let sorted = folders.slice().sort((a, b) => a.order - b.order);
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      let group = createFolderGroup(sorted[i], collectionEls);
+      list2.prepend(group);
+    }
+    for (let c of getUngroupedCollections()) {
+      let el = findEl(c.uuid);
+      if (el) list2.appendChild(el);
+    }
+    observer?.observe(list2, { childList: true });
+  }
+  function createFolderGroup(folder, collectionEls) {
+    let group = document.createElement("li");
+    group.className = GROUP_CLASS;
+    let head = document.createElement("div");
+    head.className = HEAD_CLASS;
+    head.setAttribute("data-folder-uuid", folder.uuid);
+    if (folder.folded) head.classList.add("folded");
+    let arrow = document.createElement("i");
+    arrow.className = "icon-open-state fa " + (folder.folded ? "fa-angle-right" : "fa-angle-down");
+    head.appendChild(arrow);
+    let label = document.createElement("label");
+    label.textContent = folder.name;
+    label.title = folder.name;
+    head.appendChild(label);
+    let collections = folder.getCollections();
+    let allHidden = collections.length > 0 && collections.every((c) => !c.getVisibility());
+    let visBtn = document.createElement("div");
+    visBtn.className = "in_list_button";
+    let visIcon = document.createElement("i");
+    visIcon.className = "material-icons icon";
+    if (allHidden) visIcon.classList.add("toggle_disabled");
+    visIcon.textContent = allHidden ? "visibility_off" : "visibility";
+    visBtn.appendChild(visIcon);
+    visBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      let targetState = allHidden;
+      let groups = [];
+      let elements = [];
+      for (let c of collections) {
+        for (let child of c.getAllChildren()) {
+          if (!("visibility" in child) || typeof child.visibility !== "boolean") continue;
+          if (child.visibility === targetState) continue;
+          if (child instanceof Group) groups.push(child);
+          else elements.push(child);
+        }
+      }
+      if (!groups.length && !elements.length) return;
+      let savedStates = collections.map((c) => c.saved);
+      Undo.initEdit({ groups, elements });
+      for (let node of [...groups, ...elements]) node.visibility = targetState;
+      Canvas.updateView({ elements, element_aspects: { visibility: true } });
+      Undo.finishEdit("Toggle folder visibility");
+      collections.forEach((c, i) => c.saved = savedStates[i]);
+      scheduleUpdate();
+    });
+    visBtn.addEventListener("dblclick", (e) => e.stopPropagation());
+    head.appendChild(visBtn);
+    head.addEventListener("click", (e) => {
+      e.stopPropagation();
+      folder.toggle();
+    });
+    head.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      folder.showContextMenu(e);
+    });
+    head.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      head.classList.add("drag_hover");
+    });
+    head.addEventListener("dragleave", () => head.classList.remove("drag_hover"));
+    head.addEventListener("drop", (e) => {
+      e.preventDefault();
+      head.classList.remove("drag_hover");
+      let uuid = e.dataTransfer?.getData("text/collection-uuid");
+      let collection = uuid ? Collection.all.find((c) => c.uuid === uuid) : null;
+      if (collection) setFolder([collection], folder.uuid, "Move collection to folder");
+    });
+    group.appendChild(head);
+    let childList = document.createElement("ul");
+    childList.className = LIST_CLASS;
+    if (folder.folded) childList.style.display = "none";
+    for (let collection of folder.getCollections()) {
+      let el = collectionEls.find((cel) => cel.getAttribute("uuid") === collection.uuid);
+      if (!el) continue;
+      el.setAttribute(MEMBER_ATTR, folder.uuid);
+      childList.appendChild(el);
+    }
+    group.appendChild(childList);
+    return group;
+  }
+  function setupCollectionDrag() {
+    let panel = Panels.collections?.node;
+    if (!panel) return;
+    panel.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      if (!isHytaleFormat()) return;
+      let target = e.target;
+      while (target && !target.classList?.contains("collection")) {
+        if (target === panel) return;
+        target = target.parentElement;
+      }
+      if (!target) return;
+      let uuid = target.getAttribute("uuid");
+      if (!uuid) return;
+      let startX = e.clientX, startY = e.clientY;
+      let active = false;
+      let helper = null;
+      function onMove(e2) {
+        let dx = e2.clientX - startX, dy = e2.clientY - startY;
+        if (!active && Math.sqrt(dx * dx + dy * dy) > 6) {
+          active = true;
+          helper = document.createElement("div");
+          helper.className = "hytale_collection_drag_helper";
+          helper.textContent = Collection.all.find((c) => c.uuid === uuid)?.name ?? "";
+          document.body.appendChild(helper);
+        }
+        if (!active || !helper) return;
+        e2.preventDefault();
+        helper.style.left = `${e2.clientX}px`;
+        helper.style.top = `${e2.clientY}px`;
+        document.querySelectorAll(`.${HEAD_CLASS}`).forEach((el) => el.classList.remove("drag_hover"));
+        let under = document.elementFromPoint(e2.clientX, e2.clientY)?.closest(`.${HEAD_CLASS}`);
+        if (under) under.classList.add("drag_hover");
+      }
+      function onUp(e2) {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        helper?.remove();
+        document.querySelectorAll(`.${HEAD_CLASS}`).forEach((el) => el.classList.remove("drag_hover"));
+        if (!active) return;
+        let folderHead = document.elementFromPoint(e2.clientX, e2.clientY)?.closest(`.${HEAD_CLASS}`);
+        let collection = Collection.all.find((c) => c.uuid === uuid);
+        if (!collection) return;
+        let targetUuid = folderHead?.getAttribute("data-folder-uuid") ?? "";
+        if (fc(collection).folder !== targetUuid) {
+          setFolder([collection], targetUuid, "Move collection to folder");
+        }
+      }
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  }
+  function setupCollectionFolders() {
+    let folderProp = new Property(Collection, "string", "folder", { default: "", condition: { formats: FORMAT_IDS } });
+    let foldersProp = new Property(ModelProject, "array", "collection_folders", { default: [], condition: { formats: FORMAT_IDS } });
+    track(folderProp, foldersProp);
+    let createAction = new Action("create_collection_folder", {
+      name: "Create Folder",
+      icon: "create_new_folder",
+      category: "collections",
+      condition: { formats: FORMAT_IDS },
+      click() {
+        new CollectionFolder().add();
+      }
+    });
+    track(createAction);
+    Panels.collections.toolbars[0].add(createAction);
+    Panels.collections.menu.addAction(createAction);
+    let moveMenu = {
+      id: "move_to_folder",
+      name: "Move to Folder",
+      icon: "drive_file_move",
+      condition: { formats: FORMAT_IDS },
+      children() {
+        let items = [{
+          icon: "block",
+          name: "generic.none",
+          click(ctx) {
+            setFolder([ctx], "", "Remove collection from folder");
+          }
+        }];
+        for (let folder of folders) {
+          items.push({
+            icon: "folder",
+            name: folder.name,
+            click(ctx) {
+              setFolder([ctx], folder.uuid, "Move collection to folder");
+            }
+          });
+        }
+        return items;
+      }
+    };
+    Collection.menu.addAction(moveMenu, "#settings");
+    track({ delete() {
+      Collection.menu.removeAction("move_to_folder");
+    } });
+    let reloadAndUpdate = () => {
+      loadFromProject();
+      scheduleUpdate();
+    };
+    let hookProject = Blockbench.on("select_project", reloadAndUpdate);
+    let hookEdit = Blockbench.on("finished_edit", scheduleUpdate);
+    let hookSelection = Blockbench.on("update_selection", scheduleUpdate);
+    let hookMode = Blockbench.on("select_mode", scheduleUpdate);
+    let hookUndo = Blockbench.on("undo", reloadAndUpdate);
+    let hookRedo = Blockbench.on("redo", reloadAndUpdate);
+    let listEl = Panels.collections?.node?.querySelector("#collections_list");
+    if (listEl) {
+      observer = new MutationObserver(scheduleUpdate);
+      observer.observe(listEl, { childList: true });
+    }
+    setupCollectionDrag();
+    let style = Blockbench.addCSS(`
+        .${GROUP_CLASS} {
+            padding-bottom: 4px;
+        }
+        .${HEAD_CLASS} {
+            height: 32px;
+            padding: 4px;
+            padding-right: 8px;
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            cursor: pointer;
+        }
+        .${HEAD_CLASS}:hover {
+            color: var(--color-text);
+        }
+        .${HEAD_CLASS}.drag_hover {
+            background: var(--color-accent);
+            color: var(--color-accent_text);
+        }
+        .${HEAD_CLASS} > .icon-open-state {
+            text-align: center;
+            width: 21px;
+            margin-top: 4px;
+            flex-shrink: 0;
+        }
+        .${HEAD_CLASS} > label {
+            flex: 1;
+            overflow: hidden;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+        .${HEAD_CLASS} > .in_list_button {
+            margin-left: auto;
+        }
+        .${HEAD_CLASS}.folded > label {
+            max-width: calc(60% - 50px);
+            min-width: 30px;
+        }
+        .${LIST_CLASS} {
+            margin-left: 14px;
+            padding-left: 6px;
+            border-left: 2px solid var(--color-guidelines);
+        }
+        .hytale_collection_drag_helper {
+            position: fixed; pointer-events: none; z-index: 1000;
+            background: var(--color-accent); color: var(--color-accent_text);
+            padding: 2px 8px; border-radius: 4px; font-size: 12px;
+            transform: translate(10px, -50%);
+        }
+    `);
+    loadFromProject();
+    setTimeout(scheduleUpdate, 100);
+    track(hookProject, hookEdit, hookSelection, hookMode, hookUndo, hookRedo, style, {
+      delete() {
+        observer?.disconnect();
+        folders.length = 0;
+        let list2 = Panels.collections?.node?.querySelector("#collections_list");
+        if (list2) {
+          list2.querySelectorAll(`.${GROUP_CLASS}`).forEach((group) => {
+            let children = group.querySelectorAll("li.collection");
+            children.forEach((el) => {
+              el.removeAttribute(MEMBER_ATTR);
+              list2.insertBefore(el, group);
+            });
+            group.remove();
+          });
+        }
+      }
+    });
+  }
+
   // src/attachments/index.ts
   function setupCollectionDoubleClick() {
     let collectionsNode = Panels.collections?.node;
@@ -2384,6 +2787,7 @@
     setupAttachmentWatcher();
     setupCollectionDoubleClick();
     setupUnsavedIndicator();
+    setupCollectionFolders();
     setupCollectionColor();
   }
 

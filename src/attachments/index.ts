@@ -12,6 +12,7 @@ import { setupAttachmentValidation } from "./validation";
 import { setupAttachmentWatcher } from "./watcher";
 import { setupDetachFromAttachment } from "./detach";
 import { setupCollectionColor } from "./collection_color";
+import { setupCollectionFolders } from "./collection_folder";
 
 export { AttachmentCollection } from "./texture";
 export { reload_all_attachments, reloadAttachment } from "./import";
@@ -68,5 +69,6 @@ export function setupAttachments() {
 	setupAttachmentWatcher();
 	setupCollectionDoubleClick();
 	setupUnsavedIndicator();
+	setupCollectionFolders();
 	setupCollectionColor();
 }

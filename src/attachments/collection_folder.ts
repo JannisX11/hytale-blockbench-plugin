@@ -3,6 +3,9 @@
 
 import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
+import { isUnloaded, reloadCollection, promptAndUnload } from "./unload";
+import { importAttachmentToFolder } from "./import";
+import { unwatchCollection } from "./watcher";
 
 type FolderCollection = Collection & { folder: string };
 type FolderProject = ModelProject & { collection_folders: CollectionFolderData[] };
@@ -75,12 +78,13 @@ export class CollectionFolder {
 
     constructor(data?: CollectionFolderData) {
         this.uuid = data?.uuid ?? guid();
-        this.name = data?.name ?? uniqueFolderName('Folder');
+        this.name = data?.name ?? uniqueFolderName('Set');
         this.folded = data?.folded ?? false;
         this.order = data?.order ?? folders.length;
         this.menu = new Menu('collection_folder', [
             { id: 'rename', name: 'generic.rename', icon: 'text_format', click: () => this.rename() },
-            { id: 'remove', name: 'generic.delete', icon: 'delete', click: () => this.remove() }
+            { id: 'resolve', name: 'menu.texture_group.resolve', icon: 'fa-leaf', click: () => this.remove() },
+            { id: 'delete_all', name: 'Delete Set and Attachments', icon: 'delete_forever', click: () => this.removeWithAttachments() },
         ]);
     }
 
@@ -95,6 +99,50 @@ export class CollectionFolder {
         setFolder(this.getCollections(), '', 'Remove collection folder');
         folders.remove(this);
         syncToProject();
+    }
+
+    removeWithAttachments() {
+        let collections = this.getCollections();
+        let remove_elements: OutlinerElement[] = [];
+        let remove_groups: Group[] = [];
+        let textures: Texture[] = [];
+        let texture_groups: TextureGroup[] = [];
+
+        for (let c of collections) {
+            for (let child of c.getAllChildren()) {
+                (child instanceof Group ? remove_groups : remove_elements).safePush(child as any);
+            }
+            let tg = TextureGroup.all.find(t => t.name === c.name);
+            if (tg) {
+                textures.safePush(...Texture.all.filter(t => t.group === tg!.uuid));
+                texture_groups.push(tg);
+            }
+        }
+
+        Undo.initEdit({
+            collections,
+            groups: remove_groups,
+            elements: remove_elements,
+            outliner: true,
+            texture_groups: texture_groups as any,
+            textures,
+        });
+
+        collections.forEach(c => {
+            unwatchCollection(c);
+            Collection.all.remove(c);
+        });
+        textures.forEach(t => t.remove(true));
+        texture_groups.forEach(t => t.remove());
+        remove_groups.forEach(g => g.remove());
+        remove_elements.forEach(e => e.remove());
+
+        updateSelection();
+        Undo.finishEdit('Delete set and attachments');
+
+        folders.remove(this);
+        syncToProject();
+        scheduleUpdate();
     }
 
     rename() {
@@ -190,36 +238,39 @@ function createFolderGroup(folder: CollectionFolder, collectionEls: HTMLElement[
     label.title = folder.name;
     head.appendChild(label);
 
+    if (!folder.folded) {
+        let addBtn = document.createElement('div');
+        addBtn.className = 'in_list_button';
+        let addIcon = document.createElement('i');
+        addIcon.className = 'material-icons icon';
+        addIcon.textContent = 'add';
+        addBtn.appendChild(addIcon);
+        addBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            importAttachmentToFolder(folder.uuid);
+        });
+        addBtn.addEventListener('dblclick', (e) => e.stopPropagation());
+        head.appendChild(addBtn);
+    }
+
     let collections = folder.getCollections();
-    let allHidden = collections.length > 0 && collections.every(c => !c.getVisibility());
+    let allUnloaded = collections.length > 0 && collections.every(c => isUnloaded(c));
     let visBtn = document.createElement('div');
     visBtn.className = 'in_list_button';
     let visIcon = document.createElement('i');
     visIcon.className = 'material-icons icon';
-    if (allHidden) visIcon.classList.add('toggle_disabled');
-    visIcon.textContent = allHidden ? 'visibility_off' : 'visibility';
+    if (allUnloaded) visIcon.classList.add('toggle_disabled');
+    visIcon.textContent = allUnloaded ? 'visibility_off' : 'visibility';
     visBtn.appendChild(visIcon);
     visBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        let targetState = allHidden;
-        let groups: Group[] = [];
-        let elements: OutlinerElement[] = [];
-        for (let c of collections) {
-            for (let child of c.getAllChildren()) {
-                if (!('visibility' in child) || typeof child.visibility !== 'boolean') continue;
-                if (child.visibility === targetState) continue;
-                if (child instanceof Group) groups.push(child);
-                else elements.push(child as OutlinerElement);
+        if (allUnloaded) {
+            for (let c of collections) {
+                if (isUnloaded(c)) reloadCollection(c);
             }
+        } else {
+            promptAndUnload(collections);
         }
-        if (!groups.length && !elements.length) return;
-        let savedStates = collections.map(c => c.saved);
-        Undo.initEdit({ groups, elements });
-        for (let node of [...groups, ...elements]) node.visibility = targetState;
-        Canvas.updateView({ elements, element_aspects: { visibility: true } });
-        Undo.finishEdit('Toggle folder visibility');
-        collections.forEach((c, i) => c.saved = savedStates[i]);
-        scheduleUpdate();
     });
     visBtn.addEventListener('dblclick', (e) => e.stopPropagation());
     head.appendChild(visBtn);
@@ -322,7 +373,7 @@ export function setupCollectionFolders() {
     track(folderProp, foldersProp);
 
     let createAction = new Action('create_collection_folder', {
-        name: 'Create Folder', icon: 'create_new_folder', category: 'collections',
+        name: 'Create Set', icon: 'create_new_folder', category: 'collections',
         condition: { formats: FORMAT_IDS },
         click() {
             new CollectionFolder().add();
@@ -333,7 +384,7 @@ export function setupCollectionFolders() {
     Panels.collections.menu.addAction(createAction);
 
     let moveMenu: CustomMenuItem = {
-        id: 'move_to_folder', name: 'Move to Folder', icon: 'drive_file_move',
+        id: 'move_to_folder', name: 'Move to Set', icon: 'drive_file_move',
         condition: { formats: FORMAT_IDS },
         children() {
             let items: CustomMenuItem[] = [{

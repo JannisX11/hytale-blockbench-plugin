@@ -4144,15 +4144,12 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       description: 'Second tool in the double-click toggle pair. Requires "Double Click Switch Tools" to be enabled in Blockbench controls settings.',
       category: "controls",
       type: "select",
-      value: "pivot_tool",
+      value: "resize_tool",
       options: toolOptions
     });
     track(dblClickToolB);
     let originalToggleTransforms = Toolbox.toggleTransforms;
     Toolbox.toggleTransforms = function() {
-      if (!isHytaleFormat()) {
-        return originalToggleTransforms.call(this);
-      }
       let a = dblClickToolA.value;
       let b = dblClickToolB.value;
       if (Toolbox.selected.id === a) {

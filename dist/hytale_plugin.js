@@ -4074,52 +4074,66 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         Canvas.pivot_marker.position.set(0, 0, 0);
       }
     }
-    function onPointerUp() {
+    function onFinishEdit() {
       if (!snapshots) return;
       let snapshotsCopy = snapshots;
-      let savedUpdate = savedUpdatePivotMarker;
       snapshots = null;
       trackedCubeUuid = null;
-      savedUpdatePivotMarker = null;
-      setTimeout(() => {
-        if (savedUpdate) {
-          Canvas.updatePivotMarker = savedUpdate;
+      if (savedUpdatePivotMarker) {
+        Canvas.updatePivotMarker = savedUpdatePivotMarker;
+        savedUpdatePivotMarker = null;
+      }
+      let modified = [];
+      for (let [uuid, snap] of snapshotsCopy) {
+        let el = OutlinerNode.uuids[uuid];
+        if (!(el instanceof Cube) || !el.mesh) continue;
+        let originMoved = el.origin[0] !== snap.initialOrigin[0] || el.origin[1] !== snap.initialOrigin[1] || el.origin[2] !== snap.initialOrigin[2];
+        if (pivotFollowEnabled && !originMoved) {
+          let delta = new THREE.Vector3(
+            el.from[0] - snap.initialFrom[0],
+            el.from[1] - snap.initialFrom[1],
+            el.from[2] - snap.initialFrom[2]
+          );
+          delta.applyQuaternion(el.mesh.quaternion);
+          let desired = [
+            snap.initialOrigin[0] + delta.x,
+            snap.initialOrigin[1] + delta.y,
+            snap.initialOrigin[2] + delta.z
+          ];
+          el.transferOrigin(desired, false);
+          modified.push(el);
+        } else if (!pivotFollowEnabled && originMoved) {
+          el.transferOrigin(snap.initialOrigin, false);
+          modified.push(el);
         }
-        let modified = [];
-        for (let [uuid, snap] of snapshotsCopy) {
-          let el = OutlinerNode.uuids[uuid];
-          if (!(el instanceof Cube) || !el.mesh) continue;
-          let originMoved = el.origin[0] !== snap.initialOrigin[0] || el.origin[1] !== snap.initialOrigin[1] || el.origin[2] !== snap.initialOrigin[2];
-          if (pivotFollowEnabled && !originMoved) {
-            let delta = new THREE.Vector3(
-              el.from[0] - snap.initialFrom[0],
-              el.from[1] - snap.initialFrom[1],
-              el.from[2] - snap.initialFrom[2]
-            );
-            delta.applyQuaternion(el.mesh.quaternion);
-            let desired = [
-              snap.initialOrigin[0] + delta.x,
-              snap.initialOrigin[1] + delta.y,
-              snap.initialOrigin[2] + delta.z
-            ];
-            el.transferOrigin(desired, false);
-            modified.push(el);
-          } else if (!pivotFollowEnabled && originMoved) {
-            el.transferOrigin(snap.initialOrigin, false);
-            modified.push(el);
-          }
+      }
+      Canvas.pivot_marker.position.set(0, 0, 0);
+      Canvas.pivot_marker.quaternion.identity();
+      Canvas.updatePivotMarker();
+      if (modified.length > 0) {
+        Canvas.updateView({
+          elements: modified,
+          element_aspects: { transform: true, geometry: true }
+        });
+      }
+    }
+    function onPointerUp() {
+      if (!snapshots) return;
+      let pendingSnapshots = snapshots;
+      setTimeout(() => {
+        if (snapshots !== pendingSnapshots) return;
+        snapshots = null;
+        trackedCubeUuid = null;
+        if (savedUpdatePivotMarker) {
+          Canvas.updatePivotMarker = savedUpdatePivotMarker;
+          savedUpdatePivotMarker = null;
         }
         Canvas.pivot_marker.position.set(0, 0, 0);
         Canvas.pivot_marker.quaternion.identity();
         Canvas.updatePivotMarker();
-        if (modified.length > 0) {
-          Canvas.updateView({
-            elements: modified,
-            element_aspects: { transform: true, geometry: true }
-          });
-        }
       }, 0);
     }
+    Blockbench.on("finish_edit", onFinishEdit);
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("pointermove", onPointerMove, false);
     document.addEventListener("pointerup", onPointerUp, true);
@@ -4160,6 +4174,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     };
     track(toggle, {
       delete() {
+        Blockbench.removeListener("finish_edit", onFinishEdit);
         document.removeEventListener("pointerdown", onPointerDown, true);
         document.removeEventListener("pointermove", onPointerMove, false);
         document.removeEventListener("pointerup", onPointerUp, true);

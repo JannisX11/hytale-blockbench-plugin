@@ -624,7 +624,7 @@
         existing.group = tg.uuid;
         allTextures.push(existing);
       } else if (fs.existsSync(tp)) {
-        let tex = new Texture().fromPath(tp).add(false);
+        let tex = new Texture().fromPath(tp).add(false, true);
         tex.group = tg.uuid;
         allTextures.push(tex);
       }

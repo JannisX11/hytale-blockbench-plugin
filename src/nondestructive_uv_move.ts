@@ -132,11 +132,52 @@ function ensureSession(texture: Texture, elements: OutlinerElement[]): LinkedSes
     return activeSession;
 }
 
+function rectsOverlap(
+    a: { x: number; y: number; w: number; h: number },
+    b: { x: number; y: number; w: number; h: number }
+): boolean {
+    return a.x < b.x + b.w && a.x + a.w > b.x &&
+           a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+type PixelRect = { x: number; y: number; w: number; h: number };
+
+function getOverlappingNonDraggedRects(
+    pixelRect: PixelRect,
+    draggedKeys: Set<string>,
+    texture: Texture,
+    factorX: number,
+    factorY: number
+): PixelRect[] {
+    let rects: PixelRect[] = [];
+    for (let cube of Cube.all) {
+        if (!cube.visibility) continue;
+        if ((cube as any).box_uv) {
+            let key = faceKey(cube.uuid, '__box__');
+            if (draggedKeys.has(key)) continue;
+            let otherRect = getBoxUVPixelRect(cube, factorX, factorY);
+            if (rectsOverlap(pixelRect, otherRect)) rects.push(otherRect);
+        } else {
+            for (let fkey in cube.faces) {
+                let face = cube.faces[fkey as CubeFaceDirection];
+                if (face.texture === null) continue;
+                if ((face as any).getTexture() !== texture) continue;
+                let key = faceKey(cube.uuid, fkey);
+                if (draggedKeys.has(key)) continue;
+                let otherRect = getFacePixelRect(face, factorX, factorY);
+                if (rectsOverlap(pixelRect, otherRect)) rects.push(otherRect);
+            }
+        }
+    }
+    return rects;
+}
+
 function ensureFaceLayer(
     session: LinkedSession,
     cube: Cube,
     layerKey: string,
-    pixelRect: { x: number; y: number; w: number; h: number }
+    pixelRect: PixelRect,
+    overlappingRects: PixelRect[] = []
 ) {
     if (session.faceLayerMap.has(layerKey)) return;
     if (pixelRect.w <= 0 || pixelRect.h <= 0) return;
@@ -156,12 +197,28 @@ function ensureFaceLayer(
         pixelRect.w, pixelRect.h
     );
 
-    // Clear from base layer to avoid double-compositing
+    let baseOffX = session.baseLayer.offset[0];
+    let baseOffY = session.baseLayer.offset[1];
+
+    // Clear dragged area from base layer
     session.baseLayer.ctx.clearRect(
-        pixelRect.x - session.baseLayer.offset[0],
-        pixelRect.y - session.baseLayer.offset[1],
+        pixelRect.x - baseOffX, pixelRect.y - baseOffY,
         pixelRect.w, pixelRect.h
     );
+
+    // Restore only the intersection areas where non-dragged faces sit
+    for (let other of overlappingRects) {
+        let ix = Math.max(pixelRect.x, other.x);
+        let iy = Math.max(pixelRect.y, other.y);
+        let iw = Math.min(pixelRect.x + pixelRect.w, other.x + other.w) - ix;
+        let ih = Math.min(pixelRect.y + pixelRect.h, other.y + other.h) - iy;
+        if (iw <= 0 || ih <= 0) continue;
+        session.baseLayer.ctx.drawImage(
+            session.originalCanvas,
+            ix, iy, iw, ih,
+            ix - baseOffX, iy - baseOffY, iw, ih
+        );
+    }
 
     layer.name = layerKey;
     layer.addForEditing();
@@ -174,7 +231,23 @@ function createLayersForDraggedFaces(
     texture: Texture
 ) {
     let [factorX, factorY] = getPixelFactors(texture);
-    let draggedLayers: TextureLayer[] = [];
+
+    // Collect all dragged face keys first for overlap detection
+    let draggedKeys = new Set<string>();
+    for (let el of elements) {
+        if (!(el instanceof Cube)) continue;
+        if ((el as any).box_uv) {
+            draggedKeys.add(faceKey(el.uuid, '__box__'));
+        } else {
+            let selectedFaces = UVEditor.getSelectedFaces(el);
+            for (let fkey of selectedFaces) {
+                let face = el.faces[fkey as CubeFaceDirection];
+                if (!face || face.texture === null) continue;
+                if ((face as any).getTexture() !== texture) continue;
+                draggedKeys.add(faceKey(el.uuid, fkey));
+            }
+        }
+    }
 
     for (let el of elements) {
         if (!(el instanceof Cube)) continue;
@@ -182,9 +255,8 @@ function createLayersForDraggedFaces(
         if ((el as any).box_uv) {
             let key = faceKey(el.uuid, '__box__');
             let pixelRect = getBoxUVPixelRect(el, factorX, factorY);
-            ensureFaceLayer(session, el, key, pixelRect);
-            let layer = session.faceLayerMap.get(key);
-            if (layer) draggedLayers.push(layer);
+            let overlaps = getOverlappingNonDraggedRects(pixelRect, draggedKeys, texture, factorX, factorY);
+            ensureFaceLayer(session, el, key, pixelRect, overlaps);
         } else {
             let selectedFaces = UVEditor.getSelectedFaces(el);
             for (let fkey of selectedFaces) {
@@ -194,9 +266,8 @@ function createLayersForDraggedFaces(
 
                 let key = faceKey(el.uuid, fkey);
                 let pixelRect = getFacePixelRect(face, factorX, factorY);
-                ensureFaceLayer(session, el, key, pixelRect);
-                let layer = session.faceLayerMap.get(key);
-                if (layer) draggedLayers.push(layer);
+                let overlaps = getOverlappingNonDraggedRects(pixelRect, draggedKeys, texture, factorX, factorY);
+                ensureFaceLayer(session, el, key, pixelRect, overlaps);
             }
         }
     }

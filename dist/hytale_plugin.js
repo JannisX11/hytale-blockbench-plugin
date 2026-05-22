@@ -4225,7 +4225,33 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     };
     return activeSession;
   }
-  function ensureFaceLayer(session, cube, layerKey, pixelRect) {
+  function rectsOverlap(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+  function getOverlappingNonDraggedRects(pixelRect, draggedKeys, texture, factorX, factorY) {
+    let rects = [];
+    for (let cube of Cube.all) {
+      if (!cube.visibility) continue;
+      if (cube.box_uv) {
+        let key = faceKey(cube.uuid, "__box__");
+        if (draggedKeys.has(key)) continue;
+        let otherRect = getBoxUVPixelRect(cube, factorX, factorY);
+        if (rectsOverlap(pixelRect, otherRect)) rects.push(otherRect);
+      } else {
+        for (let fkey in cube.faces) {
+          let face = cube.faces[fkey];
+          if (face.texture === null) continue;
+          if (face.getTexture() !== texture) continue;
+          let key = faceKey(cube.uuid, fkey);
+          if (draggedKeys.has(key)) continue;
+          let otherRect = getFacePixelRect(face, factorX, factorY);
+          if (rectsOverlap(pixelRect, otherRect)) rects.push(otherRect);
+        }
+      }
+    }
+    return rects;
+  }
+  function ensureFaceLayer(session, cube, layerKey, pixelRect, overlappingRects = []) {
     if (session.faceLayerMap.has(layerKey)) return;
     if (pixelRect.w <= 0 || pixelRect.h <= 0) return;
     let layer = new TextureLayer(
@@ -4244,27 +4270,60 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       pixelRect.w,
       pixelRect.h
     );
+    let baseOffX = session.baseLayer.offset[0];
+    let baseOffY = session.baseLayer.offset[1];
     session.baseLayer.ctx.clearRect(
-      pixelRect.x - session.baseLayer.offset[0],
-      pixelRect.y - session.baseLayer.offset[1],
+      pixelRect.x - baseOffX,
+      pixelRect.y - baseOffY,
       pixelRect.w,
       pixelRect.h
     );
+    for (let other of overlappingRects) {
+      let ix = Math.max(pixelRect.x, other.x);
+      let iy = Math.max(pixelRect.y, other.y);
+      let iw = Math.min(pixelRect.x + pixelRect.w, other.x + other.w) - ix;
+      let ih = Math.min(pixelRect.y + pixelRect.h, other.y + other.h) - iy;
+      if (iw <= 0 || ih <= 0) continue;
+      session.baseLayer.ctx.drawImage(
+        session.originalCanvas,
+        ix,
+        iy,
+        iw,
+        ih,
+        ix - baseOffX,
+        iy - baseOffY,
+        iw,
+        ih
+      );
+    }
     layer.name = layerKey;
     layer.addForEditing();
     session.faceLayerMap.set(layerKey, layer);
   }
   function createLayersForDraggedFaces(session, elements, texture) {
     let [factorX, factorY] = getPixelFactors(texture);
-    let draggedLayers = [];
+    let draggedKeys = /* @__PURE__ */ new Set();
+    for (let el of elements) {
+      if (!(el instanceof Cube)) continue;
+      if (el.box_uv) {
+        draggedKeys.add(faceKey(el.uuid, "__box__"));
+      } else {
+        let selectedFaces = UVEditor.getSelectedFaces(el);
+        for (let fkey of selectedFaces) {
+          let face = el.faces[fkey];
+          if (!face || face.texture === null) continue;
+          if (face.getTexture() !== texture) continue;
+          draggedKeys.add(faceKey(el.uuid, fkey));
+        }
+      }
+    }
     for (let el of elements) {
       if (!(el instanceof Cube)) continue;
       if (el.box_uv) {
         let key = faceKey(el.uuid, "__box__");
         let pixelRect = getBoxUVPixelRect(el, factorX, factorY);
-        ensureFaceLayer(session, el, key, pixelRect);
-        let layer = session.faceLayerMap.get(key);
-        if (layer) draggedLayers.push(layer);
+        let overlaps = getOverlappingNonDraggedRects(pixelRect, draggedKeys, texture, factorX, factorY);
+        ensureFaceLayer(session, el, key, pixelRect, overlaps);
       } else {
         let selectedFaces = UVEditor.getSelectedFaces(el);
         for (let fkey of selectedFaces) {
@@ -4273,9 +4332,8 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
           if (face.getTexture() !== texture) continue;
           let key = faceKey(el.uuid, fkey);
           let pixelRect = getFacePixelRect(face, factorX, factorY);
-          ensureFaceLayer(session, el, key, pixelRect);
-          let layer = session.faceLayerMap.get(key);
-          if (layer) draggedLayers.push(layer);
+          let overlaps = getOverlappingNonDraggedRects(pixelRect, draggedKeys, texture, factorX, factorY);
+          ensureFaceLayer(session, el, key, pixelRect, overlaps);
         }
       }
     }

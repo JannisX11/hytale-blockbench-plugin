@@ -1534,7 +1534,8 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
           if (element.parent instanceof Group) {
             origin.V3_subtract(element.parent.origin);
             let parent_offset = getNodeOffset(element.parent);
-            if (parent_offset) {
+            let parent_is_piece = options.attachment && element.parent.is_piece;
+            if (parent_offset && !parent_is_piece) {
               origin.V3_subtract(parent_offset);
             }
           }

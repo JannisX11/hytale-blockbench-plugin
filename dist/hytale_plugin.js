@@ -736,6 +736,9 @@
               mirror: new oneLiner({ x: mirror_x, y: mirror_y }),
               angle: uv_rot
             };
+            if ("uv_lock" in face && face.uv_lock) {
+              layout_face.lockUVs = true;
+            }
             node.shape.textureLayout[direction] = layout_face;
           }
         }
@@ -1085,6 +1088,7 @@
                 }
                 cube.faces[face_name].rotation = uv_rotation;
                 cube.faces[face_name].uv = result;
+                cube.faces[face_name].uv_lock = uv_source.lockUVs == true;
               }
             }
             cube.addTo(group || parent_group).init();
@@ -2664,6 +2668,39 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
       condition: { formats: FORMAT_IDS }
     });
     track(original_offset_property);
+    const uv_lock_property = new Property(CubeFace, "boolean", "uv_lock", {
+      condition: { formats: FORMAT_IDS },
+      default: false
+    });
+    const uv_lock_toggle = new Toggle("toggle_hytale_uv_lock", {
+      name: "Toggle UV Lock",
+      icon: "sync_lock",
+      category: "uv",
+      onChange(value) {
+        Undo.initEdit({ elements: Cube.selected });
+        for (let cube of Cube.selected) {
+          for (let fkey of UVEditor.getFaces(cube)) {
+            cube.faces[fkey].uv_lock = value;
+          }
+        }
+        Undo.finishEdit("Toggle UV Lock");
+      }
+    });
+    Toolbars.uv_editor.add(uv_lock_toggle);
+    const on_update = Blockbench.on("update_selection", (arg) => {
+      if (!Condition(uv_lock_toggle.condition)) return;
+      let value = false;
+      for (let cube of Cube.selected) {
+        for (let fkey of UVEditor.getFaces(cube)) {
+          if (cube.faces[fkey].uv_lock) value = true;
+        }
+      }
+      if (value != uv_lock_toggle.value) {
+        uv_lock_toggle.value = value;
+        uv_lock_toggle.updateEnabledState();
+      }
+    });
+    track(uv_lock_toggle, uv_lock_property);
     let add_quad_action = new Action("hytale_add_quad", {
       name: "Add Quad",
       icon: "highlighter_size_5",

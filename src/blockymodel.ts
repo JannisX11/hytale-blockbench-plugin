@@ -6,6 +6,7 @@ import { track } from "./cleanup"
 import { Config } from "./config"
 import { FORMAT_IDS } from "./formats"
 import { cubeIsQuad, getMainShape, qualifiesAsMainShape } from "./util"
+import { markSelfWrite } from "./attachments/watcher"
 
 type BlockymodelJSON = {
 	nodes: BlockymodelNode[]
@@ -379,16 +380,14 @@ export function setupBlockymodelCodec(): Codec {
 				}
 
 			}
-			function getNodeOffset(group: Group, include_original_offset: boolean = true): ArrayVector3 | undefined {
+			function getNodeOffset(group: Group): ArrayVector3 | undefined {
 				let cube = getMainShape(group);
 				if (cube) {
 					let center_pos = cube.from.slice().V3_add(cube.to).V3_divide(2, 2, 2);
 					center_pos.V3_subtract(group.origin);
 					return center_pos;
-				} else if (include_original_offset) {
-					return group.original_offset;
 				} else {
-					return [0, 0, 0];
+					return group.original_offset;
 				}
 			}
 
@@ -418,7 +417,7 @@ export function setupBlockymodelCodec(): Codec {
 				let offset: ArrayVector3 = element instanceof Group ? getNodeOffset(element) : [0, 0, 0];
 				if (element.parent instanceof Group) {
 					origin.V3_subtract(element.parent.origin);
-					let parent_offset = getNodeOffset(element.parent, !options.attachment);
+					let parent_offset = getNodeOffset(element.parent);
 					if (parent_offset) {
 						origin.V3_subtract(parent_offset);
 					}
@@ -786,7 +785,8 @@ export function setupBlockymodelCodec(): Codec {
 				if (texture_paths.length > 0 && !args.attachment) {
 					new_textures = loadTexturesFromPaths(texture_paths, Project.name);
 				} else if (texture_paths.length > 0) {
-					new_textures = loadTexturesFromPaths(texture_paths);
+					let new_paths = texture_paths.filter(p => !Texture.all.find(t => t.path == p));
+					new_textures = loadTexturesFromPaths(new_paths);
 				}
 
 				// If no textures found automatically, prompt user to import
@@ -843,12 +843,14 @@ export function setupBlockymodelCodec(): Codec {
 		},
 		async exportCollection(collection: Collection) {
 			this.context = collection;
+			if (collection.export_path) markSelfWrite(collection.export_path);
 			await this.export({attachment: collection});
 			if ("saved" in collection) collection.saved = true;
 			this.context = null;
 		},
 		async writeCollection(collection: Collection) {
 			this.context = collection;
+			if (collection.export_path) markSelfWrite(collection.export_path);
 			this.write(this.compile({attachment: collection}), collection.export_path);
 			if ("saved" in collection) collection.saved = true;
 			this.context = null;
@@ -871,6 +873,7 @@ export function setupBlockymodelCodec(): Codec {
 	
 	let hook = Blockbench.on('quick_save_model', () => {
 		if (FORMAT_IDS.includes(Format.id) == false) return;
+		if (Project.export_path) markSelfWrite(Project.export_path);
 		for (let collection of Collection.all) {
 			if (collection.export_codec != codec.id) continue;
 			codec.writeCollection(collection);

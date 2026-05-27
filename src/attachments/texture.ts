@@ -1,15 +1,15 @@
 //! Copyright (C) 2025 Hypixel Studios Canada inc.
 //! Licensed under the GNU General Public License, see LICENSE.MD
 
-import { track } from "./cleanup";
-import { FORMAT_IDS, isHytaleFormat } from "./formats";
-import { updateUVSize } from "./texture";
+import { track } from "../cleanup";
+import { FORMAT_IDS, isHytaleFormat } from "../formats";
+import { updateUVSize } from "../texture";
 
 export type AttachmentCollection = Collection & {
 	texture: string;
 }
 
-function getCollection(cube: Cube): AttachmentCollection | undefined {
+export function getCollection(cube: Cube): AttachmentCollection | undefined {
 	return Collection.all.find(c => c.contains(cube)) as AttachmentCollection | undefined;
 }
 

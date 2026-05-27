@@ -1,79 +1,47 @@
 //! Copyright (C) 2025 Hypixel Studios Canada inc.
 //! Licensed under the GNU General Public License, see LICENSE.MD
 
-import { track } from "./cleanup";
-import { FORMAT_IDS, isHytaleFormat } from "./formats";
-import { discoverTexturePaths } from "./blockymodel";
-import {
-	AttachmentCollection,
-	setupAttachmentTextures,
-	processAttachmentTextures,
-} from "./attachment_texture";
+import { track } from "../cleanup";
+import { FORMAT_IDS, isHytaleFormat } from "../formats";
+import { discoverTexturePaths } from "../blockymodel";
+import { AttachmentCollection, processAttachmentTextures } from "./texture";
+import { pushReloadUndo, watchCollection } from "./watcher";
 
-export { AttachmentCollection } from "./attachment_texture";
 export let reload_all_attachments: Action;
 
-export function setupAttachments() {
-	setupAttachmentTextures();
+export function reloadAttachment(collection: Collection) {
+	let path = collection.export_path;
+	if (!path) return;
 
-	let shared_delete = SharedActions.add('delete', {
-		subject: 'collection',
-		priority: 1,
-		condition: () => Prop.active_panel == 'collections' && isHytaleFormat() && Collection.selected.some(c => c.export_codec === 'blockymodel'),
-		run() {
-			let collections = Collection.selected.slice();
-			let remove_elements: OutlinerElement[] = [];
-			let remove_groups: Group[] = [];
-			let textures: Texture[] = [];
-			let texture_groups: TextureGroup[] = [];
-			
-			for (let collection of collections) {
-				if (collection.export_codec === 'blockymodel') {
-					for (let child of collection.getAllChildren()) {
-						child = child as OutlinerNode;
-						(child instanceof Group ? remove_groups : remove_elements).safePush(child);
-					}
-					
-					let texture_group = TextureGroup.all.find(tg => tg.name === collection.name);
-					if (texture_group) {
-						let textures2 = Texture.all.filter(t => t.group === texture_group.uuid);
-						textures.safePush(...textures2);
-						texture_groups.push(texture_group);
-					}
-				}
-			}
+	let fs = requireNativeModule('fs');
+	if (!fs.existsSync(path)) return;
 
-			Undo.initEdit({
-				collections: collections,
-				groups: remove_groups,
-				elements: remove_elements,
-				outliner: true,
-				// @ts-expect-error
-				texture_groups,
-				textures,
-			});
+	let beforeJson = Codecs.blockymodel.compile({attachment: collection, raw: true});
 
-			collections.forEach(c => Collection.all.remove(c));
-			collections.empty();
+	for (let child of collection.getChildren()) child.remove();
+	let afterJson = autoParseJSON(fs.readFileSync(path, 'utf-8'));
+	parseAttachmentJson(collection, afterJson, path);
 
-			textures.forEach(t => t.remove(true));
-			textures.empty();
-
-			texture_groups.forEach(t => t.remove());
-			texture_groups.empty();
-
-			remove_groups.forEach(group => group.remove());
-			remove_groups.empty();
-
-			remove_elements.forEach(element => element.remove());
-			remove_elements.empty();
-
-			updateSelection();
-			Undo.finishEdit('Remove attachment');
+	pushReloadUndo(
+		beforeJson, afterJson, 'Reload attachment',
+		(json) => {
+			for (let child of collection.getChildren()) child.remove();
+			parseAttachmentJson(collection, json, path);
+			Canvas.updateAllFaces();
 		}
-	});
-	track(shared_delete);
+	);
 
+	Canvas.updateAllFaces();
+}
+
+function parseAttachmentJson(collection: Collection, json: any, path: string) {
+	let result: any = Codecs.blockymodel.parse(json, path, {attachment: collection.name});
+	let new_groups = result.new_groups as Group[];
+	let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));
+	collection.extend({ children: root_groups.map(g => g.uuid) }).add();
+}
+
+export function setupImport() {
 	let import_as_attachment = new Action('import_as_hytale_attachment', {
 		name: 'Import Attachment',
 		icon: 'fa-hat-cowboy',
@@ -86,6 +54,10 @@ export function setupAttachments() {
 				startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, '') + osfs + 'Attachments'
 			}, (files) => {
 				for (let file of files) {
+					if (Collection.all.some(c => c.export_path === file.path)) {
+						Blockbench.showQuickMessage(`Attachment "${file.name}" is already imported`, 2000);
+						continue;
+					}
 					let json = autoParseJSON(file.content as string);
 					let attachment_name = file.name.replace(/\.\w+$/, '');
 					let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: attachment_name});
@@ -119,6 +91,7 @@ export function setupAttachments() {
 					}
 
 					Canvas.updateAllFaces();
+					watchCollection(collection);
 				}
 			})
 		}
@@ -127,26 +100,6 @@ export function setupAttachments() {
 	let toolbar = Panels.collections.toolbars[0];
 	toolbar.add(import_as_attachment);
 	MenuBar.menus.file.addAction(import_as_attachment, 'import');
-
-	function reloadAttachment(collection: Collection) {
-		for (let child of collection.getChildren()) {
-			child.remove();
-		}
-
-		Filesystem.readFile([collection.export_path], {}, ([file]) => {
-			let json = autoParseJSON(file.content as string);
-			let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: collection.name});
-
-			let new_groups = content.new_groups as Group[];
-			let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));
-
-			collection.extend({
-				children: root_groups.map(g => g.uuid),
-			}).add();
-
-			Canvas.updateAllFaces();
-		})
-	}
 
 	let reload_attachment_action = new Action('reload_hytale_attachment', {
 		name: 'Reload Attachment',

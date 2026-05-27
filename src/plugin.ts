@@ -2,7 +2,7 @@
 //! Licensed under the GNU General Public License, see LICENSE.MD
 
 import { setupAnimationCodec } from "./blockyanim";
-import { setupAttachments } from "./attachments";
+import { setupAttachments } from "./attachments/index";
 import { setupAnimation } from "./animations";
 import { cleanup, track } from "./cleanup";
 import { setupElements } from "./element";
@@ -21,6 +21,7 @@ import { setupPreviewScenes } from "./preview_scenes";
 import { setupUVCanvasResize } from "./uv_canvas_resize";
 import { setupAltDuplicate } from "./alt_duplicate";
 import { setupPivotControl } from "./pivot_control";
+import { setupMirrorFix } from "./mirror_fix";
 import { setupChangeOrientation } from "./change_orientation";
 import { setupShortcuts } from "./shortcuts";
 
@@ -59,6 +60,7 @@ BBPlugin.register('hytale_plugin', {
         setupAltDuplicate();
         setupNameOverlap();
         setupUVOutline();
+        setupMirrorFix();
         setupTempFixes();
         setupChangeOrientation();
         setupPreviewScenes();

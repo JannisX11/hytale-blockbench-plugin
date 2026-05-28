@@ -919,7 +919,9 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       head.classList.remove("drag_hover");
       let uuid = e.dataTransfer?.getData("text/collection-uuid");
       let collection = uuid ? Collection.all.find((c) => c.uuid === uuid) : null;
-      if (collection) setFolder([collection], folder.uuid, "Move collection to folder");
+      if (!collection) return;
+      let collections2 = Collection.selected.includes(collection) && Collection.selected.length > 1 ? Collection.selected : [collection];
+      setFolder(collections2, folder.uuid, "Move collection to folder");
     });
     group.appendChild(head);
     let childList = document.createElement("ul");
@@ -948,6 +950,9 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       if (!target) return;
       let uuid = target.getAttribute("uuid");
       if (!uuid) return;
+      let dragCollection = Collection.all.find((c) => c.uuid === uuid);
+      if (!dragCollection) return;
+      let dragCollections = Collection.selected.includes(dragCollection) && Collection.selected.length > 1 ? Collection.selected.slice() : [dragCollection];
       let startX = e.clientX, startY = e.clientY;
       let active = false;
       let helper = null;
@@ -957,7 +962,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
           active = true;
           helper = document.createElement("div");
           helper.className = "hytale_collection_drag_helper";
-          helper.textContent = Collection.all.find((c) => c.uuid === uuid)?.name ?? "";
+          helper.textContent = dragCollections.length > 1 ? `${dragCollections.length} attachments` : dragCollections[0].name;
           document.body.appendChild(helper);
         }
         if (!active || !helper) return;
@@ -975,11 +980,10 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
         document.querySelectorAll(`.${HEAD_CLASS}`).forEach((el) => el.classList.remove("drag_hover"));
         if (!active) return;
         let folderHead = document.elementFromPoint(e2.clientX, e2.clientY)?.closest(`.${HEAD_CLASS}`);
-        let collection = Collection.all.find((c) => c.uuid === uuid);
-        if (!collection) return;
         let targetUuid = folderHead?.getAttribute("data-folder-uuid") ?? "";
-        if (fc(collection).folder !== targetUuid) {
-          setFolder([collection], targetUuid, "Move collection to folder");
+        let toMove = dragCollections.filter((c) => fc(c).folder !== targetUuid);
+        if (toMove.length > 0) {
+          setFolder(toMove, targetUuid, "Move collection to folder");
         }
       }
       document.addEventListener("mousemove", onMove);

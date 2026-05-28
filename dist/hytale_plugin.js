@@ -4421,10 +4421,13 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     let me = event;
     let addToSelection = me.shiftKey || me.ctrlOrCmd || Pressing.overrides?.shift || Pressing.overrides?.ctrl;
     if (element && face_key && !addToSelection) {
-      for (let el of UVEditor.getMappableElements()) {
-        if (el === element) continue;
-        let faces = UVEditor.getSelectedFaces(el, true);
-        if (faces?.length) faces.empty?.() || faces.splice(0);
+      let currentFaces = UVEditor.getSelectedFaces(element);
+      if (!currentFaces.includes(face_key)) {
+        for (let el of UVEditor.getMappableElements()) {
+          if (el === element) continue;
+          let faces = UVEditor.getSelectedFaces(el, true);
+          if (faces?.length) faces.empty?.() || faces.splice(0);
+        }
       }
     }
     if (element && face_key) this.selectFace(element, face_key, event, true);

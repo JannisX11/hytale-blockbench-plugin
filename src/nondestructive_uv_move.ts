@@ -379,12 +379,15 @@ function linkedDragFace(this: any, element: any, face_key: string | null, event:
     let me = event as any;
     let addToSelection = me.shiftKey || me.ctrlOrCmd || (Pressing as any).overrides?.shift || (Pressing as any).overrides?.ctrl;
 
-    // Clear face selections on other elements when not adding to selection
+    // Only clear other elements' selections when clicking an unselected face
     if (element && face_key && !addToSelection) {
-        for (let el of UVEditor.getMappableElements()) {
-            if (el === element) continue;
-            let faces = UVEditor.getSelectedFaces(el, true);
-            if (faces?.length) (faces as any).empty?.() || faces.splice(0);
+        let currentFaces = UVEditor.getSelectedFaces(element);
+        if (!currentFaces.includes(face_key)) {
+            for (let el of UVEditor.getMappableElements()) {
+                if (el === element) continue;
+                let faces = UVEditor.getSelectedFaces(el, true);
+                if (faces?.length) (faces as any).empty?.() || faces.splice(0);
+            }
         }
     }
 

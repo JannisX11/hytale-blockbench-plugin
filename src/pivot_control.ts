@@ -65,6 +65,11 @@ export function setupPivotControl() {
 		if (Toolbox.selected?.id !== 'move_tool') return;
 		if (!(Transformer as any)?.axis) return;
 
+		// Skip when any group is selected — group moves handle pivots naturally
+		for (let el of Outliner.selected) {
+			if (el instanceof Group) return;
+		}
+
 		snapshots = new Map();
 		for (let el of Outliner.selected) {
 			if (el instanceof Cube) {

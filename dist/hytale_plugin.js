@@ -4022,9 +4022,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       if (!isHytaleFormat() || !Modes.edit) return;
       if (Toolbox.selected?.id !== "move_tool") return;
       if (!Transformer?.axis) return;
-      for (let el2 of Outliner.selected) {
-        if (el2 instanceof Group) return;
-      }
+      if (Group.selected.length) return;
       snapshots = /* @__PURE__ */ new Map();
       for (let el2 of Outliner.selected) {
         if (el2 instanceof Cube) {

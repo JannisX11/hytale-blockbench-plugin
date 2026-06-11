@@ -9,6 +9,62 @@ import { pushReloadUndo, watchCollection } from "./watcher";
 
 export let reload_all_attachments: Action;
 
+type FolderCollection = Collection & { folder: string };
+
+function importFiles(files: {name: string, path: string, content: string | ArrayBuffer}[], folderUuid?: string) {
+	for (let file of files) {
+		if (Collection.all.some(c => c.export_path === file.path)) {
+			Blockbench.showQuickMessage(`Attachment "${file.name}" is already imported`, 2000);
+			continue;
+		}
+		let json = autoParseJSON(file.content as string);
+		let attachment_name = file.name.replace(/\.\w+$/, '');
+		let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: attachment_name});
+		let name = file.name.split('.')[0]
+
+		let new_groups = content.new_groups as Group[];
+		let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));
+
+		let collection = new Collection({
+			name,
+			children: root_groups.map(g => g.uuid),
+			export_codec: 'blockymodel',
+			visibility: true,
+		}).add() as AttachmentCollection;
+		collection.export_path = file.path;
+
+		if (folderUuid) (collection as FolderCollection).folder = folderUuid;
+
+		let texturesToProcess: Texture[] = content.new_textures as Texture[];
+
+		if (texturesToProcess.length === 0) {
+			let dirname = PathModule.dirname(file.path);
+			let texturePaths = discoverTexturePaths(dirname, attachment_name);
+			for (let texPath of texturePaths) {
+				let tex = new Texture().fromPath(texPath).add(false);
+				texturesToProcess.push(tex);
+			}
+		}
+
+		let textureUuid = processAttachmentTextures(attachment_name, texturesToProcess);
+		if (textureUuid) {
+			collection.texture = textureUuid;
+		}
+
+		Canvas.updateAllFaces();
+		watchCollection(collection);
+	}
+}
+
+export function importAttachmentToFolder(folderUuid: string) {
+	Filesystem.importFile({
+		extensions: ['blockymodel'],
+		type: 'Blockymodel',
+		multiple: true,
+		startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, '') + osfs + 'Attachments'
+	}, (files) => importFiles(files, folderUuid));
+}
+
 export function reloadAttachment(collection: Collection) {
 	let path = collection.export_path;
 	if (!path) return;
@@ -52,48 +108,7 @@ export function setupImport() {
 				type: 'Blockymodel',
 				multiple: true,
 				startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, '') + osfs + 'Attachments'
-			}, (files) => {
-				for (let file of files) {
-					if (Collection.all.some(c => c.export_path === file.path)) {
-						Blockbench.showQuickMessage(`Attachment "${file.name}" is already imported`, 2000);
-						continue;
-					}
-					let json = autoParseJSON(file.content as string);
-					let attachment_name = file.name.replace(/\.\w+$/, '');
-					let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: attachment_name});
-					let name = file.name.split('.')[0]
-
-					let new_groups = content.new_groups as Group[];
-					let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));
-
-					let collection = new Collection({
-						name,
-						children: root_groups.map(g => g.uuid),
-						export_codec: 'blockymodel',
-						visibility: true,
-					}).add() as AttachmentCollection;
-					collection.export_path = file.path;
-
-					let texturesToProcess: Texture[] = content.new_textures as Texture[];
-
-					if (texturesToProcess.length === 0) {
-						let dirname = PathModule.dirname(file.path);
-						let texturePaths = discoverTexturePaths(dirname, attachment_name);
-						for (let texPath of texturePaths) {
-							let tex = new Texture().fromPath(texPath).add(false);
-							texturesToProcess.push(tex);
-						}
-					}
-
-					let textureUuid = processAttachmentTextures(attachment_name, texturesToProcess);
-					if (textureUuid) {
-						collection.texture = textureUuid;
-					}
-
-					Canvas.updateAllFaces();
-					watchCollection(collection);
-				}
-			})
+			}, (files) => importFiles(files))
 		}
 	});
 	track(import_as_attachment);

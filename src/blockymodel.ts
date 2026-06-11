@@ -7,11 +7,30 @@ import { Config } from "./config"
 import { FORMAT_IDS } from "./formats"
 import { cubeIsQuad, getMainShape, qualifiesAsMainShape } from "./util"
 import { markSelfWrite } from "./attachments/watcher"
+import { CollectionFolder } from "./attachments/collection_folder"
+import { isUnloaded } from "./attachments/unload"
+import { AttachmentCollection } from "./attachments/texture"
 
 type BlockymodelJSON = {
 	nodes: BlockymodelNode[]
 	format?: string
 	lod?: 'auto'
+	attachments?: BlockymodelAttachment[]
+	attachmentFolders?: BlockymodelFolder[]
+}
+type BlockymodelAttachment = {
+	name: string
+	path: string
+	textures: string[]
+	primaryTexture: string
+	folder?: string
+	unloaded?: boolean
+}
+type BlockymodelFolder = {
+	uuid: string
+	name: string
+	folded: boolean
+	order: number
 }
 type QuadNormal = '+X' | '+Y' | '+Z' | '-X' | '-Y' | '-Z';
 type BlockymodelNode = {
@@ -422,7 +441,8 @@ export function setupBlockymodelCodec(): Codec {
 				if (element.parent instanceof Group) {
 					origin.V3_subtract(element.parent.origin);
 					let parent_offset = getNodeOffset(element.parent);
-					if (parent_offset) {
+					let parent_is_piece = options.attachment && (element.parent as any).is_piece;
+					if (parent_offset && !parent_is_piece) {
 						origin.V3_subtract(parent_offset);
 					}
 				}
@@ -487,6 +507,56 @@ export function setupBlockymodelCodec(): Codec {
 			for (let node of nodes) {
 				let compiled = compileNode(node);
 				if (compiled) model.nodes.push(compiled);
+			}
+
+			if (!options.attachment && Project.export_path) {
+				let modelDir = PathModule.dirname(Project.export_path);
+				let attachments: BlockymodelAttachment[] = [];
+				for (let c of Collection.all) {
+					if (c.export_codec !== 'blockymodel' || !c.export_path) continue;
+					let relPath = PathModule.relative(modelDir, c.export_path).replace(/\\/g, '/');
+					let texPaths: string[] = [];
+					let primaryTex = '';
+
+					type UnloadedCol = Collection & { unloaded_texture_paths: string; unloaded_primary_path: string };
+					if (isUnloaded(c)) {
+						let uc = c as UnloadedCol;
+						if (uc.unloaded_texture_paths) {
+							try {
+								let absPaths: string[] = JSON.parse(uc.unloaded_texture_paths);
+								texPaths = absPaths.map(p => PathModule.relative(modelDir, p).replace(/\\/g, '/')).filter(Boolean);
+							} catch {}
+						}
+						if (uc.unloaded_primary_path) {
+							primaryTex = PathModule.relative(modelDir, uc.unloaded_primary_path).replace(/\\/g, '/');
+						}
+					} else {
+						let tg = TextureGroup.all.find(t => t.name === c.name);
+						if (tg) {
+							texPaths = Texture.all.filter(t => t.group === tg!.uuid)
+								.map(t => PathModule.relative(modelDir, t.path).replace(/\\/g, '/'))
+								.filter(Boolean);
+						}
+						let ac = c as AttachmentCollection;
+						if (ac.texture) {
+							let tex = Texture.all.find(t => t.uuid === ac.texture);
+							if (tex?.path) primaryTex = PathModule.relative(modelDir, tex.path).replace(/\\/g, '/');
+						}
+					}
+					type FolderCollection = Collection & { folder: string };
+					attachments.push({
+						name: c.name,
+						path: relPath,
+						textures: texPaths,
+						primaryTexture: primaryTex,
+						folder: (c as FolderCollection).folder || undefined,
+						unloaded: isUnloaded(c) || undefined,
+					});
+				}
+				if (attachments.length) model.attachments = attachments;
+
+				let folderData = CollectionFolder.all.map(f => f.getSaveCopy()) as BlockymodelFolder[];
+				if (folderData.length) model.attachmentFolders = folderData;
 			}
 
 			if (options.raw) {
@@ -829,6 +899,46 @@ export function setupBlockymodelCodec(): Codec {
 					});
 				}
 			}
+			if (!args.attachment && model.attachments && isApp && path) {
+				let modelDir = PathModule.dirname(path);
+				let { CollectionFolder: CF } = require('./attachments/collection_folder') as typeof import('./attachments/collection_folder');
+
+				if (model.attachmentFolders) {
+					for (let fd of model.attachmentFolders) {
+						fd.folded = true;
+						new CF(fd).add();
+					}
+				}
+
+				type UnloadedCol = AttachmentCollection & { unloaded: boolean; unloaded_texture_paths: string; unloaded_primary_path: string; folder: string };
+				for (let att of model.attachments) {
+					if (Collection.all.some(c => c.name === att.name)) continue;
+					let absPath = PathModule.resolve(modelDir, att.path.replace(/\//g, PathModule.sep));
+					let fs = requireNativeModule('fs');
+
+					let collection = new Collection({
+						name: att.name,
+						children: [],
+						export_codec: 'blockymodel',
+						visibility: true,
+					}).add() as UnloadedCol;
+					collection.export_path = absPath;
+					collection.unloaded = true;
+
+					if (att.folder) collection.folder = att.folder;
+
+					let texPaths = att.textures.map(rel => PathModule.resolve(modelDir, rel.replace(/\//g, PathModule.sep)));
+					collection.unloaded_texture_paths = JSON.stringify(texPaths);
+					if (att.primaryTexture) {
+						collection.unloaded_primary_path = PathModule.resolve(modelDir, att.primaryTexture.replace(/\//g, PathModule.sep));
+					}
+
+					if (!fs.existsSync(absPath)) {
+						Blockbench.showQuickMessage(`Attachment "${att.name}" not found at ${att.path}`, 3000);
+					}
+				}
+			}
+
 			return {new_groups, new_textures};
 		},
 		// MARK: Other
@@ -848,6 +958,7 @@ export function setupBlockymodelCodec(): Codec {
 			}, path => this.afterDownload(path))
 		},
 		async exportCollection(collection: Collection) {
+			if (isUnloaded(collection)) return;
 			this.context = collection;
 			if (collection.export_path) markSelfWrite(collection.export_path);
 			await this.export({attachment: collection});
@@ -855,6 +966,7 @@ export function setupBlockymodelCodec(): Codec {
 			this.context = null;
 		},
 		async writeCollection(collection: Collection) {
+			if (isUnloaded(collection)) return;
 			this.context = collection;
 			if (collection.export_path) markSelfWrite(collection.export_path);
 			this.write(this.compile({attachment: collection}), collection.export_path);
@@ -882,6 +994,7 @@ export function setupBlockymodelCodec(): Codec {
 		if (Project.export_path) markSelfWrite(Project.export_path);
 		for (let collection of Collection.all) {
 			if (collection.export_codec != codec.id) continue;
+			if (isUnloaded(collection)) continue;
 			codec.writeCollection(collection);
 		}
 	});

@@ -312,7 +312,7 @@ function setupCollectionDrag() {
     let panel = Panels.collections?.node;
     if (!panel) return;
 
-    panel.addEventListener('mousedown', (e: MouseEvent) => {
+    const dragHandler = (e: MouseEvent) => {
         if (e.button !== 0) return;
         if (!isHytaleFormat()) return;
         let target = e.target as HTMLElement;
@@ -372,7 +372,9 @@ function setupCollectionDrag() {
 
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onUp);
-    });
+    };
+    panel.addEventListener('mousedown', dragHandler);
+    return { delete() { panel?.removeEventListener('mousedown', dragHandler); } };
 }
 
 export function setupCollectionFolders() {
@@ -428,7 +430,7 @@ export function setupCollectionFolders() {
         observer.observe(listEl, { childList: true });
     }
 
-    setupCollectionDrag();
+    let dragCleanup = setupCollectionDrag() ?? { delete() {} };
 
     let style = Blockbench.addCSS(`
         .${GROUP_CLASS} {
@@ -485,7 +487,7 @@ export function setupCollectionFolders() {
     loadFromProject();
     setTimeout(scheduleUpdate, 100);
 
-    track(hookProject, hookEdit, hookSelection, hookMode, hookUndo, hookRedo, style, {
+    track(hookProject, hookEdit, hookSelection, hookMode, hookUndo, hookRedo, style, dragCleanup, {
         delete() {
             observer?.disconnect();
             folders.length = 0;

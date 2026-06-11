@@ -28,24 +28,6 @@ function getSelectedRootGroups(): Group[] {
 	});
 }
 
-/** Collects unique textures used by cubes within the given groups. */
-function gatherTexturesFromGroups(groups: Group[]): Texture[] {
-	let textureUuids = new Set<string>();
-	for (let group of groups) {
-		group.forEachChild((node: OutlinerNode) => {
-			if (node instanceof Cube) {
-				for (let fkey in node.faces) {
-					let tex = node.faces[fkey].texture;
-					if (typeof tex === 'string') {
-						textureUuids.add(tex);
-					}
-				}
-			}
-		}, Group, true);
-	}
-	return Texture.all.filter(t => textureUuids.has(t.uuid));
-}
-
 /**
  * Creates is_piece wrapper groups for the selected groups, mirroring the structure
  * that import produces. Groups sharing the same unselected parent get one shared wrapper.

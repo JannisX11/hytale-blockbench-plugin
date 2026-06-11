@@ -20,7 +20,7 @@ function importFiles(files: {name: string, path: string, content: string | Array
 		let json = autoParseJSON(file.content as string);
 		let attachment_name = file.name.replace(/\.\w+$/, '');
 		let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: attachment_name});
-		let name = file.name.split('.')[0]
+		let name = attachment_name
 
 		let new_groups = content.new_groups as Group[];
 		let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));

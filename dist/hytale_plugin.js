@@ -1020,7 +1020,10 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       category: "collections",
       condition: { formats: FORMAT_IDS },
       click() {
-        new CollectionFolder().add();
+        let folder = new CollectionFolder().add();
+        if (Collection.selected.length > 0) {
+          setFolder(Collection.selected.slice(), folder.uuid, "Create set");
+        }
       }
     });
     track(createAction);

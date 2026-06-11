@@ -895,12 +895,12 @@ export function setupBlockymodelCodec(): Codec {
 			}
 			if (!args.attachment && model.attachments && isApp && path) {
 				let modelDir = PathModule.dirname(path);
-				let { CollectionFolder: CF } = require('./attachments/collection_folder') as typeof import('./attachments/collection_folder');
+
 
 				if (model.attachmentFolders) {
 					for (let fd of model.attachmentFolders) {
 						fd.folded = true;
-						new CF(fd).add();
+						new CollectionFolder(fd).add();
 					}
 				}
 

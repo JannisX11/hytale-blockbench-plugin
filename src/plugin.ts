@@ -22,6 +22,7 @@ import { setupUVCanvasResize } from "./uv_canvas_resize";
 import { setupAltDuplicate } from "./alt_duplicate";
 import { setupChangeOrientation } from "./change_orientation";
 import { setupShortcuts } from "./shortcuts";
+import { setupPivotSnap } from "./pivot_snap";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -62,6 +63,7 @@ BBPlugin.register('hytale_plugin', {
         setupPreviewScenes();
         setupUVCanvasResize();
         setupShortcuts();
+        setupPivotSnap();
 
         // Collections panel setting
         let panel_setup_listener: Deletable;

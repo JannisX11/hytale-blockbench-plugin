@@ -3,7 +3,6 @@
 
 import { track } from "./cleanup";
 
-// Edge pairs: indices into the 8 cube vertices produced by addVertices.
 // Vertex order from geometry buffer dedup:
 //   0:(to,to,to) 1:(to,to,from) 2:(to,from,to) 3:(to,from,from)
 //   4:(from,to,from) 5:(from,to,to) 6:(from,from,from) 7:(from,from,to)
@@ -33,6 +32,43 @@ function centroid(points: number[][]): number[] {
 	return [x / n, y / n, z / n];
 }
 
+type SnapPointMode = 'vertex' | 'edge' | 'face';
+
+function getSnapTo(): SnapPointMode {
+	return (BarItems.snap_to as any)?.value ?? 'vertex';
+}
+
+function buildSnapPoints(corners: number[][], mode: SnapPointMode): number[][] {
+	let points: number[][] = [];
+
+	if (mode === 'vertex') {
+		points.push(...corners);
+	} else if (mode === 'edge') {
+		for (let [a, b] of CUBE_EDGES) {
+			points.push(midpoint(corners[a], corners[b]));
+		}
+	} else {
+		for (let face of CUBE_FACES) {
+			points.push(centroid(face.map(i => corners[i])));
+		}
+	}
+
+	return points;
+}
+
+function rebuildPointsGeometry(pts: any, verts: number[][]) {
+	let positions: number[] = [];
+	let colors: number[] = [];
+	let { r, g, b } = gizmo_colors.grid;
+	for (let v of verts) {
+		positions.push(v[0], v[1], v[2]);
+		colors.push(r, g, b);
+	}
+	pts.vertices = verts;
+	pts.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+	pts.geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(colors), 3));
+}
+
 export function setupPivotSnap() {
 	let originalAddVertices = Vertexsnap.addVertices;
 
@@ -44,31 +80,46 @@ export function setupPivotSnap() {
 		if (!(element instanceof Cube)) return;
 
 		let pts = mesh.vertex_points;
-		if (pts._snap_augmented) return;
-		pts._snap_augmented = true;
-
 		let verts: number[][] = pts.vertices;
 		if (verts.length < 9) return;
 
 		let corners = verts.slice(0, 8);
+		pts._snap_corners = corners;
 
-		for (let [a, b] of CUBE_EDGES) {
-			verts.push(midpoint(corners[a], corners[b]));
-		}
-		for (let face of CUBE_FACES) {
-			verts.push(centroid(face.map(i => corners[i])));
-		}
-
-		let positions: number[] = [];
-		let colors: number[] = [];
-		let { r, g, b } = gizmo_colors.grid;
-		for (let v of verts) {
-			positions.push(v[0], v[1], v[2]);
-			colors.push(r, g, b);
-		}
-		pts.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
-		pts.geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(colors), 3));
+		let mode = getSnapTo();
+		let snapPoints = buildSnapPoints(corners, mode);
+		// Origin is always kept as the last vertex
+		let origin = [0, 0, 0];
+		rebuildPointsGeometry(pts, [...snapPoints, origin]);
 	};
+
+	let snapTo = new BarSelect('snap_to', {
+		options: {
+			vertex: { name: 'Vertex', icon: 'fiber_manual_record' },
+			edge: { name: 'Edge', icon: 'pen_size_3' },
+			face: { name: 'Face', icon: 'far.fa-square' },
+		},
+		icon_mode: true,
+		condition: () => Toolbox.selected?.id === 'vertex_snap_tool',
+		onChange() {
+			Vertexsnap.clearVertexGizmos();
+			Vertexsnap.select();
+		}
+	});
+	track(snapTo);
+
+	let toolbar = Toolbars.vertex_snap;
+	if (toolbar) {
+		let origChildren = toolbar.default_children.slice();
+		toolbar.default_children.splice(1, 0, 'snap_to');
+		toolbar.build({ children: toolbar.default_children });
+		track({
+			delete() {
+				toolbar.default_children = origChildren;
+				toolbar.build({ children: origChildren });
+			}
+		});
+	}
 
 	track({
 		delete() {

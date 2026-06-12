@@ -4173,6 +4173,36 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     let n = points.length;
     return [x / n, y / n, z / n];
   }
+  function getSnapTo() {
+    return BarItems.snap_to?.value ?? "vertex";
+  }
+  function buildSnapPoints(corners, mode) {
+    let points = [];
+    if (mode === "vertex") {
+      points.push(...corners);
+    } else if (mode === "edge") {
+      for (let [a, b] of CUBE_EDGES) {
+        points.push(midpoint(corners[a], corners[b]));
+      }
+    } else {
+      for (let face of CUBE_FACES) {
+        points.push(centroid(face.map((i) => corners[i])));
+      }
+    }
+    return points;
+  }
+  function rebuildPointsGeometry(pts, verts) {
+    let positions = [];
+    let colors = [];
+    let { r, g, b } = gizmo_colors.grid;
+    for (let v of verts) {
+      positions.push(v[0], v[1], v[2]);
+      colors.push(r, g, b);
+    }
+    pts.vertices = verts;
+    pts.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
+    pts.geometry.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(colors), 3));
+  }
   function setupPivotSnap() {
     let originalAddVertices = Vertexsnap.addVertices;
     Vertexsnap.addVertices = function(element) {
@@ -4181,27 +4211,41 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       if (!mesh?.vertex_points) return;
       if (!(element instanceof Cube)) return;
       let pts = mesh.vertex_points;
-      if (pts._snap_augmented) return;
-      pts._snap_augmented = true;
       let verts = pts.vertices;
       if (verts.length < 9) return;
       let corners = verts.slice(0, 8);
-      for (let [a, b2] of CUBE_EDGES) {
-        verts.push(midpoint(corners[a], corners[b2]));
-      }
-      for (let face of CUBE_FACES) {
-        verts.push(centroid(face.map((i) => corners[i])));
-      }
-      let positions = [];
-      let colors = [];
-      let { r, g, b } = gizmo_colors.grid;
-      for (let v of verts) {
-        positions.push(v[0], v[1], v[2]);
-        colors.push(r, g, b);
-      }
-      pts.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
-      pts.geometry.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(colors), 3));
+      pts._snap_corners = corners;
+      let mode = getSnapTo();
+      let snapPoints = buildSnapPoints(corners, mode);
+      let origin = [0, 0, 0];
+      rebuildPointsGeometry(pts, [...snapPoints, origin]);
     };
+    let snapTo = new BarSelect("snap_to", {
+      options: {
+        vertex: { name: "Vertex", icon: "fiber_manual_record" },
+        edge: { name: "Edge", icon: "pen_size_3" },
+        face: { name: "Face", icon: "far.fa-square" }
+      },
+      icon_mode: true,
+      condition: () => Toolbox.selected?.id === "vertex_snap_tool",
+      onChange() {
+        Vertexsnap.clearVertexGizmos();
+        Vertexsnap.select();
+      }
+    });
+    track(snapTo);
+    let toolbar = Toolbars.vertex_snap;
+    if (toolbar) {
+      let origChildren = toolbar.default_children.slice();
+      toolbar.default_children.splice(1, 0, "snap_to");
+      toolbar.build({ children: toolbar.default_children });
+      track({
+        delete() {
+          toolbar.default_children = origChildren;
+          toolbar.build({ children: origChildren });
+        }
+      });
+    }
     track({
       delete() {
         Vertexsnap.addVertices = originalAddVertices;

@@ -20,6 +20,11 @@ function getNodeCount() {
             node_count++;
         }
     }
+    Outliner.root.forEach(node => {
+        if (node instanceof Cube && node.export) {
+            node_count++;
+        }
+    })
     return node_count;
 }
 

@@ -2043,6 +2043,11 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
         node_count++;
       }
     }
+    Outliner.root.forEach((node) => {
+      if (node instanceof Cube && node.export) {
+        node_count++;
+      }
+    });
     return node_count;
   }
   function setupChecks() {

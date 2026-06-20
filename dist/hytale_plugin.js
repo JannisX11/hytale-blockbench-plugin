@@ -4129,6 +4129,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
   }
 
   // src/pivot_snap.ts
+  var CORNER_COUNT = 8;
   var CUBE_EDGES = [
     [0, 1],
     [0, 5],
@@ -4160,36 +4161,38 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     [1, 3, 4, 6]
     // North (z = from)
   ];
-  function midpoint(a, b) {
-    return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
-  }
-  function centroid(points) {
-    let x = 0, y = 0, z = 0;
-    for (let p of points) {
-      x += p[0];
-      y += p[1];
-      z += p[2];
-    }
-    let n = points.length;
-    return [x / n, y / n, z / n];
-  }
   function getSnapTo() {
     return BarItems.snap_to?.value ?? "vertex";
   }
   function buildSnapPoints(corners, mode) {
-    let points = [];
-    if (mode === "vertex") {
-      points.push(...corners);
-    } else if (mode === "edge") {
-      for (let [a, b] of CUBE_EDGES) {
-        points.push(midpoint(corners[a], corners[b]));
-      }
-    } else {
-      for (let face of CUBE_FACES) {
-        points.push(centroid(face.map((i) => corners[i])));
-      }
+    if (mode === "vertex") return corners.slice();
+    if (mode === "edge") {
+      return CUBE_EDGES.map(([ai, bi]) => {
+        let a = corners[ai], b = corners[bi];
+        return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+      });
     }
-    return points;
+    return CUBE_FACES.map((face) => {
+      let x = 0, y = 0, z = 0;
+      for (let i of face) {
+        x += corners[i][0];
+        y += corners[i][1];
+        z += corners[i][2];
+      }
+      return [x / face.length, y / face.length, z / face.length];
+    });
+  }
+  var _accentColor = null;
+  var _sourceElement = null;
+  function getAccentColor() {
+    if (!_accentColor) {
+      let css = getComputedStyle(document.body).getPropertyValue("--color-accent").trim();
+      _accentColor = new THREE.Color(css || "#3e90ff");
+    }
+    return _accentColor;
+  }
+  function invalidateAccentColor() {
+    _accentColor = null;
   }
   function rebuildPointsGeometry(pts, verts) {
     let positions = [];
@@ -4203,45 +4206,53 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     pts.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
     pts.geometry.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(colors), 3));
   }
-  var _accentColor = null;
-  function getAccentColor() {
-    if (!_accentColor) {
-      let css = getComputedStyle(document.body).getPropertyValue("--color-accent").trim();
-      _accentColor = new THREE.Color(css || "#3e90ff");
-    }
-    return _accentColor;
-  }
-  function setParentPivotColor(pts) {
-    if (pts._parent_pivot_index == null) return;
-    let colorAttr = pts.geometry.attributes.color;
+  function recolorElementPoints(el, hoveredIndex, isHoveredElement) {
+    let points = el.mesh?.vertex_points;
+    if (!points) return;
+    let colorAttr = points.geometry.attributes.color;
     if (!colorAttr) return;
-    let idx = pts._parent_pivot_index * 3;
-    if (idx + 2 >= colorAttr.array.length) return;
-    let accent = getAccentColor();
-    colorAttr.array[idx] = accent.r;
-    colorAttr.array[idx + 1] = accent.g;
-    colorAttr.array[idx + 2] = accent.b;
+    let arr = colorAttr.array;
+    let sourceIdx = !Vertexsnap.step1 && el === _sourceElement ? Vertexsnap.vertex_index : -1;
+    let count = points.geometry.attributes.position.count;
+    for (let i = 0; i < count; i++) {
+      let color;
+      if (i === hoveredIndex) {
+        color = gizmo_colors.outline;
+      } else if (i === sourceIdx) {
+        color = getAccentColor();
+      } else {
+        color = gizmo_colors.grid;
+      }
+      let offset = i * 3;
+      arr[offset] = color.r;
+      arr[offset + 1] = color.g;
+      arr[offset + 2] = color.b;
+    }
     colorAttr.needsUpdate = true;
+    points.material.depthTest = !isHoveredElement;
   }
+  var _mouse = new THREE.Vector2();
+  var _raycaster = new THREE.Raycaster();
+  var _camDir = new THREE.Vector3();
+  var _plane = new THREE.Plane();
+  var _target = new THREE.Vector3();
   function projectMouseToPlane(event, refPoint) {
     let preview = Preview.selected;
     if (!preview) return null;
     let canvasOffset = $(preview.canvas).offset();
     if (!canvasOffset) return null;
-    let mouse = new THREE.Vector2(
+    _mouse.set(
       (event.clientX - canvasOffset.left) / preview.width * 2 - 1,
       -((event.clientY - canvasOffset.top) / preview.height) * 2 + 1
     );
-    let raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, preview.camera);
-    let camDir = new THREE.Vector3();
-    preview.camera.getWorldDirection(camDir);
-    let plane = new THREE.Plane();
-    plane.setFromNormalAndCoplanarPoint(camDir, refPoint);
-    let target = new THREE.Vector3();
-    return raycaster.ray.intersectPlane(plane, target) ? target : null;
+    _raycaster.setFromCamera(_mouse, preview.camera);
+    preview.camera.getWorldDirection(_camDir);
+    _plane.setFromNormalAndCoplanarPoint(_camDir, refPoint);
+    return _raycaster.ray.intersectPlane(_plane, _target) ? _target.clone() : null;
   }
   function setupPivotSnap() {
+    let previewEl;
+    let _prevHoveredEl = null;
     let guideLine = new THREE.Line(
       new THREE.BufferGeometry(),
       new THREE.LineBasicMaterial({ color: getAccentColor(), depthTest: false, transparent: true })
@@ -4260,6 +4271,12 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     );
     sourceMarker.renderOrder = 901;
     sourceMarker.frustumCulled = false;
+    function updateAccentColors() {
+      invalidateAccentColor();
+      let color = getAccentColor();
+      guideLine.material.color.copy(color);
+      sourceMarker.material.color.copy(color);
+    }
     function showSourceMarker(pos) {
       sourceMarker.geometry.setAttribute("position", new THREE.BufferAttribute(
         new Float32Array(pos.toArray()),
@@ -4274,6 +4291,12 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     function removeGuideLine() {
       Project.model_3d.remove(guideLine);
     }
+    function resetSnapVisuals() {
+      removeGuideLine();
+      removeSourceMarker();
+      _parentPivotGroup = null;
+      _sourceElement = null;
+    }
     function drawGuideLine(start, end) {
       guideLine.geometry.setAttribute("position", new THREE.BufferAttribute(
         new Float32Array([...start.toArray(), ...end.toArray()]),
@@ -4282,12 +4305,28 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       Project.model_3d.add(guideLine);
       guideLine.position.copy(scene.position).multiplyScalar(-1);
     }
+    function getPreviewEl() {
+      if (!previewEl) previewEl = $("#preview").get(0);
+      return previewEl;
+    }
     function addHoverListener() {
-      let el = $("#preview").get(0);
+      let el = getPreviewEl();
       if (el) {
         el.removeEventListener("mousemove", Vertexsnap.hoverCanvas);
         el.addEventListener("mousemove", Vertexsnap.hoverCanvas);
       }
+    }
+    function enterStep2(pos) {
+      showSourceMarker(pos);
+      addHoverListener();
+      $("#preview").css("cursor", "alias");
+      Blockbench.setStatusBarText();
+    }
+    function enterStep1() {
+      resetSnapVisuals();
+      Vertexsnap.step1 = true;
+      $("#preview").css("cursor", "copy");
+      Blockbench.setStatusBarText();
     }
     let originalAddVertices = Vertexsnap.addVertices;
     Vertexsnap.addVertices = function(element) {
@@ -4297,13 +4336,11 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       if (!(element instanceof Cube)) return;
       let pts = mesh.vertex_points;
       let verts = pts.vertices;
-      if (verts.length < 9) return;
-      let corners = verts.slice(0, 8);
+      if (verts.length < CORNER_COUNT + 1) return;
+      let corners = verts.slice(0, CORNER_COUNT);
       pts._snap_corners = corners;
-      let mode = getSnapTo();
-      let snapPoints = buildSnapPoints(corners, mode);
-      let origin = [0, 0, 0];
-      let allPoints = [...snapPoints, origin];
+      let snapPoints = buildSnapPoints(corners, getSnapTo());
+      let allPoints = [...snapPoints, [0, 0, 0]];
       pts._parent_pivot_index = null;
       let parentGroup = element.parent;
       if (parentGroup instanceof Group && parentGroup.mesh) {
@@ -4314,14 +4351,27 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         allPoints.push(localPos.toArray());
       }
       rebuildPointsGeometry(pts, allPoints);
-      setParentPivotColor(pts);
       if (pts._parent_pivot_index != null) {
         pts.renderOrder = 901;
+        pts.material.depthTest = false;
+      }
+      if (!Vertexsnap.step1 && element === _sourceElement) {
+        let idx = Vertexsnap.vertex_index;
+        let colorAttr = pts.geometry.attributes.color;
+        if (idx >= 0 && idx < allPoints.length && colorAttr) {
+          let accent = getAccentColor();
+          let offset = idx * 3;
+          colorAttr.array[offset] = accent.r;
+          colorAttr.array[offset + 1] = accent.g;
+          colorAttr.array[offset + 2] = accent.b;
+          colorAttr.needsUpdate = true;
+        }
       }
     };
     let originalClearVertexGizmos = Vertexsnap.clearVertexGizmos;
     Vertexsnap.clearVertexGizmos = function() {
       removeGuideLine();
+      _prevHoveredEl = null;
       originalClearVertexGizmos.call(this);
       if (!Vertexsnap.step1) {
         addHoverListener();
@@ -4337,12 +4387,11 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
           if (parentGroup instanceof Group) {
             Vertexsnap.step1 = false;
             Vertexsnap.vertex_pos = Vertexsnap.getGlobalVertexPos(data.element, data.vertex);
+            Vertexsnap.vertex_index = data.vertex_index;
+            _sourceElement = data.element;
             _parentPivotGroup = parentGroup;
             Vertexsnap.clearVertexGizmos();
-            showSourceMarker(Vertexsnap.vertex_pos);
-            addHoverListener();
-            $("#preview").css("cursor", "alias");
-            Blockbench.setStatusBarText();
+            enterStep2(Vertexsnap.vertex_pos);
             return;
           }
         }
@@ -4376,22 +4425,17 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
           selection: true
         });
         Undo.finishEdit("Use vertex snap");
-        removeGuideLine();
-        removeSourceMarker();
-        _parentPivotGroup = null;
-        Vertexsnap.step1 = true;
-        $("#preview").css("cursor", "copy");
-        Blockbench.setStatusBarText();
+        enterStep1();
         return;
       }
       let wasStep1 = Vertexsnap.step1;
       originalCanvasClick.call(this, data);
       if (wasStep1 && !Vertexsnap.step1) {
+        _sourceElement = data?.element;
         showSourceMarker(Vertexsnap.vertex_pos);
         addHoverListener();
       } else if (!wasStep1 && Vertexsnap.step1) {
-        removeGuideLine();
-        removeSourceMarker();
+        resetSnapVisuals();
       }
     };
     let originalHoverCanvas = Vertexsnap.hoverCanvas;
@@ -4400,25 +4444,19 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       if (Vertexsnap.hovering) {
         Project.model_3d.remove(Vertexsnap.line);
         removeGuideLine();
-        for (let el of Vertexsnap.elements_with_vertex_gizmos) {
-          let points = el.mesh?.vertex_points;
-          if (!points) continue;
-          let colors = [];
-          let count = points.geometry.attributes.position.count;
-          for (let i = 0; i < count; i++) {
-            let color;
-            if (data && data.element == el && data.type == "vertex" && data.vertex_index == i) {
-              color = gizmo_colors.outline;
-            } else if (points._parent_pivot_index != null && i === points._parent_pivot_index) {
-              color = getAccentColor();
-            } else {
-              color = gizmo_colors.grid;
-            }
-            colors.push(color.r, color.g, color.b);
-          }
-          points.material.depthTest = !(data && data.element == el);
-          points.geometry.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(colors), 3));
+        if (_prevHoveredEl) {
+          recolorElementPoints(_prevHoveredEl, -1, false);
+          _prevHoveredEl = null;
         }
+      }
+      let hoveredEl = data?.element;
+      if (hoveredEl?.mesh?.vertex_points) {
+        if (data.type === "vertex") {
+          recolorElementPoints(hoveredEl, data.vertex_index, true);
+        } else {
+          hoveredEl.mesh.vertex_points.material.depthTest = false;
+        }
+        _prevHoveredEl = hoveredEl;
       }
       if (!Vertexsnap.step1 && Vertexsnap.vertex_pos) {
         let endPos = null;
@@ -4441,6 +4479,19 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       }
       Vertexsnap.hovering = true;
     };
+    function cancelSnap() {
+      if (Vertexsnap.step1) return;
+      Vertexsnap.hovering = false;
+      enterStep1();
+      Vertexsnap.select();
+    }
+    function onKeyDown(event) {
+      if (event.key === "Escape" && !Vertexsnap.step1 && Toolbox.selected?.id === "vertex_snap_tool") {
+        event.stopPropagation();
+        cancelSnap();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown, true);
     let snapTo = new BarSelect("snap_to", {
       options: {
         vertex: { name: "Vertex", icon: "fiber_manual_record" },
@@ -4458,7 +4509,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     let toolbar = Toolbars.vertex_snap;
     if (toolbar) {
       let origChildren = toolbar.default_children.slice();
-      toolbar.default_children.splice(1, 0, "snap_to");
+      toolbar.default_children = [...origChildren.slice(0, 1), "snap_to", ...origChildren.slice(1)];
       toolbar.build({ children: toolbar.default_children });
       track({
         delete() {
@@ -4467,14 +4518,17 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         }
       });
     }
+    Blockbench.on("update_selection", updateAccentColors);
     track({
       delete() {
         Vertexsnap.addVertices = originalAddVertices;
         Vertexsnap.canvasClick = originalCanvasClick;
         Vertexsnap.hoverCanvas = originalHoverCanvas;
         Vertexsnap.clearVertexGizmos = originalClearVertexGizmos;
-        removeGuideLine();
-        removeSourceMarker();
+        document.removeEventListener("keydown", onKeyDown, true);
+        Blockbench.removeListener("update_selection", updateAccentColors);
+        resetSnapVisuals();
+        invalidateAccentColor();
         guideLine.geometry.dispose();
         guideLine.material.dispose();
         sourceMarker.geometry.dispose();

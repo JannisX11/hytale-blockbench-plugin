@@ -8,7 +8,7 @@ import { FORMAT_IDS } from "./formats"
 import { cubeIsQuad, getMainShape, qualifiesAsMainShape } from "./util"
 import { markSelfWrite } from "./attachments/watcher"
 import { CollectionFolder } from "./attachments/collection_folder"
-import { isUnloaded } from "./attachments/unload"
+import { isUnloaded, assignCollectionScope } from "./attachments/unload"
 import { AttachmentCollection } from "./attachments/texture"
 
 type BlockymodelJSON = {
@@ -24,6 +24,7 @@ type BlockymodelAttachment = {
 	textures: string[]
 	primaryTexture: string
 	folder?: string
+	color?: number
 	unloaded?: boolean
 }
 type BlockymodelFolder = {
@@ -304,7 +305,7 @@ export function setupBlockymodelCodec(): Codec {
 				}
 				node.shape.stretch = formatVector(stretch);
 
-				node.shape.visible = cube.visibility;
+				node.shape.visible = options.attachment ? true : cube.visibility;
 				node.shape.doubleSided = cube.double_sided == true;
 				node.shape.shadingMode = cube.shading_mode;
 				node.shape.unwrapMode = 'custom';
@@ -459,7 +460,7 @@ export function setupBlockymodelCodec(): Codec {
 						},
 						textureLayout: {},
 						unwrapMode: "custom",
-						visible: element.visibility,
+						visible: options.attachment ? true : element.visibility,
 						doubleSided: false,
 						shadingMode: "flat"
 					},
@@ -540,12 +541,15 @@ export function setupBlockymodelCodec(): Codec {
 						}
 					}
 					type FolderCollection = Collection & { folder: string };
+					type ColorCollection = Collection & { color: number };
+					let colorIndex = (c as ColorCollection).color;
 					attachments.push({
 						name: c.name,
 						path: relPath,
 						textures: texPaths,
 						primaryTexture: primaryTex,
 						folder: (c as FolderCollection).folder || undefined,
+						color: (colorIndex != null && colorIndex >= 0) ? colorIndex : undefined,
 						unloaded: isUnloaded(c) || undefined,
 					});
 				}
@@ -918,8 +922,10 @@ export function setupBlockymodelCodec(): Codec {
 					}).add() as UnloadedCol;
 					collection.export_path = absPath;
 					collection.unloaded = true;
+					assignCollectionScope(collection);
 
 					if (att.folder) collection.folder = att.folder;
+					if (att.color != null && att.color >= 0) (collection as any).color = att.color;
 
 					let texPaths = att.textures.map(rel => PathModule.resolve(modelDir, rel.replace(/\//g, PathModule.sep)));
 					collection.unloaded_texture_paths = JSON.stringify(texPaths);

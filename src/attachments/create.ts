@@ -5,6 +5,7 @@ import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
 import { getMainShape } from "../util";
 import { AttachmentCollection, processAttachmentTextures } from "./texture";
+import { assignCollectionScope } from "./unload";
 
 /**
  * Returns selected groups that are valid for attachment creation:
@@ -173,6 +174,7 @@ export function setupCreateAttachment() {
 						export_codec: 'blockymodel',
 						visibility: true,
 					}).add() as AttachmentCollection;
+					assignCollectionScope(collection);
 
 					// Handle textures
 					let newTextures: Texture[] = [];

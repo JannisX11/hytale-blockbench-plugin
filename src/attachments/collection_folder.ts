@@ -3,9 +3,10 @@
 
 import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
-import { isUnloaded, reloadCollection, promptAndUnload } from "./unload";
+import { isUnloaded, reloadCollection, promptAndUnload, toggleCollectionChildVisibility } from "./unload";
 import { importAttachmentToFolder } from "./import";
 import { unwatchCollection } from "./watcher";
+import { applyCollectionColors } from "./collection_color";
 
 type FolderCollection = Collection & { folder: string };
 type FolderProject = ModelProject & { collection_folders: CollectionFolderData[] };
@@ -217,6 +218,7 @@ function injectFolderDOM() {
     }
 
     observer?.observe(list, { childList: true });
+    applyCollectionColors();
 }
 
 function createFolderGroup(folder: CollectionFolder, collectionEls: HTMLElement[]): HTMLElement {
@@ -254,23 +256,48 @@ function createFolderGroup(folder: CollectionFolder, collectionEls: HTMLElement[
     }
 
     let collections = folder.getCollections();
-    let allUnloaded = collections.length > 0 && collections.every(c => isUnloaded(c));
-    let visBtn = document.createElement('div');
-    visBtn.className = 'in_list_button';
-    let visIcon = document.createElement('i');
-    visIcon.className = 'material-icons icon';
-    if (allUnloaded) visIcon.classList.add('toggle_disabled');
-    visIcon.textContent = allUnloaded ? 'visibility_off' : 'visibility';
-    visBtn.appendChild(visIcon);
-    visBtn.addEventListener('click', (e) => {
+    let anyUnloaded = collections.some(c => isUnloaded(c));
+
+    let unloadBtn = document.createElement('div');
+    unloadBtn.className = 'in_list_button';
+    let unloadIcon = document.createElement('i');
+    unloadIcon.className = 'material-icons icon';
+    if (anyUnloaded) unloadIcon.classList.add('toggle_disabled');
+    unloadIcon.textContent = anyUnloaded ? 'download' : 'eject';
+    unloadBtn.appendChild(unloadIcon);
+    unloadBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (allUnloaded) {
+        if (anyUnloaded) {
             for (let c of collections) {
                 if (isUnloaded(c)) reloadCollection(c);
             }
         } else {
             promptAndUnload(collections);
         }
+    });
+    unloadBtn.addEventListener('dblclick', (e) => e.stopPropagation());
+    head.appendChild(unloadBtn);
+
+    let loadedCollections = collections.filter(c => !isUnloaded(c));
+    let anyVisible = loadedCollections.some(c => c.getVisibility());
+    let visBtn = document.createElement('div');
+    visBtn.className = 'in_list_button';
+    let visIcon = document.createElement('i');
+    visIcon.className = 'material-icons icon';
+    if (loadedCollections.length === 0) {
+        visIcon.classList.add('toggle_disabled');
+        visIcon.textContent = 'visibility_off';
+    } else {
+        visIcon.textContent = anyVisible ? 'visibility' : 'visibility_off';
+        if (!anyVisible) visIcon.classList.add('toggle_disabled');
+    }
+    visBtn.appendChild(visIcon);
+    visBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleCollectionChildVisibility(collections);
+        let nowVisible = loadedCollections.some(c => c.getVisibility());
+        visIcon.textContent = nowVisible ? 'visibility' : 'visibility_off';
+        visIcon.classList.toggle('toggle_disabled', !nowVisible);
     });
     visBtn.addEventListener('dblclick', (e) => e.stopPropagation());
     head.appendChild(visBtn);
@@ -312,7 +339,7 @@ function setupCollectionDrag() {
     let panel = Panels.collections?.node;
     if (!panel) return;
 
-    panel.addEventListener('mousedown', (e: MouseEvent) => {
+    const dragHandler = (e: MouseEvent) => {
         if (e.button !== 0) return;
         if (!isHytaleFormat()) return;
         let target = e.target as HTMLElement;
@@ -372,7 +399,9 @@ function setupCollectionDrag() {
 
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onUp);
-    });
+    };
+    panel.addEventListener('mousedown', dragHandler);
+    return { delete() { panel?.removeEventListener('mousedown', dragHandler); } };
 }
 
 export function setupCollectionFolders() {
@@ -384,7 +413,10 @@ export function setupCollectionFolders() {
         name: 'Create Set', icon: 'create_new_folder', category: 'collections',
         condition: { formats: FORMAT_IDS },
         click() {
-            new CollectionFolder().add();
+            let folder = new CollectionFolder().add();
+            if (Collection.selected.length > 0) {
+                setFolder(Collection.selected.slice(), folder.uuid, 'Create set');
+            }
         }
     });
     track(createAction);
@@ -425,7 +457,7 @@ export function setupCollectionFolders() {
         observer.observe(listEl, { childList: true });
     }
 
-    setupCollectionDrag();
+    let dragCleanup = setupCollectionDrag() ?? { delete() {} };
 
     let style = Blockbench.addCSS(`
         .${GROUP_CLASS} {
@@ -469,7 +501,6 @@ export function setupCollectionFolders() {
         .${LIST_CLASS} {
             margin-left: 14px;
             padding-left: 6px;
-            border-left: 2px solid var(--color-guidelines);
         }
         .hytale_collection_drag_helper {
             position: fixed; pointer-events: none; z-index: 1000;
@@ -482,7 +513,7 @@ export function setupCollectionFolders() {
     loadFromProject();
     setTimeout(scheduleUpdate, 100);
 
-    track(hookProject, hookEdit, hookSelection, hookMode, hookUndo, hookRedo, style, {
+    track(hookProject, hookEdit, hookSelection, hookMode, hookUndo, hookRedo, style, dragCleanup, {
         delete() {
             observer?.disconnect();
             folders.length = 0;

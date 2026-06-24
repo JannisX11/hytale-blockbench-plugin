@@ -1,26 +1,6 @@
 (() => {
-  var __defProp = Object.defineProperty;
-  var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-  var __getOwnPropNames = Object.getOwnPropertyNames;
-  var __hasOwnProp = Object.prototype.hasOwnProperty;
-  var __esm = (fn, res) => function __init() {
-    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
-  };
-  var __export = (target, all) => {
-    for (var name in all)
-      __defProp(target, name, { get: all[name], enumerable: true });
-  };
-  var __copyProps = (to, from, except, desc) => {
-    if (from && typeof from === "object" || typeof from === "function") {
-      for (let key of __getOwnPropNames(from))
-        if (!__hasOwnProp.call(to, key) && key !== except)
-          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-    }
-    return to;
-  };
-  var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
   // src/cleanup.ts
+  var list = [];
   function track(...items) {
     list.push(...items);
   }
@@ -34,25 +14,14 @@
     }
     list.empty();
   }
-  var list;
-  var init_cleanup = __esm({
-    "src/cleanup.ts"() {
-      list = [];
-    }
-  });
 
   // src/config.ts
-  var Config;
-  var init_config = __esm({
-    "src/config.ts"() {
-      Config = {
-        json_compile_options: {
-          indentation: "  ",
-          final_newline: false
-        }
-      };
+  var Config = {
+    json_compile_options: {
+      indentation: "  ",
+      final_newline: false
     }
-  });
+  };
 
   // src/util.ts
   function qualifiesAsMainShape(object) {
@@ -67,10 +36,6 @@
   function getMainShape(group) {
     return group.children.find(qualifiesAsMainShape);
   }
-  var init_util = __esm({
-    "src/util.ts"() {
-    }
-  });
 
   // src/texture.ts
   function updateUVSize(texture) {
@@ -109,14 +74,30 @@
     });
     track(handler);
   }
-  var init_texture = __esm({
-    "src/texture.ts"() {
-      init_cleanup();
-      init_formats();
-    }
-  });
 
   // src/attachments/texture.ts
+  function cloneTexture(tex) {
+    let copy = tex.getSaveCopy();
+    delete copy.path;
+    delete copy.uuid;
+    let cloned = new Texture(copy);
+    cloned.convertToInternal(tex.getDataURL());
+    cloned.load();
+    let sourcePath = tex.path || tex.source_path;
+    if (sourcePath) cloned.source_path = sourcePath;
+    return cloned;
+  }
+  function resolveTexturePath(tex) {
+    if (tex.path) return tex.path;
+    if (tex.source_path) return tex.source_path;
+    let source = Texture.all.find((s) => s.name === tex.name && s.path && s.uuid !== tex.uuid);
+    return source?.path || "";
+  }
+  function isAttachmentTextureGroup(groupUuid) {
+    let tg = TextureGroup.all.find((tg2) => tg2.uuid === groupUuid);
+    if (!tg) return false;
+    return Collection.all.some((c) => c.name === tg.name && c.export_codec === "blockymodel");
+  }
   function getCollection(cube) {
     return Collection.all.find((c) => c.contains(cube));
   }
@@ -125,7 +106,14 @@
     textureGroup.folded = true;
     textureGroup.add();
     if (newTextures.length === 0) return "";
-    for (let tex of newTextures) {
+    for (let i = 0; i < newTextures.length; i++) {
+      let tex = newTextures[i];
+      if (tex.group && tex.group !== textureGroup.uuid) {
+        let cloned = cloneTexture(tex);
+        cloned.add(false);
+        tex = cloned;
+        newTextures[i] = cloned;
+      }
       tex.group = textureGroup.uuid;
       updateUVSize(tex);
     }
@@ -156,6 +144,52 @@
     track({
       delete() {
         CubeFace.prototype.getTexture = originalGetTexture;
+      }
+    });
+    let isDedupRemove = false;
+    let originalFromPath = Texture.prototype.fromPath;
+    Texture.prototype.fromPath = function(...args) {
+      if (isHytaleFormat()) {
+        isDedupRemove = true;
+        try {
+          return originalFromPath.apply(this, args);
+        } finally {
+          isDedupRemove = false;
+        }
+      }
+      return originalFromPath.apply(this, args);
+    };
+    track({
+      delete() {
+        Texture.prototype.fromPath = originalFromPath;
+      }
+    });
+    let originalRemove = Texture.prototype.remove;
+    Texture.prototype.remove = function(...args) {
+      if (isDedupRemove && this.group && isAttachmentTextureGroup(this.group)) {
+        return;
+      }
+      return originalRemove.apply(this, args);
+    };
+    track({
+      delete() {
+        Texture.prototype.remove = originalRemove;
+      }
+    });
+    let originalAdd = Texture.prototype.add;
+    Texture.prototype.add = function(...args) {
+      if (isHytaleFormat() && this.path) {
+        let savedPath = this.path;
+        this.path = "";
+        let result = originalAdd.apply(this, args);
+        this.path = savedPath;
+        return result;
+      }
+      return originalAdd.apply(this, args);
+    };
+    track({
+      delete() {
+        Texture.prototype.add = originalAdd;
       }
     });
     let assignTexture = {
@@ -201,16 +235,1048 @@
         Collection.menu.removeAction("set_texture");
       }
     });
-  }
-  var init_texture2 = __esm({
-    "src/attachments/texture.ts"() {
-      init_cleanup();
-      init_formats();
-      init_texture();
+    let cloneKeybind = new KeybindItem("hytale_clone_texture_modifier", {
+      name: "Duplicate Texture on Drop",
+      description: "Hold this key while dropping a texture to duplicate it instead of moving",
+      keybind: new Keybind({ key: 18 }),
+      category: "textures"
+    });
+    track(cloneKeybind);
+    let cloneModifierHeld = false;
+    function onCloneKeyDown(e) {
+      let kb = cloneKeybind.keybind;
+      if (e.keyCode === kb.key || e.key === "Alt" && (kb.key === 18 || kb.alt)) {
+        cloneModifierHeld = true;
+      }
     }
-  });
+    function onCloneKeyUp(e) {
+      let kb = cloneKeybind.keybind;
+      if (e.keyCode === kb.key || e.key === "Alt" && (kb.key === 18 || kb.alt)) {
+        cloneModifierHeld = false;
+      }
+    }
+    document.addEventListener("keydown", onCloneKeyDown, true);
+    document.addEventListener("keyup", onCloneKeyUp, true);
+    track({ delete() {
+      document.removeEventListener("keydown", onCloneKeyDown, true);
+      document.removeEventListener("keyup", onCloneKeyUp, true);
+    } });
+    let pendingCloneFixups = [];
+    let finishEditListener = Blockbench.on("finish_edit", (event) => {
+      try {
+        if (!isHytaleFormat() || !cloneModifierHeld) return;
+        let aspects = event.aspects;
+        let beforeSave = Undo.current_save;
+        if (!beforeSave?.textures || !aspects?.textures) return;
+        let clones = [];
+        for (let tex of aspects.textures) {
+          let saved = beforeSave.textures[tex.uuid];
+          if (!saved) continue;
+          let oldGroup = saved.group;
+          if (!oldGroup || oldGroup === tex.group) continue;
+          if (!isAttachmentTextureGroup(oldGroup)) continue;
+          let targetGroup = tex.group;
+          tex.group = oldGroup;
+          let cloned = cloneTexture(tex);
+          cloned.group = targetGroup;
+          cloned.add(false);
+          clones.push(cloned);
+          pendingCloneFixups.push(cloned);
+        }
+        if (clones.length) {
+          aspects.textures.push(...clones);
+          Canvas.updateLayeredTextures();
+        }
+      } catch (e) {
+        console.error("[Hytale] texture clone error:", e);
+      }
+    });
+    track(finishEditListener);
+    let finishedEditListener = Blockbench.on("finished_edit", (event) => {
+      if (!isHytaleFormat()) return;
+      for (let clone of pendingCloneFixups) {
+        if (Texture.all.includes(clone)) {
+          clone.saved = true;
+        }
+      }
+      pendingCloneFixups.length = 0;
+      let aspects = event.aspects;
+      if (!aspects?.textures) return;
+      for (let tex of aspects.textures) {
+        if (!tex.group || !isAttachmentTextureGroup(tex.group)) continue;
+        let tg = TextureGroup.all.find((tg2) => tg2.uuid === tex.group);
+        if (!tg) continue;
+        let collection = Collection.all.find((c) => c.name === tg.name && c.export_codec === "blockymodel");
+        if (!collection || collection.texture) continue;
+        collection.texture = tex.uuid;
+        Canvas.updateAllFaces();
+      }
+    });
+    track(finishedEditListener);
+  }
+
+  // src/attachments/collection_color.ts
+  var SCOPE_CLASS = "hytale_scope_override";
+  var COLOR_CLASS = "hytale_collection_colored";
+  var COLOR_VAR = "--hytale-collection-color";
+  var BORDER_VAR = "--hytale-collection-border";
+  var colorUpdatePending = false;
+  var minimalColoring = false;
+  function scheduleColorUpdate() {
+    if (colorUpdatePending) return;
+    colorUpdatePending = true;
+    requestAnimationFrame(() => {
+      colorUpdatePending = false;
+      applyCollectionColors();
+    });
+  }
+  function hexToRgba(hex, alpha) {
+    let r = parseInt(hex.slice(1, 3), 16);
+    let g = parseInt(hex.slice(3, 5), 16);
+    let b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  function applyCollectionColors() {
+    if (!isHytaleFormat()) return;
+    const outlinerPanel = Panels.outliner?.node;
+    if (outlinerPanel) {
+      outlinerPanel.querySelectorAll(`.${SCOPE_CLASS}`).forEach((el) => {
+        el.style.removeProperty(COLOR_VAR);
+        el.style.removeProperty(BORDER_VAR);
+        el.classList.remove(SCOPE_CLASS, COLOR_CLASS);
+      });
+    }
+    const collectionsPanel = Panels.collections?.node;
+    if (collectionsPanel) {
+      collectionsPanel.querySelectorAll(`.${SCOPE_CLASS}`).forEach((el) => {
+        el.style.removeProperty(BORDER_VAR);
+        el.classList.remove(SCOPE_CLASS, COLOR_CLASS);
+      });
+      collectionsPanel.querySelectorAll(".hytale_collection_icon_colored").forEach((el) => {
+        el.style.removeProperty("color");
+        el.classList.remove("hytale_collection_icon_colored");
+      });
+    }
+    for (let collection of Collection.all) {
+      if (collection.export_codec !== "blockymodel") continue;
+      let colorIndex = collection.color;
+      let hasColor = colorIndex != null && colorIndex >= 0;
+      let marker = hasColor ? markerColors[colorIndex % markerColors.length] : null;
+      if (outlinerPanel) {
+        for (let child of collection.getAllChildren()) {
+          let li = outlinerPanel.querySelector(`[id="${child.uuid}"]`);
+          if (!li) continue;
+          let obj = li.querySelector(":scope > .outliner_object");
+          if (!obj) continue;
+          obj.classList.add(SCOPE_CLASS);
+          if (marker) {
+            if (!minimalColoring) obj.style.setProperty(COLOR_VAR, hexToRgba(marker.pastel, 0.35));
+            obj.style.setProperty(BORDER_VAR, marker.standard);
+            obj.classList.add(COLOR_CLASS);
+          }
+        }
+      }
+      if (collectionsPanel) {
+        let li = collectionsPanel.querySelector(`[uuid="${collection.uuid}"]`);
+        if (li) {
+          li.classList.add(SCOPE_CLASS);
+          if (marker) {
+            li.style.setProperty(BORDER_VAR, marker.standard);
+            li.classList.add(COLOR_CLASS);
+            let icon = li.querySelector(":scope > i.material-icons");
+            if (icon) {
+              icon.style.color = marker.standard;
+              icon.classList.add("hytale_collection_icon_colored");
+            }
+          }
+        }
+      }
+    }
+  }
+  function setupCollectionColor() {
+    let colorProperty = new Property(Collection, "number", "color", {
+      default: -1,
+      condition: { formats: FORMAT_IDS }
+    });
+    track(colorProperty);
+    let colorMenuItem = {
+      id: "set_collection_color",
+      name: "menu.cube.color",
+      icon: "color_lens",
+      condition: { formats: FORMAT_IDS },
+      children() {
+        let items = [
+          {
+            icon: "block",
+            name: "generic.none",
+            click() {
+              Undo.initEdit({ collections: Collection.selected });
+              for (let collection of Collection.selected) {
+                collection.color = -1;
+              }
+              Undo.finishEdit("Remove collection color");
+              applyCollectionColors();
+            }
+          }
+        ];
+        for (let i = 0; i < markerColors.length; i++) {
+          let color = markerColors[i];
+          items.push({
+            icon: "bubble_chart",
+            color: color.standard,
+            name: color.name || "cube.color." + color.id,
+            click() {
+              Undo.initEdit({ collections: Collection.selected });
+              for (let collection of Collection.selected) {
+                collection.color = i;
+              }
+              Undo.finishEdit("Set collection color");
+              applyCollectionColors();
+            }
+          });
+        }
+        return items;
+      }
+    };
+    Collection.menu.addAction(colorMenuItem, "#settings");
+    track({
+      delete() {
+        Collection.menu.removeAction("set_collection_color");
+      }
+    });
+    let setting2 = new Setting("minimal_attachment_coloring", {
+      name: "Subtle Attachment Colors",
+      category: "edit",
+      description: "Colored attachments will only show a thin line indicator in the outliner instead of a full row highlight.",
+      type: "toggle",
+      value: false,
+      onChange(value) {
+        minimalColoring = value;
+        applyCollectionColors();
+      }
+    });
+    minimalColoring = setting2.value;
+    track(setting2);
+    let style = Blockbench.addCSS(`
+		.${SCOPE_CLASS} {
+			--color-scope: transparent !important;
+		}
+		.outliner_object.${COLOR_CLASS}:not(.selected) {
+			background-color: var(${COLOR_VAR});
+		}
+		.${COLOR_CLASS} {
+			border-left-color: var(${BORDER_VAR}) !important;
+		}
+	`);
+    let hookFinishedEdit = Blockbench.on("finished_edit", scheduleColorUpdate);
+    let hookSelectMode = Blockbench.on("select_mode", scheduleColorUpdate);
+    let hookSelection = Blockbench.on("update_selection", scheduleColorUpdate);
+    let outlinerList = Panels.outliner?.node?.querySelector("#cubes_list");
+    let outlinerObserver = null;
+    if (outlinerList) {
+      outlinerObserver = new MutationObserver(scheduleColorUpdate);
+      outlinerObserver.observe(outlinerList, { childList: true, subtree: true });
+    }
+    setTimeout(applyCollectionColors, 100);
+    track(hookFinishedEdit, hookSelectMode, hookSelection, style, {
+      delete() {
+        outlinerObserver?.disconnect();
+        Panels.outliner?.node?.querySelectorAll(`.${SCOPE_CLASS}`).forEach((el) => {
+          el.style.removeProperty(COLOR_VAR);
+          el.style.removeProperty(BORDER_VAR);
+          el.classList.remove(SCOPE_CLASS, COLOR_CLASS);
+        });
+        Panels.collections?.node?.querySelectorAll(`.${SCOPE_CLASS}`).forEach((el) => {
+          el.style.removeProperty(BORDER_VAR);
+          el.classList.remove(SCOPE_CLASS, COLOR_CLASS);
+        });
+        Panels.collections?.node?.querySelectorAll(".hytale_collection_icon_colored").forEach((el) => {
+          el.style.removeProperty("color");
+          el.classList.remove("hytale_collection_icon_colored");
+        });
+      }
+    });
+  }
+
+  // src/attachments/collection_folder.ts
+  var GROUP_CLASS = "hytale_collection_folder";
+  var HEAD_CLASS = "hytale_collection_folder_head";
+  var LIST_CLASS = "hytale_collection_folder_list";
+  var MEMBER_ATTR = "data-hytale-folder";
+  var folders = [];
+  var updatePending = false;
+  var observer = null;
+  function fc(c) {
+    return c;
+  }
+  function fp() {
+    return Project;
+  }
+  function uniqueFolderName(base) {
+    let names = new Set(folders.map((f) => f.name));
+    if (!names.has(base)) return base;
+    for (let i = 2; ; i++) {
+      let name = `${base} ${i}`;
+      if (!names.has(name)) return name;
+    }
+  }
+  function syncToProject() {
+    if (!Project) return;
+    fp().collection_folders = folders.map((f) => f.getSaveCopy());
+  }
+  function loadFromProject() {
+    folders.length = 0;
+    if (!Project) return;
+    let data = fp().collection_folders;
+    if (!Array.isArray(data)) return;
+    for (let entry of data) folders.push(new CollectionFolder(entry));
+    folders.sort((a, b) => a.order - b.order);
+  }
+  function setFolder(collections, folderUuid, undoLabel) {
+    Undo.initEdit({ collections });
+    for (let c of collections) fc(c).folder = folderUuid;
+    Undo.finishEdit(undoLabel);
+    scheduleUpdate();
+  }
+  function scheduleUpdate() {
+    if (updatePending) return;
+    updatePending = true;
+    requestAnimationFrame(() => {
+      updatePending = false;
+      injectFolderDOM();
+    });
+  }
+  var CollectionFolder = class {
+    uuid;
+    name;
+    folded;
+    order;
+    menu;
+    constructor(data) {
+      this.uuid = data?.uuid ?? guid();
+      this.name = data?.name ?? uniqueFolderName("Set");
+      this.folded = data?.folded ?? false;
+      this.order = data?.order ?? folders.length;
+      this.menu = new Menu("collection_folder", [
+        { id: "rename", name: "generic.rename", icon: "text_format", click: () => this.rename() },
+        { id: "resolve", name: "menu.texture_group.resolve", icon: "fa-leaf", click: () => this.remove() },
+        { id: "delete_all", name: "Delete Set and Attachments", icon: "delete_forever", click: () => this.removeWithAttachments() }
+      ]);
+    }
+    add() {
+      if (!folders.includes(this)) folders.push(this);
+      syncToProject();
+      scheduleUpdate();
+      return this;
+    }
+    remove() {
+      setFolder(this.getCollections(), "", "Remove collection folder");
+      folders.remove(this);
+      syncToProject();
+    }
+    removeWithAttachments() {
+      let collections = this.getCollections();
+      let remove_elements = [];
+      let remove_groups = [];
+      let textures = [];
+      let texture_groups = [];
+      for (let c of collections) {
+        for (let child of c.getAllChildren()) {
+          (child instanceof Group ? remove_groups : remove_elements).safePush(child);
+        }
+        let tg = TextureGroup.all.find((t) => t.name === c.name);
+        if (tg) {
+          textures.safePush(...Texture.all.filter((t) => t.group === tg.uuid));
+          texture_groups.push(tg);
+        }
+      }
+      Undo.initEdit({
+        collections,
+        groups: remove_groups,
+        elements: remove_elements,
+        outliner: true,
+        texture_groups,
+        textures
+      });
+      collections.forEach((c) => {
+        unwatchCollection(c);
+        Collection.all.remove(c);
+      });
+      textures.forEach((t) => t.remove(true));
+      texture_groups.forEach((t) => t.remove());
+      remove_groups.forEach((g) => g.remove());
+      remove_elements.forEach((e) => e.remove());
+      updateSelection();
+      Undo.finishEdit("Delete set and attachments");
+      folders.remove(this);
+      syncToProject();
+      scheduleUpdate();
+    }
+    rename() {
+      Blockbench.textPrompt("generic.rename", this.name, (name) => {
+        if (name && name !== this.name) {
+          this.name = name;
+          syncToProject();
+          scheduleUpdate();
+        }
+      });
+    }
+    toggle() {
+      this.folded = !this.folded;
+      syncToProject();
+      scheduleUpdate();
+    }
+    getCollections() {
+      return Collection.all.filter((c) => c.folder === this.uuid);
+    }
+    getSaveCopy() {
+      return { uuid: this.uuid, name: this.name, folded: this.folded, order: this.order };
+    }
+    showContextMenu(event) {
+      this.menu.open(event, this);
+    }
+    static get all() {
+      return folders;
+    }
+  };
+  function getUngroupedCollections() {
+    return Collection.all.filter((c) => {
+      let f = fc(c).folder;
+      return !f || !folders.find((folder) => folder.uuid === f);
+    });
+  }
+  function injectFolderDOM() {
+    if (!isHytaleFormat()) return;
+    let list2 = Panels.collections?.node?.querySelector("#collections_list");
+    if (!list2) return;
+    observer?.disconnect();
+    list2.querySelectorAll(`.${GROUP_CLASS}`).forEach((group) => {
+      let children = group.querySelectorAll(":scope > ." + LIST_CLASS + " > li.collection");
+      children.forEach((el) => {
+        el.style.removeProperty("display");
+        el.removeAttribute(MEMBER_ATTR);
+        list2.insertBefore(el, group);
+      });
+      group.remove();
+    });
+    let collectionEls = Array.from(list2.querySelectorAll(":scope > li.collection"));
+    function findEl(uuid) {
+      return collectionEls.find((el) => el.getAttribute("uuid") === uuid) ?? null;
+    }
+    let sorted = folders.slice().sort((a, b) => a.order - b.order);
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      let group = createFolderGroup(sorted[i], collectionEls);
+      list2.prepend(group);
+    }
+    for (let c of getUngroupedCollections()) {
+      let el = findEl(c.uuid);
+      if (el) list2.appendChild(el);
+    }
+    observer?.observe(list2, { childList: true });
+    applyCollectionColors();
+  }
+  function createFolderGroup(folder, collectionEls) {
+    let group = document.createElement("li");
+    group.className = GROUP_CLASS;
+    let head = document.createElement("div");
+    head.className = HEAD_CLASS;
+    head.setAttribute("data-folder-uuid", folder.uuid);
+    if (folder.folded) head.classList.add("folded");
+    let arrow = document.createElement("i");
+    arrow.className = "icon-open-state fa " + (folder.folded ? "fa-angle-right" : "fa-angle-down");
+    head.appendChild(arrow);
+    let label = document.createElement("label");
+    label.textContent = folder.name;
+    label.title = folder.name;
+    head.appendChild(label);
+    if (!folder.folded) {
+      let addBtn = document.createElement("div");
+      addBtn.className = "in_list_button";
+      let addIcon = document.createElement("i");
+      addIcon.className = "material-icons icon";
+      addIcon.textContent = "add";
+      addBtn.appendChild(addIcon);
+      addBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        importAttachmentToFolder(folder.uuid);
+      });
+      addBtn.addEventListener("dblclick", (e) => e.stopPropagation());
+      head.appendChild(addBtn);
+    }
+    let collections = folder.getCollections();
+    let anyUnloaded = collections.some((c) => isUnloaded(c));
+    let unloadBtn = document.createElement("div");
+    unloadBtn.className = "in_list_button";
+    let unloadIcon = document.createElement("i");
+    unloadIcon.className = "material-icons icon";
+    if (anyUnloaded) unloadIcon.classList.add("toggle_disabled");
+    unloadIcon.textContent = anyUnloaded ? "download" : "eject";
+    unloadBtn.appendChild(unloadIcon);
+    unloadBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (anyUnloaded) {
+        for (let c of collections) {
+          if (isUnloaded(c)) reloadCollection(c);
+        }
+      } else {
+        promptAndUnload(collections);
+      }
+    });
+    unloadBtn.addEventListener("dblclick", (e) => e.stopPropagation());
+    head.appendChild(unloadBtn);
+    let loadedCollections = collections.filter((c) => !isUnloaded(c));
+    let anyVisible = loadedCollections.some((c) => c.getVisibility());
+    let visBtn = document.createElement("div");
+    visBtn.className = "in_list_button";
+    let visIcon = document.createElement("i");
+    visIcon.className = "material-icons icon";
+    if (loadedCollections.length === 0) {
+      visIcon.classList.add("toggle_disabled");
+      visIcon.textContent = "visibility_off";
+    } else {
+      visIcon.textContent = anyVisible ? "visibility" : "visibility_off";
+      if (!anyVisible) visIcon.classList.add("toggle_disabled");
+    }
+    visBtn.appendChild(visIcon);
+    visBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleCollectionChildVisibility(collections);
+      let nowVisible = loadedCollections.some((c) => c.getVisibility());
+      visIcon.textContent = nowVisible ? "visibility" : "visibility_off";
+      visIcon.classList.toggle("toggle_disabled", !nowVisible);
+    });
+    visBtn.addEventListener("dblclick", (e) => e.stopPropagation());
+    head.appendChild(visBtn);
+    head.addEventListener("click", (e) => {
+      e.stopPropagation();
+      folder.toggle();
+    });
+    head.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      folder.showContextMenu(e);
+    });
+    head.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      head.classList.add("drag_hover");
+    });
+    head.addEventListener("dragleave", () => head.classList.remove("drag_hover"));
+    head.addEventListener("drop", (e) => {
+      e.preventDefault();
+      head.classList.remove("drag_hover");
+      let uuid = e.dataTransfer?.getData("text/collection-uuid");
+      let collection = uuid ? Collection.all.find((c) => c.uuid === uuid) : null;
+      if (!collection) return;
+      let collections2 = Collection.selected.includes(collection) && Collection.selected.length > 1 ? Collection.selected : [collection];
+      setFolder(collections2, folder.uuid, "Move collection to folder");
+    });
+    group.appendChild(head);
+    let childList = document.createElement("ul");
+    childList.className = LIST_CLASS;
+    if (folder.folded) childList.style.display = "none";
+    for (let collection of folder.getCollections()) {
+      let el = collectionEls.find((cel) => cel.getAttribute("uuid") === collection.uuid);
+      if (!el) continue;
+      el.setAttribute(MEMBER_ATTR, folder.uuid);
+      childList.appendChild(el);
+    }
+    group.appendChild(childList);
+    return group;
+  }
+  function setupCollectionDrag() {
+    let panel = Panels.collections?.node;
+    if (!panel) return;
+    const dragHandler = (e) => {
+      if (e.button !== 0) return;
+      if (!isHytaleFormat()) return;
+      let target = e.target;
+      while (target && !target.classList?.contains("collection")) {
+        if (target === panel) return;
+        target = target.parentElement;
+      }
+      if (!target) return;
+      let uuid = target.getAttribute("uuid");
+      if (!uuid) return;
+      let dragCollection = Collection.all.find((c) => c.uuid === uuid);
+      if (!dragCollection) return;
+      let dragCollections = Collection.selected.includes(dragCollection) && Collection.selected.length > 1 ? Collection.selected.slice() : [dragCollection];
+      let startX = e.clientX, startY = e.clientY;
+      let active = false;
+      let helper = null;
+      function onMove(e2) {
+        let dx = e2.clientX - startX, dy = e2.clientY - startY;
+        if (!active && Math.sqrt(dx * dx + dy * dy) > 6) {
+          active = true;
+          helper = document.createElement("div");
+          helper.className = "hytale_collection_drag_helper";
+          helper.textContent = dragCollections.length > 1 ? `${dragCollections.length} attachments` : dragCollections[0].name;
+          document.body.appendChild(helper);
+        }
+        if (!active || !helper) return;
+        e2.preventDefault();
+        helper.style.left = `${e2.clientX}px`;
+        helper.style.top = `${e2.clientY}px`;
+        document.querySelectorAll(`.${HEAD_CLASS}`).forEach((el) => el.classList.remove("drag_hover"));
+        let under = document.elementFromPoint(e2.clientX, e2.clientY)?.closest(`.${HEAD_CLASS}`);
+        if (under) under.classList.add("drag_hover");
+      }
+      function onUp(e2) {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        helper?.remove();
+        document.querySelectorAll(`.${HEAD_CLASS}`).forEach((el) => el.classList.remove("drag_hover"));
+        if (!active) return;
+        let folderHead = document.elementFromPoint(e2.clientX, e2.clientY)?.closest(`.${HEAD_CLASS}`);
+        let targetUuid = folderHead?.getAttribute("data-folder-uuid") ?? "";
+        let toMove = dragCollections.filter((c) => fc(c).folder !== targetUuid);
+        if (toMove.length > 0) {
+          setFolder(toMove, targetUuid, "Move collection to folder");
+        }
+      }
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    };
+    panel.addEventListener("mousedown", dragHandler);
+    return { delete() {
+      panel?.removeEventListener("mousedown", dragHandler);
+    } };
+  }
+  function setupCollectionFolders() {
+    let folderProp = new Property(Collection, "string", "folder", { default: "", condition: { formats: FORMAT_IDS } });
+    let foldersProp = new Property(ModelProject, "array", "collection_folders", { default: [], condition: { formats: FORMAT_IDS } });
+    track(folderProp, foldersProp);
+    let createAction = new Action("create_collection_folder", {
+      name: "Create Set",
+      icon: "create_new_folder",
+      category: "collections",
+      condition: { formats: FORMAT_IDS },
+      click() {
+        let folder = new CollectionFolder().add();
+        if (Collection.selected.length > 0) {
+          setFolder(Collection.selected.slice(), folder.uuid, "Create set");
+        }
+      }
+    });
+    track(createAction);
+    Panels.collections.toolbars[0].add(createAction);
+    Panels.collections.menu.addAction(createAction);
+    let moveMenu = {
+      id: "move_to_folder",
+      name: "Move to Set",
+      icon: "drive_file_move",
+      condition: { formats: FORMAT_IDS },
+      children() {
+        let items = [{
+          icon: "block",
+          name: "generic.none",
+          click(ctx) {
+            setFolder([ctx], "", "Remove collection from folder");
+          }
+        }];
+        for (let folder of folders) {
+          items.push({
+            icon: "folder",
+            name: folder.name,
+            click(ctx) {
+              setFolder([ctx], folder.uuid, "Move collection to folder");
+            }
+          });
+        }
+        return items;
+      }
+    };
+    Collection.menu.addAction(moveMenu, "#settings");
+    track({ delete() {
+      Collection.menu.removeAction("move_to_folder");
+    } });
+    let reloadAndUpdate = () => {
+      loadFromProject();
+      scheduleUpdate();
+    };
+    let hookProject = Blockbench.on("select_project", reloadAndUpdate);
+    let hookEdit = Blockbench.on("finished_edit", scheduleUpdate);
+    let hookSelection = Blockbench.on("update_selection", scheduleUpdate);
+    let hookMode = Blockbench.on("select_mode", scheduleUpdate);
+    let hookUndo = Blockbench.on("undo", reloadAndUpdate);
+    let hookRedo = Blockbench.on("redo", reloadAndUpdate);
+    let listEl = Panels.collections?.node?.querySelector("#collections_list");
+    if (listEl) {
+      observer = new MutationObserver(scheduleUpdate);
+      observer.observe(listEl, { childList: true });
+    }
+    let dragCleanup = setupCollectionDrag() ?? { delete() {
+    } };
+    let style = Blockbench.addCSS(`
+        .${GROUP_CLASS} {
+            padding-bottom: 4px;
+        }
+        .${HEAD_CLASS} {
+            height: 32px;
+            padding: 4px;
+            padding-right: 8px;
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            cursor: pointer;
+        }
+        .${HEAD_CLASS}:hover {
+            color: var(--color-text);
+        }
+        .${HEAD_CLASS}.drag_hover {
+            background: var(--color-accent);
+            color: var(--color-accent_text);
+        }
+        .${HEAD_CLASS} > .icon-open-state {
+            text-align: center;
+            width: 21px;
+            margin-top: 4px;
+            flex-shrink: 0;
+        }
+        .${HEAD_CLASS} > label {
+            flex: 1;
+            overflow: hidden;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+        .${HEAD_CLASS} > .in_list_button {
+            margin-left: auto;
+        }
+        .${HEAD_CLASS}.folded > label {
+            max-width: calc(60% - 50px);
+            min-width: 30px;
+        }
+        .${LIST_CLASS} {
+            margin-left: 14px;
+            padding-left: 6px;
+        }
+        .hytale_collection_drag_helper {
+            position: fixed; pointer-events: none; z-index: 1000;
+            background: var(--color-accent); color: var(--color-accent_text);
+            padding: 2px 8px; border-radius: 4px; font-size: 12px;
+            transform: translate(10px, -50%);
+        }
+    `);
+    loadFromProject();
+    setTimeout(scheduleUpdate, 100);
+    track(hookProject, hookEdit, hookSelection, hookMode, hookUndo, hookRedo, style, dragCleanup, {
+      delete() {
+        observer?.disconnect();
+        folders.length = 0;
+        let list2 = Panels.collections?.node?.querySelector("#collections_list");
+        if (list2) {
+          list2.querySelectorAll(`.${GROUP_CLASS}`).forEach((group) => {
+            let children = group.querySelectorAll("li.collection");
+            children.forEach((el) => {
+              el.removeAttribute(MEMBER_ATTR);
+              list2.insertBefore(el, group);
+            });
+            group.remove();
+          });
+        }
+      }
+    });
+  }
+
+  // src/attachments/unload.ts
+  var unloadedStates = /* @__PURE__ */ new Map();
+  var UNLOADED_ATTR = "data-hytale-unloaded";
+  function setUnloadedAttr(collection, unloaded) {
+    let list2 = Panels.collections?.node?.querySelector("#collections_list");
+    let el = list2?.querySelector(`[uuid="${collection.uuid}"]`);
+    if (!el) return;
+    if (unloaded) el.setAttribute(UNLOADED_ATTR, "");
+    else el.removeAttribute(UNLOADED_ATTR);
+  }
+  function assignCollectionScope(collection) {
+    let usedScopes = /* @__PURE__ */ new Set();
+    for (let node of Group.all.concat(Outliner.elements)) {
+      usedScopes.add(node.scope);
+    }
+    for (let c of Collection.all) usedScopes.add(c.scope);
+    let scope = 1;
+    while (usedScopes.has(scope)) scope++;
+    let children = collection.children.map((uuid) => OutlinerNode.uuids[uuid]).filter(Boolean);
+    let allChildren = [];
+    for (let child of children) {
+      allChildren.push(child);
+      if ("forEachChild" in child && typeof child.forEachChild === "function") {
+        child.forEachChild((sub) => allChildren.push(sub));
+      }
+    }
+    for (let child of allChildren) {
+      child.scope = scope;
+    }
+    collection.scope = scope;
+  }
+  function isUnloaded(collection) {
+    return collection.unloaded === true;
+  }
+  function unloadCollection(collection) {
+    if (isUnloaded(collection)) return;
+    if (collection.export_codec !== "blockymodel") return;
+    let savedState = collection.saved;
+    let json = Codecs.blockymodel.compile({ attachment: collection, raw: true });
+    let texturePaths = [];
+    let primaryTexturePath = "";
+    let primaryUuid = collection.texture || "";
+    if (primaryUuid) {
+      let pt = Texture.all.find((t) => t.uuid === primaryUuid);
+      if (pt) primaryTexturePath = resolveTexturePath(pt);
+    }
+    let tg = TextureGroup.all.find((t) => t.name === collection.name);
+    if (tg) {
+      let textures = Texture.all.filter((t) => t.group === tg.uuid);
+      texturePaths = textures.map((t) => resolveTexturePath(t)).filter(Boolean);
+      textures.forEach((t) => t.remove(true));
+      tg.remove();
+    }
+    for (let child of collection.getAllChildren()) {
+      if (child instanceof Group) child.remove();
+      else child.remove();
+    }
+    collection.extend({ children: [] });
+    unloadedStates.set(collection.uuid, { json, texturePaths, primaryTexturePath });
+    let uc = collection;
+    uc.unloaded = true;
+    uc.unloaded_texture_paths = JSON.stringify(texturePaths);
+    uc.unloaded_primary_path = primaryTexturePath;
+    unwatchCollection(collection);
+    setUnloadedAttr(collection, true);
+    Canvas.updateAllFaces();
+    collection.saved = savedState;
+    scheduleUpdate();
+  }
+  function reloadCollection(collection) {
+    if (!isUnloaded(collection)) return;
+    let savedState = collection.saved;
+    let state = unloadedStates.get(collection.uuid);
+    let path = collection.export_path;
+    let fs = requireNativeModule("fs");
+    let json;
+    let useFile = path && fs.existsSync(path);
+    if (useFile) {
+      json = autoParseJSON(fs.readFileSync(path, "utf-8"));
+    } else if (state) {
+      json = state.json;
+    } else {
+      return;
+    }
+    let result = Codecs.blockymodel.parse(json, path || "", { attachment: collection.name });
+    let new_groups = result.new_groups;
+    let root_groups = new_groups.filter((g) => !new_groups.includes(g.parent));
+    collection.extend({ children: root_groups.map((g) => g.uuid) }).add();
+    assignCollectionScope(collection);
+    let uc = collection;
+    let texturePaths = state?.texturePaths ?? [];
+    if (texturePaths.length === 0 && uc.unloaded_texture_paths) {
+      try {
+        texturePaths = JSON.parse(uc.unloaded_texture_paths);
+      } catch {
+      }
+    }
+    if (useFile) {
+      let dirname = PathModule.dirname(path);
+      for (let tp of discoverTexturePaths(dirname, collection.name)) {
+        if (!texturePaths.includes(tp)) texturePaths.push(tp);
+      }
+    }
+    let primaryTexturePath = state?.primaryTexturePath || uc.unloaded_primary_path || "";
+    let tg = new TextureGroup({ name: collection.name });
+    tg.folded = true;
+    tg.add();
+    let allTextures = [];
+    for (let tp of texturePaths) {
+      let existing = Texture.all.find((t) => t.path === tp);
+      if (existing && existing.group && existing.group !== tg.uuid) {
+        if (fs.existsSync(tp)) {
+          let tex = new Texture().fromPath(tp).add(false, true);
+          tex.group = tg.uuid;
+          allTextures.push(tex);
+        }
+      } else if (existing) {
+        existing.group = tg.uuid;
+        allTextures.push(existing);
+      } else if (fs.existsSync(tp)) {
+        let tex = new Texture().fromPath(tp).add(false, true);
+        tex.group = tg.uuid;
+        allTextures.push(tex);
+      }
+    }
+    if (primaryTexturePath) {
+      let primary = allTextures.find((t) => t.path === primaryTexturePath);
+      if (primary) collection.texture = primary.uuid;
+    } else if (allTextures.length > 0) {
+      let primary = allTextures.find((t) => t.name.startsWith(collection.name)) ?? allTextures[0];
+      collection.texture = primary.uuid;
+    }
+    uc.unloaded = false;
+    uc.unloaded_texture_paths = "";
+    uc.unloaded_primary_path = "";
+    unloadedStates.delete(collection.uuid);
+    watchCollection(collection);
+    setUnloadedAttr(collection, false);
+    Canvas.updateAllFaces();
+    collection.saved = savedState;
+    scheduleUpdate();
+  }
+  async function promptAndUnload(collections) {
+    let toUnload = collections.filter((c) => !isUnloaded(c) && c.export_codec === "blockymodel");
+    if (toUnload.length === 0) return true;
+    let unsaved = toUnload.filter((c) => c.saved === false);
+    if (unsaved.length > 0) {
+      let message = unsaved.length === 1 ? `"${unsaved[0].name}" has unsaved changes.` : `${unsaved.length} attachments have unsaved changes:
+${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
+      let result = await new Promise((resolve) => {
+        Blockbench.showMessageBox({
+          title: "Unsaved Attachment Changes",
+          message,
+          icon: "warning",
+          buttons: ["dialog.save", "dialog.discard", "dialog.cancel"],
+          confirm: 0,
+          cancel: 2
+        }, resolve);
+      });
+      if (result === 2) return false;
+      if (result === 0) {
+        for (let c of unsaved) {
+          await Codecs.blockymodel.writeCollection(c);
+        }
+      }
+    }
+    for (let c of toUnload) unloadCollection(c);
+    return true;
+  }
+  async function toggleCollectionLoaded(collection) {
+    if (isUnloaded(collection)) {
+      reloadCollection(collection);
+    } else {
+      await promptAndUnload([collection]);
+    }
+  }
+  function toggleCollectionChildVisibility(collections) {
+    let loaded = collections.filter((c) => !isUnloaded(c));
+    if (!loaded.length) return;
+    let allHidden = loaded.every((c) => !c.getVisibility());
+    let allElements = [];
+    for (let c of loaded) {
+      for (let child of c.getAllChildren()) {
+        if (!("visibility" in child) || typeof child.visibility !== "boolean") continue;
+        child.visibility = allHidden;
+        if (!(child instanceof Group)) allElements.push(child);
+      }
+    }
+    Canvas.updateView({ elements: allElements, element_aspects: { visibility: true } });
+  }
+  function setupUnload() {
+    let unloadedProp = new Property(Collection, "boolean", "unloaded", {
+      default: false,
+      condition: { formats: FORMAT_IDS }
+    });
+    let texPathsProp = new Property(Collection, "string", "unloaded_texture_paths", {
+      default: "",
+      condition: { formats: FORMAT_IDS }
+    });
+    let primaryPathProp = new Property(Collection, "string", "unloaded_primary_path", {
+      default: "",
+      condition: { formats: FORMAT_IDS }
+    });
+    track(unloadedProp, texPathsProp, primaryPathProp);
+    let originalToggle = Collection.prototype.toggleVisibility;
+    Collection.prototype.toggleVisibility = function(event) {
+      if (!isHytaleFormat() || this.export_codec !== "blockymodel") {
+        return originalToggle.call(this, event);
+      }
+      if (isUnloaded(this)) {
+        reloadCollection(this);
+        return;
+      }
+      toggleCollectionChildVisibility([this]);
+    };
+    track({ delete() {
+      Collection.prototype.toggleVisibility = originalToggle;
+    } });
+    let style = Blockbench.addCSS(`
+        #collections_list li.collection[${UNLOADED_ATTR}] {
+            opacity: 0.45;
+        }
+        #collections_list li.collection[${UNLOADED_ATTR}] > .in_list_button:last-child {
+            display: none;
+        }
+        #collections_list .hytale_unload_btn {
+            cursor: pointer;
+        }
+    `);
+    track(style);
+    function syncUnloadButtons() {
+      if (!isHytaleFormat()) return;
+      let list2 = Panels.collections?.node?.querySelector("#collections_list");
+      if (!list2) return;
+      for (let collection of Collection.all) {
+        let el = list2.querySelector(`[uuid="${collection.uuid}"]`);
+        if (!el) continue;
+        let unloaded = isUnloaded(collection);
+        if (unloaded) el.setAttribute(UNLOADED_ATTR, "");
+        else el.removeAttribute(UNLOADED_ATTR);
+        if (collection.export_codec !== "blockymodel") continue;
+        el.style.setProperty("--color-scope", "transparent", "important");
+        let existing = el.querySelector(".hytale_unload_btn");
+        if (existing) {
+          let icon2 = existing.querySelector("i");
+          icon2.textContent = unloaded ? "download" : "eject";
+          icon2.classList.toggle("toggle_disabled", unloaded);
+          continue;
+        }
+        let visBtn = el.querySelector(":scope > .in_list_button:last-child");
+        if (!visBtn) continue;
+        let btn = document.createElement("div");
+        btn.className = "in_list_button hytale_unload_btn";
+        let icon = document.createElement("i");
+        icon.className = "material-icons icon";
+        icon.textContent = unloaded ? "download" : "eject";
+        if (unloaded) icon.classList.add("toggle_disabled");
+        btn.appendChild(icon);
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          toggleCollectionLoaded(collection);
+        });
+        btn.addEventListener("dblclick", (e) => e.stopPropagation());
+        visBtn.insertAdjacentElement("beforebegin", btn);
+      }
+    }
+    function unloadAllOnOpen() {
+      if (!isHytaleFormat()) return;
+      for (let collection of Collection.all) {
+        if (collection.export_codec === "blockymodel" && !isUnloaded(collection)) {
+          unloadCollection(collection);
+        }
+      }
+      for (let folder of CollectionFolder.all) {
+        if (!folder.folded) {
+          folder.folded = true;
+        }
+      }
+      scheduleUpdate();
+    }
+    let hookOpen = Blockbench.on("load_project", unloadAllOnOpen);
+    let hookEdit = Blockbench.on("finished_edit", syncUnloadButtons);
+    let hookSelection = Blockbench.on("update_selection", syncUnloadButtons);
+    let hookProject = Blockbench.on("select_project", syncUnloadButtons);
+    setTimeout(syncUnloadButtons, 150);
+    track(hookOpen, hookEdit, hookSelection, hookProject, {
+      delete() {
+        unloadedStates.clear();
+        let list2 = Panels.collections?.node?.querySelector("#collections_list");
+        if (list2) {
+          list2.querySelectorAll(`[${UNLOADED_ATTR}]`).forEach((el) => el.removeAttribute(UNLOADED_ATTR));
+          list2.querySelectorAll(".hytale_unload_btn").forEach((el) => el.remove());
+          list2.querySelectorAll("li.collection").forEach((el) => el.style.removeProperty("--color-scope"));
+        }
+      }
+    });
+  }
 
   // src/attachments/import.ts
+  var reload_all_attachments;
   function importFiles(files, folderUuid) {
     for (let file of files) {
       if (Collection.all.some((c) => c.export_path === file.path)) {
@@ -220,7 +1286,7 @@
       let json = autoParseJSON(file.content);
       let attachment_name = file.name.replace(/\.\w+$/, "");
       let content = Codecs.blockymodel.parse(json, file.path, { attachment: attachment_name });
-      let name = file.name.split(".")[0];
+      let name = attachment_name;
       let new_groups = content.new_groups;
       let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
       let collection = new Collection({
@@ -230,6 +1296,7 @@
         visibility: true
       }).add();
       collection.export_path = file.path;
+      assignCollectionScope(collection);
       if (folderUuid) collection.folder = folderUuid;
       let texturesToProcess = content.new_textures;
       if (texturesToProcess.length === 0) {
@@ -257,6 +1324,7 @@
     }, (files) => importFiles(files, folderUuid));
   }
   function reloadAttachment(collection) {
+    if (isUnloaded(collection)) return;
     let path = collection.export_path;
     if (!path) return;
     let fs = requireNativeModule("fs");
@@ -282,6 +1350,7 @@
     let new_groups = result.new_groups;
     let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
     collection.extend({ children: root_groups.map((g) => g.uuid) }).add();
+    assignCollectionScope(collection);
   }
   function setupImport() {
     let import_as_attachment = new Action("import_as_hytale_attachment", {
@@ -318,7 +1387,7 @@
       icon: "sync",
       condition: { formats: FORMAT_IDS },
       click() {
-        for (let collection of Collection.all.filter((c) => c.export_path)) {
+        for (let collection of Collection.all.filter((c) => c.export_path && !isUnloaded(c))) {
           reloadAttachment(collection);
         }
       }
@@ -326,18 +1395,14 @@
     track(reload_all_attachments);
     toolbar.add(reload_all_attachments);
   }
-  var reload_all_attachments;
-  var init_import = __esm({
-    "src/attachments/import.ts"() {
-      init_cleanup();
-      init_formats();
-      init_blockymodel();
-      init_texture2();
-      init_watcher();
-    }
-  });
 
   // src/attachments/watcher.ts
+  var POLL_INTERVAL = 1500;
+  var watchedCollections = /* @__PURE__ */ new Map();
+  var watchedProjects = /* @__PURE__ */ new Map();
+  var pendingRefresh = /* @__PURE__ */ new Set();
+  var setting;
+  var pollTimer = null;
   function getMtime(path) {
     let fs = requireNativeModule("fs");
     if (!fs.existsSync(path)) return null;
@@ -528,710 +1593,6 @@
       }
     });
   }
-  var POLL_INTERVAL, watchedCollections, watchedProjects, pendingRefresh, setting, pollTimer;
-  var init_watcher = __esm({
-    "src/attachments/watcher.ts"() {
-      init_cleanup();
-      init_formats();
-      init_import();
-      POLL_INTERVAL = 1500;
-      watchedCollections = /* @__PURE__ */ new Map();
-      watchedProjects = /* @__PURE__ */ new Map();
-      pendingRefresh = /* @__PURE__ */ new Set();
-      pollTimer = null;
-    }
-  });
-
-  // src/attachments/unload.ts
-  function isUnloaded(collection) {
-    return collection.unloaded === true;
-  }
-  function unloadCollection(collection) {
-    if (isUnloaded(collection)) return;
-    if (collection.export_codec !== "blockymodel") return;
-    let savedState = collection.saved;
-    let json = Codecs.blockymodel.compile({ attachment: collection, raw: true });
-    let texturePaths = [];
-    let primaryTexturePath = "";
-    let primaryUuid = collection.texture || "";
-    if (primaryUuid) {
-      let pt = Texture.all.find((t) => t.uuid === primaryUuid);
-      if (pt?.path) primaryTexturePath = pt.path;
-    }
-    let tg = TextureGroup.all.find((t) => t.name === collection.name);
-    if (tg) {
-      let textures = Texture.all.filter((t) => t.group === tg.uuid);
-      texturePaths = textures.map((t) => t.path).filter(Boolean);
-      textures.forEach((t) => t.remove(true));
-      tg.remove();
-    }
-    for (let child of collection.getAllChildren()) {
-      if (child instanceof Group) child.remove();
-      else child.remove();
-    }
-    collection.extend({ children: [] });
-    unloadedStates.set(collection.uuid, { json, texturePaths, primaryTexturePath });
-    let uc = collection;
-    uc.unloaded = true;
-    uc.unloaded_texture_paths = JSON.stringify(texturePaths);
-    uc.unloaded_primary_path = primaryTexturePath;
-    unwatchCollection(collection);
-    Canvas.updateAllFaces();
-    collection.saved = savedState;
-    scheduleUpdate();
-  }
-  function reloadCollection(collection) {
-    if (!isUnloaded(collection)) return;
-    let savedState = collection.saved;
-    let state = unloadedStates.get(collection.uuid);
-    let path = collection.export_path;
-    let fs = requireNativeModule("fs");
-    let json;
-    let useFile = path && fs.existsSync(path);
-    if (useFile) {
-      json = autoParseJSON(fs.readFileSync(path, "utf-8"));
-    } else if (state) {
-      json = state.json;
-    } else {
-      return;
-    }
-    let result = Codecs.blockymodel.parse(json, path || "", { attachment: collection.name });
-    let new_groups = result.new_groups;
-    let root_groups = new_groups.filter((g) => !new_groups.includes(g.parent));
-    collection.extend({ children: root_groups.map((g) => g.uuid) }).add();
-    let uc = collection;
-    let texturePaths = state?.texturePaths ?? [];
-    if (texturePaths.length === 0 && uc.unloaded_texture_paths) {
-      try {
-        texturePaths = JSON.parse(uc.unloaded_texture_paths);
-      } catch {
-      }
-    }
-    if (useFile) {
-      let dirname = PathModule.dirname(path);
-      for (let tp of discoverTexturePaths(dirname, collection.name)) {
-        if (!texturePaths.includes(tp)) texturePaths.push(tp);
-      }
-    }
-    let primaryTexturePath = state?.primaryTexturePath || uc.unloaded_primary_path || "";
-    let tg = new TextureGroup({ name: collection.name });
-    tg.folded = true;
-    tg.add();
-    let allTextures = [];
-    for (let tp of texturePaths) {
-      let existing = Texture.all.find((t) => t.path === tp);
-      if (existing) {
-        existing.group = tg.uuid;
-        allTextures.push(existing);
-      } else if (fs.existsSync(tp)) {
-        let tex = new Texture().fromPath(tp).add(false, true);
-        tex.group = tg.uuid;
-        allTextures.push(tex);
-      }
-    }
-    if (primaryTexturePath) {
-      let primary = allTextures.find((t) => t.path === primaryTexturePath);
-      if (primary) collection.texture = primary.uuid;
-    } else if (allTextures.length > 0) {
-      let primary = allTextures.find((t) => t.name.startsWith(collection.name)) ?? allTextures[0];
-      collection.texture = primary.uuid;
-    }
-    uc.unloaded = false;
-    uc.unloaded_texture_paths = "";
-    uc.unloaded_primary_path = "";
-    unloadedStates.delete(collection.uuid);
-    watchCollection(collection);
-    Canvas.updateAllFaces();
-    collection.saved = savedState;
-    scheduleUpdate();
-  }
-  async function promptAndUnload(collections) {
-    let toUnload = collections.filter((c) => !isUnloaded(c) && c.export_codec === "blockymodel");
-    if (toUnload.length === 0) return true;
-    let unsaved = toUnload.filter((c) => c.saved === false);
-    if (unsaved.length > 0) {
-      let message = unsaved.length === 1 ? `"${unsaved[0].name}" has unsaved changes.` : `${unsaved.length} attachments have unsaved changes:
-${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
-      let result = await new Promise((resolve) => {
-        Blockbench.showMessageBox({
-          title: "Unsaved Attachment Changes",
-          message,
-          icon: "warning",
-          buttons: ["dialog.save", "dialog.discard", "dialog.cancel"],
-          confirm: 0,
-          cancel: 2
-        }, resolve);
-      });
-      if (result === 2) return false;
-      if (result === 0) {
-        for (let c of unsaved) {
-          await Codecs.blockymodel.writeCollection(c);
-        }
-      }
-    }
-    for (let c of toUnload) unloadCollection(c);
-    return true;
-  }
-  async function toggleCollectionLoaded(collection) {
-    if (isUnloaded(collection)) {
-      reloadCollection(collection);
-    } else {
-      await promptAndUnload([collection]);
-    }
-  }
-  function setupUnload() {
-    let unloadedProp = new Property(Collection, "boolean", "unloaded", {
-      default: false,
-      condition: { formats: FORMAT_IDS }
-    });
-    let texPathsProp = new Property(Collection, "string", "unloaded_texture_paths", {
-      default: "",
-      condition: { formats: FORMAT_IDS }
-    });
-    let primaryPathProp = new Property(Collection, "string", "unloaded_primary_path", {
-      default: "",
-      condition: { formats: FORMAT_IDS }
-    });
-    track(unloadedProp, texPathsProp, primaryPathProp);
-    let originalToggle = Collection.prototype.toggleVisibility;
-    Collection.prototype.toggleVisibility = function(event) {
-      if (isHytaleFormat() && this.export_codec === "blockymodel") {
-        toggleCollectionLoaded(this);
-        return;
-      }
-      originalToggle.call(this, event);
-    };
-    track({ delete() {
-      Collection.prototype.toggleVisibility = originalToggle;
-    } });
-    let originalGetVis = Collection.prototype.getVisibility;
-    Collection.prototype.getVisibility = function() {
-      if (isHytaleFormat() && this.unloaded) {
-        return false;
-      }
-      return originalGetVis.call(this);
-    };
-    track({ delete() {
-      Collection.prototype.getVisibility = originalGetVis;
-    } });
-    let style = Blockbench.addCSS(`
-        #collections_list li.collection.hytale_unloaded {
-            opacity: 0.45;
-        }
-    `);
-    track(style);
-    function applyUnloadedStyle() {
-      if (!isHytaleFormat()) return;
-      let list2 = Panels.collections?.node?.querySelector("#collections_list");
-      if (!list2) return;
-      for (let collection of Collection.all) {
-        let el = list2.querySelector(`[uuid="${collection.uuid}"]`);
-        if (!el) continue;
-        el.classList.toggle("hytale_unloaded", isUnloaded(collection));
-      }
-    }
-    function unloadAllOnOpen() {
-      if (!isHytaleFormat()) return;
-      for (let collection of Collection.all) {
-        if (collection.export_codec === "blockymodel" && !isUnloaded(collection)) {
-          unloadCollection(collection);
-        }
-      }
-      for (let folder of CollectionFolder.all) {
-        if (!folder.folded) {
-          folder.folded = true;
-        }
-      }
-      scheduleUpdate();
-    }
-    let hookOpen = Blockbench.on("load_project", unloadAllOnOpen);
-    let hookEdit = Blockbench.on("finished_edit", applyUnloadedStyle);
-    let hookSelection = Blockbench.on("update_selection", applyUnloadedStyle);
-    let hookProject = Blockbench.on("select_project", applyUnloadedStyle);
-    setTimeout(applyUnloadedStyle, 150);
-    track(hookOpen, hookEdit, hookSelection, hookProject, {
-      delete() {
-        unloadedStates.clear();
-        let list2 = Panels.collections?.node?.querySelector("#collections_list");
-        if (list2) list2.querySelectorAll(".hytale_unloaded").forEach((el) => el.classList.remove("hytale_unloaded"));
-      }
-    });
-  }
-  var unloadedStates;
-  var init_unload = __esm({
-    "src/attachments/unload.ts"() {
-      init_cleanup();
-      init_formats();
-      init_blockymodel();
-      init_watcher();
-      init_collection_folder();
-      unloadedStates = /* @__PURE__ */ new Map();
-    }
-  });
-
-  // src/attachments/collection_folder.ts
-  var collection_folder_exports = {};
-  __export(collection_folder_exports, {
-    CollectionFolder: () => CollectionFolder,
-    scheduleFolderUpdate: () => scheduleUpdate,
-    setupCollectionFolders: () => setupCollectionFolders
-  });
-  function fc(c) {
-    return c;
-  }
-  function fp() {
-    return Project;
-  }
-  function uniqueFolderName(base) {
-    let names = new Set(folders.map((f) => f.name));
-    if (!names.has(base)) return base;
-    for (let i = 2; ; i++) {
-      let name = `${base} ${i}`;
-      if (!names.has(name)) return name;
-    }
-  }
-  function syncToProject() {
-    if (!Project) return;
-    fp().collection_folders = folders.map((f) => f.getSaveCopy());
-  }
-  function loadFromProject() {
-    folders.length = 0;
-    if (!Project) return;
-    let data = fp().collection_folders;
-    if (!Array.isArray(data)) return;
-    for (let entry of data) folders.push(new CollectionFolder(entry));
-    folders.sort((a, b) => a.order - b.order);
-  }
-  function setFolder(collections, folderUuid, undoLabel) {
-    Undo.initEdit({ collections });
-    for (let c of collections) fc(c).folder = folderUuid;
-    Undo.finishEdit(undoLabel);
-    scheduleUpdate();
-  }
-  function scheduleUpdate() {
-    if (updatePending) return;
-    updatePending = true;
-    requestAnimationFrame(() => {
-      updatePending = false;
-      injectFolderDOM();
-    });
-  }
-  function getUngroupedCollections() {
-    return Collection.all.filter((c) => {
-      let f = fc(c).folder;
-      return !f || !folders.find((folder) => folder.uuid === f);
-    });
-  }
-  function injectFolderDOM() {
-    if (!isHytaleFormat()) return;
-    let list2 = Panels.collections?.node?.querySelector("#collections_list");
-    if (!list2) return;
-    observer?.disconnect();
-    list2.querySelectorAll(`.${GROUP_CLASS}`).forEach((group) => {
-      let children = group.querySelectorAll(":scope > ." + LIST_CLASS + " > li.collection");
-      children.forEach((el) => {
-        el.style.removeProperty("display");
-        el.removeAttribute(MEMBER_ATTR);
-        list2.insertBefore(el, group);
-      });
-      group.remove();
-    });
-    let collectionEls = Array.from(list2.querySelectorAll(":scope > li.collection"));
-    function findEl(uuid) {
-      return collectionEls.find((el) => el.getAttribute("uuid") === uuid) ?? null;
-    }
-    let sorted = folders.slice().sort((a, b) => a.order - b.order);
-    for (let i = sorted.length - 1; i >= 0; i--) {
-      let group = createFolderGroup(sorted[i], collectionEls);
-      list2.prepend(group);
-    }
-    for (let c of getUngroupedCollections()) {
-      let el = findEl(c.uuid);
-      if (el) list2.appendChild(el);
-    }
-    observer?.observe(list2, { childList: true });
-  }
-  function createFolderGroup(folder, collectionEls) {
-    let group = document.createElement("li");
-    group.className = GROUP_CLASS;
-    let head = document.createElement("div");
-    head.className = HEAD_CLASS;
-    head.setAttribute("data-folder-uuid", folder.uuid);
-    if (folder.folded) head.classList.add("folded");
-    let arrow = document.createElement("i");
-    arrow.className = "icon-open-state fa " + (folder.folded ? "fa-angle-right" : "fa-angle-down");
-    head.appendChild(arrow);
-    let label = document.createElement("label");
-    label.textContent = folder.name;
-    label.title = folder.name;
-    head.appendChild(label);
-    if (!folder.folded) {
-      let addBtn = document.createElement("div");
-      addBtn.className = "in_list_button";
-      let addIcon = document.createElement("i");
-      addIcon.className = "material-icons icon";
-      addIcon.textContent = "add";
-      addBtn.appendChild(addIcon);
-      addBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        importAttachmentToFolder(folder.uuid);
-      });
-      addBtn.addEventListener("dblclick", (e) => e.stopPropagation());
-      head.appendChild(addBtn);
-    }
-    let collections = folder.getCollections();
-    let allUnloaded = collections.length > 0 && collections.every((c) => isUnloaded(c));
-    let visBtn = document.createElement("div");
-    visBtn.className = "in_list_button";
-    let visIcon = document.createElement("i");
-    visIcon.className = "material-icons icon";
-    if (allUnloaded) visIcon.classList.add("toggle_disabled");
-    visIcon.textContent = allUnloaded ? "visibility_off" : "visibility";
-    visBtn.appendChild(visIcon);
-    visBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (allUnloaded) {
-        for (let c of collections) {
-          if (isUnloaded(c)) reloadCollection(c);
-        }
-      } else {
-        promptAndUnload(collections);
-      }
-    });
-    visBtn.addEventListener("dblclick", (e) => e.stopPropagation());
-    head.appendChild(visBtn);
-    head.addEventListener("click", (e) => {
-      e.stopPropagation();
-      folder.toggle();
-    });
-    head.addEventListener("contextmenu", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      folder.showContextMenu(e);
-    });
-    head.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      head.classList.add("drag_hover");
-    });
-    head.addEventListener("dragleave", () => head.classList.remove("drag_hover"));
-    head.addEventListener("drop", (e) => {
-      e.preventDefault();
-      head.classList.remove("drag_hover");
-      let uuid = e.dataTransfer?.getData("text/collection-uuid");
-      let collection = uuid ? Collection.all.find((c) => c.uuid === uuid) : null;
-      if (!collection) return;
-      let collections2 = Collection.selected.includes(collection) && Collection.selected.length > 1 ? Collection.selected : [collection];
-      setFolder(collections2, folder.uuid, "Move collection to folder");
-    });
-    group.appendChild(head);
-    let childList = document.createElement("ul");
-    childList.className = LIST_CLASS;
-    if (folder.folded) childList.style.display = "none";
-    for (let collection of folder.getCollections()) {
-      let el = collectionEls.find((cel) => cel.getAttribute("uuid") === collection.uuid);
-      if (!el) continue;
-      el.setAttribute(MEMBER_ATTR, folder.uuid);
-      childList.appendChild(el);
-    }
-    group.appendChild(childList);
-    return group;
-  }
-  function setupCollectionDrag() {
-    let panel = Panels.collections?.node;
-    if (!panel) return;
-    panel.addEventListener("mousedown", (e) => {
-      if (e.button !== 0) return;
-      if (!isHytaleFormat()) return;
-      let target = e.target;
-      while (target && !target.classList?.contains("collection")) {
-        if (target === panel) return;
-        target = target.parentElement;
-      }
-      if (!target) return;
-      let uuid = target.getAttribute("uuid");
-      if (!uuid) return;
-      let dragCollection = Collection.all.find((c) => c.uuid === uuid);
-      if (!dragCollection) return;
-      let dragCollections = Collection.selected.includes(dragCollection) && Collection.selected.length > 1 ? Collection.selected.slice() : [dragCollection];
-      let startX = e.clientX, startY = e.clientY;
-      let active = false;
-      let helper = null;
-      function onMove(e2) {
-        let dx = e2.clientX - startX, dy = e2.clientY - startY;
-        if (!active && Math.sqrt(dx * dx + dy * dy) > 6) {
-          active = true;
-          helper = document.createElement("div");
-          helper.className = "hytale_collection_drag_helper";
-          helper.textContent = dragCollections.length > 1 ? `${dragCollections.length} attachments` : dragCollections[0].name;
-          document.body.appendChild(helper);
-        }
-        if (!active || !helper) return;
-        e2.preventDefault();
-        helper.style.left = `${e2.clientX}px`;
-        helper.style.top = `${e2.clientY}px`;
-        document.querySelectorAll(`.${HEAD_CLASS}`).forEach((el) => el.classList.remove("drag_hover"));
-        let under = document.elementFromPoint(e2.clientX, e2.clientY)?.closest(`.${HEAD_CLASS}`);
-        if (under) under.classList.add("drag_hover");
-      }
-      function onUp(e2) {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-        helper?.remove();
-        document.querySelectorAll(`.${HEAD_CLASS}`).forEach((el) => el.classList.remove("drag_hover"));
-        if (!active) return;
-        let folderHead = document.elementFromPoint(e2.clientX, e2.clientY)?.closest(`.${HEAD_CLASS}`);
-        let targetUuid = folderHead?.getAttribute("data-folder-uuid") ?? "";
-        let toMove = dragCollections.filter((c) => fc(c).folder !== targetUuid);
-        if (toMove.length > 0) {
-          setFolder(toMove, targetUuid, "Move collection to folder");
-        }
-      }
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    });
-  }
-  function setupCollectionFolders() {
-    let folderProp = new Property(Collection, "string", "folder", { default: "", condition: { formats: FORMAT_IDS } });
-    let foldersProp = new Property(ModelProject, "array", "collection_folders", { default: [], condition: { formats: FORMAT_IDS } });
-    track(folderProp, foldersProp);
-    let createAction = new Action("create_collection_folder", {
-      name: "Create Set",
-      icon: "create_new_folder",
-      category: "collections",
-      condition: { formats: FORMAT_IDS },
-      click() {
-        new CollectionFolder().add();
-      }
-    });
-    track(createAction);
-    Panels.collections.toolbars[0].add(createAction);
-    Panels.collections.menu.addAction(createAction);
-    let moveMenu = {
-      id: "move_to_folder",
-      name: "Move to Set",
-      icon: "drive_file_move",
-      condition: { formats: FORMAT_IDS },
-      children() {
-        let items = [{
-          icon: "block",
-          name: "generic.none",
-          click(ctx) {
-            setFolder([ctx], "", "Remove collection from folder");
-          }
-        }];
-        for (let folder of folders) {
-          items.push({
-            icon: "folder",
-            name: folder.name,
-            click(ctx) {
-              setFolder([ctx], folder.uuid, "Move collection to folder");
-            }
-          });
-        }
-        return items;
-      }
-    };
-    Collection.menu.addAction(moveMenu, "#settings");
-    track({ delete() {
-      Collection.menu.removeAction("move_to_folder");
-    } });
-    let reloadAndUpdate = () => {
-      loadFromProject();
-      scheduleUpdate();
-    };
-    let hookProject = Blockbench.on("select_project", reloadAndUpdate);
-    let hookEdit = Blockbench.on("finished_edit", scheduleUpdate);
-    let hookSelection = Blockbench.on("update_selection", scheduleUpdate);
-    let hookMode = Blockbench.on("select_mode", scheduleUpdate);
-    let hookUndo = Blockbench.on("undo", reloadAndUpdate);
-    let hookRedo = Blockbench.on("redo", reloadAndUpdate);
-    let listEl = Panels.collections?.node?.querySelector("#collections_list");
-    if (listEl) {
-      observer = new MutationObserver(scheduleUpdate);
-      observer.observe(listEl, { childList: true });
-    }
-    setupCollectionDrag();
-    let style = Blockbench.addCSS(`
-        .${GROUP_CLASS} {
-            padding-bottom: 4px;
-        }
-        .${HEAD_CLASS} {
-            height: 32px;
-            padding: 4px;
-            padding-right: 8px;
-            display: flex;
-            gap: 5px;
-            align-items: center;
-            cursor: pointer;
-        }
-        .${HEAD_CLASS}:hover {
-            color: var(--color-text);
-        }
-        .${HEAD_CLASS}.drag_hover {
-            background: var(--color-accent);
-            color: var(--color-accent_text);
-        }
-        .${HEAD_CLASS} > .icon-open-state {
-            text-align: center;
-            width: 21px;
-            margin-top: 4px;
-            flex-shrink: 0;
-        }
-        .${HEAD_CLASS} > label {
-            flex: 1;
-            overflow: hidden;
-            white-space: nowrap;
-            cursor: pointer;
-        }
-        .${HEAD_CLASS} > .in_list_button {
-            margin-left: auto;
-        }
-        .${HEAD_CLASS}.folded > label {
-            max-width: calc(60% - 50px);
-            min-width: 30px;
-        }
-        .${LIST_CLASS} {
-            margin-left: 14px;
-            padding-left: 6px;
-            border-left: 2px solid var(--color-guidelines);
-        }
-        .hytale_collection_drag_helper {
-            position: fixed; pointer-events: none; z-index: 1000;
-            background: var(--color-accent); color: var(--color-accent_text);
-            padding: 2px 8px; border-radius: 4px; font-size: 12px;
-            transform: translate(10px, -50%);
-        }
-    `);
-    loadFromProject();
-    setTimeout(scheduleUpdate, 100);
-    track(hookProject, hookEdit, hookSelection, hookMode, hookUndo, hookRedo, style, {
-      delete() {
-        observer?.disconnect();
-        folders.length = 0;
-        let list2 = Panels.collections?.node?.querySelector("#collections_list");
-        if (list2) {
-          list2.querySelectorAll(`.${GROUP_CLASS}`).forEach((group) => {
-            let children = group.querySelectorAll("li.collection");
-            children.forEach((el) => {
-              el.removeAttribute(MEMBER_ATTR);
-              list2.insertBefore(el, group);
-            });
-            group.remove();
-          });
-        }
-      }
-    });
-  }
-  var GROUP_CLASS, HEAD_CLASS, LIST_CLASS, MEMBER_ATTR, folders, updatePending, observer, CollectionFolder;
-  var init_collection_folder = __esm({
-    "src/attachments/collection_folder.ts"() {
-      init_cleanup();
-      init_formats();
-      init_unload();
-      init_import();
-      init_watcher();
-      GROUP_CLASS = "hytale_collection_folder";
-      HEAD_CLASS = "hytale_collection_folder_head";
-      LIST_CLASS = "hytale_collection_folder_list";
-      MEMBER_ATTR = "data-hytale-folder";
-      folders = [];
-      updatePending = false;
-      observer = null;
-      CollectionFolder = class {
-        uuid;
-        name;
-        folded;
-        order;
-        menu;
-        constructor(data) {
-          this.uuid = data?.uuid ?? guid();
-          this.name = data?.name ?? uniqueFolderName("Set");
-          this.folded = data?.folded ?? false;
-          this.order = data?.order ?? folders.length;
-          this.menu = new Menu("collection_folder", [
-            { id: "rename", name: "generic.rename", icon: "text_format", click: () => this.rename() },
-            { id: "resolve", name: "menu.texture_group.resolve", icon: "fa-leaf", click: () => this.remove() },
-            { id: "delete_all", name: "Delete Set and Attachments", icon: "delete_forever", click: () => this.removeWithAttachments() }
-          ]);
-        }
-        add() {
-          if (!folders.includes(this)) folders.push(this);
-          syncToProject();
-          scheduleUpdate();
-          return this;
-        }
-        remove() {
-          setFolder(this.getCollections(), "", "Remove collection folder");
-          folders.remove(this);
-          syncToProject();
-        }
-        removeWithAttachments() {
-          let collections = this.getCollections();
-          let remove_elements = [];
-          let remove_groups = [];
-          let textures = [];
-          let texture_groups = [];
-          for (let c of collections) {
-            for (let child of c.getAllChildren()) {
-              (child instanceof Group ? remove_groups : remove_elements).safePush(child);
-            }
-            let tg = TextureGroup.all.find((t) => t.name === c.name);
-            if (tg) {
-              textures.safePush(...Texture.all.filter((t) => t.group === tg.uuid));
-              texture_groups.push(tg);
-            }
-          }
-          Undo.initEdit({
-            collections,
-            groups: remove_groups,
-            elements: remove_elements,
-            outliner: true,
-            texture_groups,
-            textures
-          });
-          collections.forEach((c) => {
-            unwatchCollection(c);
-            Collection.all.remove(c);
-          });
-          textures.forEach((t) => t.remove(true));
-          texture_groups.forEach((t) => t.remove());
-          remove_groups.forEach((g) => g.remove());
-          remove_elements.forEach((e) => e.remove());
-          updateSelection();
-          Undo.finishEdit("Delete set and attachments");
-          folders.remove(this);
-          syncToProject();
-          scheduleUpdate();
-        }
-        rename() {
-          Blockbench.textPrompt("generic.rename", this.name, (name) => {
-            if (name && name !== this.name) {
-              this.name = name;
-              syncToProject();
-              scheduleUpdate();
-            }
-          });
-        }
-        toggle() {
-          this.folded = !this.folded;
-          syncToProject();
-          scheduleUpdate();
-        }
-        getCollections() {
-          return Collection.all.filter((c) => c.folder === this.uuid);
-        }
-        getSaveCopy() {
-          return { uuid: this.uuid, name: this.name, folded: this.folded, order: this.order };
-        }
-        showContextMenu(event) {
-          this.menu.open(event, this);
-        }
-        static get all() {
-          return folders;
-        }
-      };
-    }
-  });
 
   // src/blockymodel.ts
   function discoverTexturePaths(dirname, modelName) {
@@ -1415,7 +1776,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             }
           }
           node.shape.stretch = formatVector(stretch);
-          node.shape.visible = cube.visibility;
+          node.shape.visible = options.attachment ? true : cube.visibility;
           node.shape.doubleSided = cube.double_sided == true;
           node.shape.shadingMode = cube.shading_mode;
           node.shape.unwrapMode = "custom";
@@ -1563,7 +1924,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
               },
               textureLayout: {},
               unwrapMode: "custom",
-              visible: element.visibility,
+              visible: options.attachment ? true : element.visibility,
               doubleSided: false,
               shadingMode: "flat"
             }
@@ -1628,20 +1989,28 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             } else {
               let tg = TextureGroup.all.find((t) => t.name === c.name);
               if (tg) {
-                texPaths = Texture.all.filter((t) => t.group === tg.uuid).map((t) => PathModule.relative(modelDir, t.path).replace(/\\/g, "/")).filter(Boolean);
+                texPaths = Texture.all.filter((t) => t.group === tg.uuid).map((t) => {
+                  let p = resolveTexturePath(t);
+                  return p ? PathModule.relative(modelDir, p).replace(/\\/g, "/") : "";
+                }).filter(Boolean);
               }
               let ac = c;
               if (ac.texture) {
                 let tex = Texture.all.find((t) => t.uuid === ac.texture);
-                if (tex?.path) primaryTex = PathModule.relative(modelDir, tex.path).replace(/\\/g, "/");
+                if (tex) {
+                  let p = resolveTexturePath(tex);
+                  if (p) primaryTex = PathModule.relative(modelDir, p).replace(/\\/g, "/");
+                }
               }
             }
+            let colorIndex = c.color;
             attachments.push({
               name: c.name,
               path: relPath,
               textures: texPaths,
               primaryTexture: primaryTex,
               folder: c.folder || void 0,
+              color: colorIndex != null && colorIndex >= 0 ? colorIndex : void 0,
               unloaded: isUnloaded(c) || void 0
             });
           }
@@ -1962,11 +2331,10 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
         }
         if (!args.attachment && model.attachments && isApp && path) {
           let modelDir = PathModule.dirname(path);
-          let { CollectionFolder: CF } = (init_collection_folder(), __toCommonJS(collection_folder_exports));
           if (model.attachmentFolders) {
             for (let fd of model.attachmentFolders) {
               fd.folded = true;
-              new CF(fd).add();
+              new CollectionFolder(fd).add();
             }
           }
           for (let att of model.attachments) {
@@ -1981,7 +2349,9 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             }).add();
             collection.export_path = absPath;
             collection.unloaded = true;
+            assignCollectionScope(collection);
             if (att.folder) collection.folder = att.folder;
+            if (att.color != null && att.color >= 0) collection.color = att.color;
             let texPaths = att.textures.map((rel) => PathModule.resolve(modelDir, rel.replace(/\//g, PathModule.sep)));
             collection.unloaded_texture_paths = JSON.stringify(texPaths);
             if (att.primaryTexture) {
@@ -2052,20 +2422,12 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     track(hook);
     return codec;
   }
-  var init_blockymodel = __esm({
-    "src/blockymodel.ts"() {
-      init_blockyanim();
-      init_cleanup();
-      init_config();
-      init_formats();
-      init_util();
-      init_watcher();
-      init_collection_folder();
-      init_unload();
-    }
-  });
 
   // src/formats.ts
+  var FORMAT_IDS = [
+    "hytale_character",
+    "hytale_prop"
+  ];
   function setupFormats() {
     let codec = setupBlockymodelCodec();
     let common = {
@@ -2155,19 +2517,9 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
   function isHytaleFormat() {
     return Format && FORMAT_IDS.includes(Format.id);
   }
-  var FORMAT_IDS;
-  var init_formats = __esm({
-    "src/formats.ts"() {
-      init_blockymodel();
-      init_cleanup();
-      FORMAT_IDS = [
-        "hytale_character",
-        "hytale_prop"
-      ];
-    }
-  });
 
   // src/name_overlap.ts
+  var Animation = window.Animation;
   function copyAnimationToGroupsWithSameName(animation, source_group) {
     let source_animator = animation.getBoneAnimator(source_group);
     let other_groups = Group.all.filter((g) => g.name == source_group.name && g != source_group);
@@ -2257,16 +2609,10 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     });
     track(override, setting2);
   }
-  var Animation;
-  var init_name_overlap = __esm({
-    "src/name_overlap.ts"() {
-      init_cleanup();
-      init_formats();
-      Animation = window.Animation;
-    }
-  });
 
   // src/blockyanim.ts
+  var FPS = 60;
+  var Animation2 = window.Animation;
   function parseAnimationFile(file, content) {
     let animation = new Animation2({
       name: pathToName(file.name, false),
@@ -2534,30 +2880,8 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     });
     track(setting2);
   }
-  var FPS, Animation2;
-  var init_blockyanim = __esm({
-    "src/blockyanim.ts"() {
-      init_name_overlap();
-      init_cleanup();
-      init_config();
-      init_formats();
-      FPS = 60;
-      Animation2 = window.Animation;
-    }
-  });
-
-  // src/plugin.ts
-  init_blockyanim();
-
-  // src/attachments/index.ts
-  init_cleanup();
-  init_formats();
-  init_texture2();
 
   // src/attachments/delete.ts
-  init_cleanup();
-  init_formats();
-  init_watcher();
   function setupDelete() {
     let shared_delete = SharedActions.add("delete", {
       subject: "collection",
@@ -2612,14 +2936,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     track(shared_delete);
   }
 
-  // src/attachments/index.ts
-  init_import();
-
   // src/attachments/create.ts
-  init_cleanup();
-  init_formats();
-  init_util();
-  init_texture2();
   function getSelectedRootGroups() {
     let selected2 = Group.all.filter((g) => g.selected);
     selected2 = selected2.filter((g) => !Collection.all.some((c) => c.export_codec === "blockymodel" && c.contains(g)));
@@ -2750,6 +3067,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
               export_codec: "blockymodel",
               visibility: true
             }).add();
+            assignCollectionScope(collection);
             let newTextures = [];
             let textureFile = result.texture_file;
             let textureFolder = result.texture_folder;
@@ -2784,9 +3102,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
   }
 
   // src/attachments/add_to.ts
-  init_cleanup();
-  init_formats();
-  init_util();
   function getSelectedAttachmentCollections() {
     return Collection.selected.filter((c) => c.export_codec === "blockymodel");
   }
@@ -2875,8 +3190,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
   }
 
   // src/attachments/validation.ts
-  init_cleanup();
-  init_formats();
   function isPieceHasError(group) {
     let hasGroupChild = false;
     for (let child of group.children) {
@@ -3003,12 +3316,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     });
   }
 
-  // src/attachments/index.ts
-  init_watcher();
-
   // src/attachments/detach.ts
-  init_cleanup();
-  init_formats();
   function findAttachmentCollection(group) {
     return Collection.all.find((c) => c.export_codec === "blockymodel" && c.contains(group));
   }
@@ -3111,150 +3419,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     });
   }
 
-  // src/attachments/collection_color.ts
-  init_cleanup();
-  init_formats();
-  var COLOR_CLASS = "hytale_collection_colored";
-  var COLOR_VAR = "--hytale-collection-color";
-  var colorUpdatePending = false;
-  function scheduleColorUpdate() {
-    if (colorUpdatePending) return;
-    colorUpdatePending = true;
-    requestAnimationFrame(() => {
-      colorUpdatePending = false;
-      applyCollectionColors();
-    });
-  }
-  function hexToRgba(hex, alpha) {
-    let r = parseInt(hex.slice(1, 3), 16);
-    let g = parseInt(hex.slice(3, 5), 16);
-    let b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  }
-  function applyCollectionColors() {
-    if (!isHytaleFormat()) return;
-    const outlinerPanel = Panels.outliner?.node;
-    if (outlinerPanel) {
-      outlinerPanel.querySelectorAll(`.${COLOR_CLASS}`).forEach((el) => {
-        el.style.removeProperty(COLOR_VAR);
-        el.classList.remove(COLOR_CLASS);
-      });
-    }
-    const collectionsPanel = Panels.collections?.node;
-    if (collectionsPanel) {
-      collectionsPanel.querySelectorAll(".hytale_collection_icon_colored").forEach((el) => {
-        el.style.removeProperty("color");
-        el.classList.remove("hytale_collection_icon_colored");
-      });
-    }
-    for (let collection of Collection.all) {
-      if (collection.export_codec !== "blockymodel") continue;
-      let colorIndex = collection.color;
-      if (colorIndex == null || colorIndex < 0) continue;
-      let marker = markerColors[colorIndex % markerColors.length];
-      let bgColor = hexToRgba(marker.pastel, 0.35);
-      if (outlinerPanel) {
-        for (let child of collection.getAllChildren()) {
-          let li = outlinerPanel.querySelector(`[id="${child.uuid}"]`);
-          if (!li) continue;
-          let obj = li.querySelector(":scope > .outliner_object");
-          if (obj) {
-            obj.style.setProperty(COLOR_VAR, bgColor);
-            obj.classList.add(COLOR_CLASS);
-          }
-        }
-      }
-      if (collectionsPanel) {
-        let li = collectionsPanel.querySelector(`[uuid="${collection.uuid}"]`);
-        if (li) {
-          let icon = li.querySelector(":scope > i.material-icons");
-          if (icon) {
-            icon.style.color = marker.standard;
-            icon.classList.add("hytale_collection_icon_colored");
-          }
-        }
-      }
-    }
-  }
-  function setupCollectionColor() {
-    let colorProperty = new Property(Collection, "number", "color", {
-      default: -1,
-      condition: { formats: FORMAT_IDS }
-    });
-    track(colorProperty);
-    let colorMenuItem = {
-      id: "set_collection_color",
-      name: "menu.cube.color",
-      icon: "color_lens",
-      condition: { formats: FORMAT_IDS },
-      children() {
-        let items = [
-          {
-            icon: "block",
-            name: "generic.none",
-            click() {
-              Undo.initEdit({ collections: Collection.selected });
-              for (let collection of Collection.selected) {
-                collection.color = -1;
-              }
-              Undo.finishEdit("Remove collection color");
-              applyCollectionColors();
-            }
-          }
-        ];
-        for (let i = 0; i < markerColors.length; i++) {
-          let color = markerColors[i];
-          items.push({
-            icon: "bubble_chart",
-            color: color.standard,
-            name: color.name || "cube.color." + color.id,
-            click() {
-              Undo.initEdit({ collections: Collection.selected });
-              for (let collection of Collection.selected) {
-                collection.color = i;
-              }
-              Undo.finishEdit("Set collection color");
-              applyCollectionColors();
-            }
-          });
-        }
-        return items;
-      }
-    };
-    Collection.menu.addAction(colorMenuItem, "#settings");
-    track({
-      delete() {
-        Collection.menu.removeAction("set_collection_color");
-      }
-    });
-    let style = Blockbench.addCSS(`
-		.outliner_object.${COLOR_CLASS}:not(.selected) {
-			background-color: var(${COLOR_VAR});
-		}
-	`);
-    let hookFinishedEdit = Blockbench.on("finished_edit", scheduleColorUpdate);
-    let hookSelectMode = Blockbench.on("select_mode", scheduleColorUpdate);
-    let hookSelection = Blockbench.on("update_selection", scheduleColorUpdate);
-    setTimeout(applyCollectionColors, 100);
-    track(hookFinishedEdit, hookSelectMode, hookSelection, style, {
-      delete() {
-        Panels.outliner?.node?.querySelectorAll(`.${COLOR_CLASS}`).forEach((el) => {
-          el.style.removeProperty(COLOR_VAR);
-          el.classList.remove(COLOR_CLASS);
-        });
-        Panels.collections?.node?.querySelectorAll(".hytale_collection_icon_colored").forEach((el) => {
-          el.style.removeProperty("color");
-          el.classList.remove("hytale_collection_icon_colored");
-        });
-      }
-    });
-  }
-
   // src/attachments/index.ts
-  init_collection_folder();
-  init_unload();
-  init_texture2();
-  init_import();
   function setupCollectionDoubleClick() {
     let collectionsNode = Panels.collections?.node;
     if (!collectionsNode) return;
@@ -3308,9 +3473,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
   }
 
   // src/animations.ts
-  init_cleanup();
-  init_formats();
-  init_util();
   function setupAnimation() {
     function displayVisibility(animator) {
       let group = animator.getGroup();
@@ -3534,13 +3696,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     track(on_init_edit);
   }
 
-  // src/plugin.ts
-  init_cleanup();
-
   // src/element.ts
-  init_cleanup();
-  init_formats();
-  init_util();
   function setupElements() {
     let property_shading_mode = new Property(Cube, "enum", "shading_mode", {
       default: "flat",
@@ -3761,8 +3917,6 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
   }
 
   // src/uv_cycling.ts
-  init_cleanup();
-  init_formats();
   var cycleState = null;
   var CLICK_THRESHOLD = 0;
   function screenToUV(event) {
@@ -3879,10 +4033,6 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
   }
 
   // src/validation.ts
-  init_cleanup();
-  init_formats();
-  init_texture();
-  init_util();
   var MAX_NODE_COUNT = 255;
   function getNodeCount() {
     let node_count = 0;
@@ -3968,12 +4118,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     }
   };
 
-  // src/plugin.ts
-  init_formats();
-
   // src/photoshop_copy_paste.ts
-  init_cleanup();
-  init_formats();
   function setupPhotoshopTools() {
     let setting2 = new Setting("copy_paste_magenta_alpha", {
       name: "Copy-Paste with Magenta Alpha",
@@ -4307,8 +4452,6 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
   };
 
   // src/outliner_filter.ts
-  init_cleanup();
-  init_formats();
   var HIDDEN_CLASS = "hytale_attachment_hidden";
   var attachmentsHidden = false;
   var visibilityUpdatePending = false;
@@ -4441,13 +4584,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     });
   }
 
-  // src/plugin.ts
-  init_texture();
-  init_name_overlap();
-
   // src/uv_outline.ts
-  init_cleanup();
-  init_formats();
   var UV_OUTLINE_CSS = `
 body.hytale-format[mode=edit] #uv_frame .uv_resize_corner,
 body.hytale-format[mode=edit] #uv_frame .uv_resize_side,
@@ -4712,9 +4849,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       });
     };
   }
-
-  // src/preview_scenes.ts
-  init_cleanup();
 
   // src/references/player.json
   var player_default = {
@@ -5168,7 +5302,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
   var default_default2 = "data:image/png;base64,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";
 
   // src/preview_scenes.ts
-  init_formats();
   function setupPreviewScenes() {
     PreviewScene.menu_categories.hytale = {
       _label: "Hytale"
@@ -5222,8 +5355,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
   }
 
   // src/uv_canvas_resize.ts
-  init_cleanup();
-  init_formats();
   var CROP_CSS = `
 .uv_crop_overlay {
     position: absolute;
@@ -5719,7 +5850,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
   }
 
   // src/alt_duplicate.ts
-  init_cleanup();
   function setupAltDuplicate() {
     const keybindItem = new KeybindItem("hytale_duplicate_drag_modifier", {
       name: "Duplicate While Dragging",
@@ -6062,8 +6192,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
   }
 
   // src/mirror_fix.ts
-  init_cleanup();
-  init_formats();
   var SNAP_EPSILON = 0.01;
   function snapAncestors(element) {
     if (!isHytaleFormat()) return;
@@ -6217,7 +6345,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
   }
 
   // src/change_orientation.ts
-  init_cleanup();
   function canChangeParentGroup(cube) {
     let parent = cube.parent;
     if (parent instanceof Group == false || !parent.selected) return false;
@@ -6326,7 +6453,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
   }
 
   // src/shortcuts.ts
-  init_cleanup();
   function setupShortcuts() {
     const brush_tool = BarItems.brush_tool;
     let last_brush_preset = Painter.default_brush_presets[0];

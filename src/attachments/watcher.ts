@@ -101,7 +101,9 @@ function promptProjectReload(project: ModelProject) {
 	});
 }
 
-// Store compiled JSON snapshots and re-parse on undo/redo instead of using BB's object-level undo
+// Full reload destroys and recreates the entire object graph, so standard
+// Blockbench object-level undo cannot reliably restore it. Instead, store
+// compiled JSON snapshots and re-parse them via direct history push.
 export function pushReloadUndo(beforeJson: any, afterJson: any, message: string, restore: (json: any) => void) {
 	let entry: any = {
 		before: { load: () => restore(beforeJson) },
@@ -136,6 +138,7 @@ function reloadProject(project: ModelProject) {
 	let afterJson = autoParseJSON(fs.readFileSync(path, 'utf-8'));
 	Codecs.blockymodel.parse(afterJson, path);
 
+	// Object-level undo is unreliable after full reload; use snapshot-based restore
 	pushReloadUndo(beforeJson, afterJson, 'Reload project', (json) => {
 		for (let node of [...Outliner.root]) {
 			if (node instanceof OutlinerNode) node.remove();

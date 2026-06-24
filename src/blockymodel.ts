@@ -8,8 +8,8 @@ import { FORMAT_IDS } from "./formats"
 import { cubeIsQuad, getMainShape, qualifiesAsMainShape } from "./util"
 import { markSelfWrite } from "./attachments/watcher"
 import { CollectionFolder } from "./attachments/collection_folder"
-import { isUnloaded } from "./attachments/unload"
-import { AttachmentCollection } from "./attachments/texture"
+import { isUnloaded, assignCollectionScope } from "./attachments/unload"
+import { AttachmentCollection, resolveTexturePath } from "./attachments/texture"
 
 type BlockymodelJSON = {
 	nodes: BlockymodelNode[]
@@ -24,6 +24,7 @@ type BlockymodelAttachment = {
 	textures: string[]
 	primaryTexture: string
 	folder?: string
+	color?: number
 	unloaded?: boolean
 }
 type BlockymodelFolder = {
@@ -305,7 +306,7 @@ export function setupBlockymodelCodec(): Codec {
 				}
 				node.shape.stretch = formatVector(stretch);
 
-				node.shape.visible = cube.visibility;
+				node.shape.visible = options.attachment ? true : cube.visibility;
 				node.shape.doubleSided = cube.double_sided == true;
 				node.shape.shadingMode = cube.shading_mode;
 				node.shape.unwrapMode = 'custom';
@@ -463,7 +464,7 @@ export function setupBlockymodelCodec(): Codec {
 						},
 						textureLayout: {},
 						unwrapMode: "custom",
-						visible: element.visibility,
+						visible: options.attachment ? true : element.visibility,
 						doubleSided: false,
 						shadingMode: "flat"
 					},
@@ -534,22 +535,31 @@ export function setupBlockymodelCodec(): Codec {
 						let tg = TextureGroup.all.find(t => t.name === c.name);
 						if (tg) {
 							texPaths = Texture.all.filter(t => t.group === tg!.uuid)
-								.map(t => PathModule.relative(modelDir, t.path).replace(/\\/g, '/'))
+								.map(t => {
+									let p = resolveTexturePath(t);
+									return p ? PathModule.relative(modelDir, p).replace(/\\/g, '/') : '';
+								})
 								.filter(Boolean);
 						}
 						let ac = c as AttachmentCollection;
 						if (ac.texture) {
 							let tex = Texture.all.find(t => t.uuid === ac.texture);
-							if (tex?.path) primaryTex = PathModule.relative(modelDir, tex.path).replace(/\\/g, '/');
+							if (tex) {
+								let p = resolveTexturePath(tex);
+								if (p) primaryTex = PathModule.relative(modelDir, p).replace(/\\/g, '/');
+							}
 						}
 					}
 					type FolderCollection = Collection & { folder: string };
+					type ColorCollection = Collection & { color: number };
+					let colorIndex = (c as ColorCollection).color;
 					attachments.push({
 						name: c.name,
 						path: relPath,
 						textures: texPaths,
 						primaryTexture: primaryTex,
 						folder: (c as FolderCollection).folder || undefined,
+						color: (colorIndex != null && colorIndex >= 0) ? colorIndex : undefined,
 						unloaded: isUnloaded(c) || undefined,
 					});
 				}
@@ -901,12 +911,12 @@ export function setupBlockymodelCodec(): Codec {
 			}
 			if (!args.attachment && model.attachments && isApp && path) {
 				let modelDir = PathModule.dirname(path);
-				let { CollectionFolder: CF } = require('./attachments/collection_folder') as typeof import('./attachments/collection_folder');
+
 
 				if (model.attachmentFolders) {
 					for (let fd of model.attachmentFolders) {
 						fd.folded = true;
-						new CF(fd).add();
+						new CollectionFolder(fd).add();
 					}
 				}
 
@@ -924,8 +934,10 @@ export function setupBlockymodelCodec(): Codec {
 					}).add() as UnloadedCol;
 					collection.export_path = absPath;
 					collection.unloaded = true;
+					assignCollectionScope(collection);
 
 					if (att.folder) collection.folder = att.folder;
+					if (att.color != null && att.color >= 0) (collection as any).color = att.color;
 
 					let texPaths = att.textures.map(rel => PathModule.resolve(modelDir, rel.replace(/\//g, PathModule.sep)));
 					collection.unloaded_texture_paths = JSON.stringify(texPaths);

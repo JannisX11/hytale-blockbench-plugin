@@ -4,9 +4,12 @@
 import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
 
+const SCOPE_CLASS = 'hytale_scope_override';
 const COLOR_CLASS = 'hytale_collection_colored';
 const COLOR_VAR = '--hytale-collection-color';
+const BORDER_VAR = '--hytale-collection-border';
 let colorUpdatePending = false;
+let minimalColoring = false;
 
 function scheduleColorUpdate() {
 	if (colorUpdatePending) return;
@@ -24,19 +27,24 @@ function hexToRgba(hex: string, alpha: number): string {
 	return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-function applyCollectionColors() {
+export function applyCollectionColors() {
 	if (!isHytaleFormat()) return;
 
 	const outlinerPanel = Panels.outliner?.node;
 	if (outlinerPanel) {
-		outlinerPanel.querySelectorAll(`.${COLOR_CLASS}`).forEach(el => {
+		outlinerPanel.querySelectorAll(`.${SCOPE_CLASS}`).forEach(el => {
 			(el as HTMLElement).style.removeProperty(COLOR_VAR);
-			el.classList.remove(COLOR_CLASS);
+			(el as HTMLElement).style.removeProperty(BORDER_VAR);
+			el.classList.remove(SCOPE_CLASS, COLOR_CLASS);
 		});
 	}
 
 	const collectionsPanel = Panels.collections?.node;
 	if (collectionsPanel) {
+		collectionsPanel.querySelectorAll(`.${SCOPE_CLASS}`).forEach(el => {
+			(el as HTMLElement).style.removeProperty(BORDER_VAR);
+			el.classList.remove(SCOPE_CLASS, COLOR_CLASS);
+		});
 		collectionsPanel.querySelectorAll('.hytale_collection_icon_colored').forEach(el => {
 			(el as HTMLElement).style.removeProperty('color');
 			el.classList.remove('hytale_collection_icon_colored');
@@ -47,32 +55,38 @@ function applyCollectionColors() {
 		if (collection.export_codec !== 'blockymodel') continue;
 		// @ts-expect-error color added by plugin
 		let colorIndex: number = collection.color;
-		if (colorIndex == null || colorIndex < 0) continue;
+		let hasColor = colorIndex != null && colorIndex >= 0;
+		let marker = hasColor ? markerColors[colorIndex % markerColors.length] : null;
 
-		let marker = markerColors[colorIndex % markerColors.length];
-		let bgColor = hexToRgba(marker.pastel, 0.35);
-
-		// Outliner: background on all child nodes
+		// Outliner: scope override + background on all child nodes
 		if (outlinerPanel) {
 			for (let child of collection.getAllChildren()) {
 				let li = outlinerPanel.querySelector(`[id="${child.uuid}"]`);
 				if (!li) continue;
-				let obj = li.querySelector(':scope > .outliner_object');
-				if (obj) {
-					(obj as HTMLElement).style.setProperty(COLOR_VAR, bgColor);
+				let obj = li.querySelector(':scope > .outliner_object') as HTMLElement | null;
+				if (!obj) continue;
+				obj.classList.add(SCOPE_CLASS);
+				if (marker) {
+					if (!minimalColoring) obj.style.setProperty(COLOR_VAR, hexToRgba(marker.pastel, 0.35));
+					obj.style.setProperty(BORDER_VAR, marker.standard);
 					obj.classList.add(COLOR_CLASS);
 				}
 			}
 		}
 
-		// Collections panel: tint the icon
+		// Collections panel: scope override + tint the icon
 		if (collectionsPanel) {
-			let li = collectionsPanel.querySelector(`[uuid="${collection.uuid}"]`);
+			let li = collectionsPanel.querySelector(`[uuid="${collection.uuid}"]`) as HTMLElement | null;
 			if (li) {
-				let icon = li.querySelector(':scope > i.material-icons');
-				if (icon) {
-					(icon as HTMLElement).style.color = marker.standard;
-					icon.classList.add('hytale_collection_icon_colored');
+				li.classList.add(SCOPE_CLASS);
+				if (marker) {
+					li.style.setProperty(BORDER_VAR, marker.standard);
+					li.classList.add(COLOR_CLASS);
+					let icon = li.querySelector(':scope > i.material-icons');
+					if (icon) {
+						(icon as HTMLElement).style.color = marker.standard;
+						icon.classList.add('hytale_collection_icon_colored');
+					}
 				}
 			}
 		}
@@ -134,9 +148,29 @@ export function setupCollectionColor() {
 		}
 	});
 
+	let setting = new Setting('minimal_attachment_coloring', {
+		name: 'Subtle Attachment Colors',
+		category: 'edit',
+		description: 'Colored attachments will only show a thin line indicator in the outliner instead of a full row highlight.',
+		type: 'toggle',
+		value: false,
+		onChange(value: boolean) {
+			minimalColoring = value;
+			applyCollectionColors();
+		}
+	});
+	minimalColoring = setting.value as boolean;
+	track(setting);
+
 	let style = Blockbench.addCSS(`
+		.${SCOPE_CLASS} {
+			--color-scope: transparent !important;
+		}
 		.outliner_object.${COLOR_CLASS}:not(.selected) {
 			background-color: var(${COLOR_VAR});
+		}
+		.${COLOR_CLASS} {
+			border-left-color: var(${BORDER_VAR}) !important;
 		}
 	`);
 
@@ -144,13 +178,26 @@ export function setupCollectionColor() {
 	let hookSelectMode = Blockbench.on('select_mode', scheduleColorUpdate);
 	let hookSelection = Blockbench.on('update_selection', scheduleColorUpdate);
 
+	let outlinerList = Panels.outliner?.node?.querySelector('#cubes_list');
+	let outlinerObserver: MutationObserver | null = null;
+	if (outlinerList) {
+		outlinerObserver = new MutationObserver(scheduleColorUpdate);
+		outlinerObserver.observe(outlinerList, { childList: true, subtree: true });
+	}
+
 	setTimeout(applyCollectionColors, 100);
 
 	track(hookFinishedEdit, hookSelectMode, hookSelection, style, {
 		delete() {
-			Panels.outliner?.node?.querySelectorAll(`.${COLOR_CLASS}`).forEach(el => {
+			outlinerObserver?.disconnect();
+			Panels.outliner?.node?.querySelectorAll(`.${SCOPE_CLASS}`).forEach(el => {
 				(el as HTMLElement).style.removeProperty(COLOR_VAR);
-				el.classList.remove(COLOR_CLASS);
+				(el as HTMLElement).style.removeProperty(BORDER_VAR);
+				el.classList.remove(SCOPE_CLASS, COLOR_CLASS);
+			});
+			Panels.collections?.node?.querySelectorAll(`.${SCOPE_CLASS}`).forEach(el => {
+				(el as HTMLElement).style.removeProperty(BORDER_VAR);
+				el.classList.remove(SCOPE_CLASS, COLOR_CLASS);
 			});
 			Panels.collections?.node?.querySelectorAll('.hytale_collection_icon_colored').forEach(el => {
 				(el as HTMLElement).style.removeProperty('color');

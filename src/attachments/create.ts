@@ -5,6 +5,7 @@ import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
 import { getMainShape } from "../util";
 import { AttachmentCollection, processAttachmentTextures } from "./texture";
+import { assignCollectionScope } from "./unload";
 
 /**
  * Returns selected groups that are valid for attachment creation:
@@ -26,24 +27,6 @@ function getSelectedRootGroups(): Group[] {
 		}
 		return true;
 	});
-}
-
-/** Collects unique textures used by cubes within the given groups. */
-function gatherTexturesFromGroups(groups: Group[]): Texture[] {
-	let textureUuids = new Set<string>();
-	for (let group of groups) {
-		group.forEachChild((node: OutlinerNode) => {
-			if (node instanceof Cube) {
-				for (let fkey in node.faces) {
-					let tex = node.faces[fkey].texture;
-					if (typeof tex === 'string') {
-						textureUuids.add(tex);
-					}
-				}
-			}
-		}, Group, true);
-	}
-	return Texture.all.filter(t => textureUuids.has(t.uuid));
 }
 
 /**
@@ -191,6 +174,7 @@ export function setupCreateAttachment() {
 						export_codec: 'blockymodel',
 						visibility: true,
 					}).add() as AttachmentCollection;
+					assignCollectionScope(collection);
 
 					// Handle textures
 					let newTextures: Texture[] = [];

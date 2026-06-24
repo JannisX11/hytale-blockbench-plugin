@@ -674,6 +674,7 @@
     }
     observer?.observe(list2, { childList: true });
     applyCollectionColors();
+    syncUnloadButtons();
   }
   function createFolderGroup(folder, collectionEls) {
     let group = document.createElement("li");
@@ -938,7 +939,7 @@
             white-space: nowrap;
             cursor: pointer;
         }
-        .${HEAD_CLASS} > .in_list_button {
+        .${HEAD_CLASS} > label + .in_list_button {
             margin-left: auto;
         }
         .${HEAD_CLASS}.folded > label {
@@ -1167,6 +1168,42 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     }
     Canvas.updateView({ elements: allElements, element_aspects: { visibility: true } });
   }
+  function syncUnloadButtons() {
+    if (!isHytaleFormat()) return;
+    let list2 = Panels.collections?.node?.querySelector("#collections_list");
+    if (!list2) return;
+    for (let collection of Collection.all) {
+      let el = list2.querySelector(`[uuid="${collection.uuid}"]`);
+      if (!el) continue;
+      let unloaded = isUnloaded(collection);
+      if (unloaded) el.setAttribute(UNLOADED_ATTR, "");
+      else el.removeAttribute(UNLOADED_ATTR);
+      if (collection.export_codec !== "blockymodel") continue;
+      el.style.setProperty("--color-scope", "transparent", "important");
+      let existing = el.querySelector(".hytale_unload_btn");
+      if (existing) {
+        let icon2 = existing.querySelector("i");
+        icon2.textContent = unloaded ? "download" : "eject";
+        icon2.classList.toggle("toggle_disabled", unloaded);
+        continue;
+      }
+      let visBtn = el.querySelector(":scope > .in_list_button:last-child");
+      if (!visBtn) continue;
+      let btn = document.createElement("div");
+      btn.className = "in_list_button hytale_unload_btn";
+      let icon = document.createElement("i");
+      icon.className = "material-icons icon";
+      icon.textContent = unloaded ? "download" : "eject";
+      if (unloaded) icon.classList.add("toggle_disabled");
+      btn.appendChild(icon);
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleCollectionLoaded(collection);
+      });
+      btn.addEventListener("dblclick", (e) => e.stopPropagation());
+      visBtn.insertAdjacentElement("beforebegin", btn);
+    }
+  }
   function setupUnload() {
     let unloadedProp = new Property(Collection, "boolean", "unloaded", {
       default: false,
@@ -1207,42 +1244,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
         }
     `);
     track(style);
-    function syncUnloadButtons() {
-      if (!isHytaleFormat()) return;
-      let list2 = Panels.collections?.node?.querySelector("#collections_list");
-      if (!list2) return;
-      for (let collection of Collection.all) {
-        let el = list2.querySelector(`[uuid="${collection.uuid}"]`);
-        if (!el) continue;
-        let unloaded = isUnloaded(collection);
-        if (unloaded) el.setAttribute(UNLOADED_ATTR, "");
-        else el.removeAttribute(UNLOADED_ATTR);
-        if (collection.export_codec !== "blockymodel") continue;
-        el.style.setProperty("--color-scope", "transparent", "important");
-        let existing = el.querySelector(".hytale_unload_btn");
-        if (existing) {
-          let icon2 = existing.querySelector("i");
-          icon2.textContent = unloaded ? "download" : "eject";
-          icon2.classList.toggle("toggle_disabled", unloaded);
-          continue;
-        }
-        let visBtn = el.querySelector(":scope > .in_list_button:last-child");
-        if (!visBtn) continue;
-        let btn = document.createElement("div");
-        btn.className = "in_list_button hytale_unload_btn";
-        let icon = document.createElement("i");
-        icon.className = "material-icons icon";
-        icon.textContent = unloaded ? "download" : "eject";
-        if (unloaded) icon.classList.add("toggle_disabled");
-        btn.appendChild(icon);
-        btn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          toggleCollectionLoaded(collection);
-        });
-        btn.addEventListener("dblclick", (e) => e.stopPropagation());
-        visBtn.insertAdjacentElement("beforebegin", btn);
-      }
-    }
     function unloadAllOnOpen() {
       if (!isHytaleFormat()) return;
       for (let collection of Collection.all) {
@@ -3421,6 +3422,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     if (!collectionsNode) return;
     function onDblClick(e) {
       if (!isHytaleFormat()) return;
+      if (e.target.closest(".in_list_button")) return;
       let target = e.target;
       while (target && !target.classList?.contains("collection")) {
         target = target.parentElement;

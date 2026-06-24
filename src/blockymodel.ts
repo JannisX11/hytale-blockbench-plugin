@@ -9,7 +9,7 @@ import { cubeIsQuad, getMainShape, qualifiesAsMainShape } from "./util"
 import { markSelfWrite } from "./attachments/watcher"
 import { CollectionFolder } from "./attachments/collection_folder"
 import { isUnloaded, assignCollectionScope } from "./attachments/unload"
-import { AttachmentCollection } from "./attachments/texture"
+import { AttachmentCollection, resolveTexturePath } from "./attachments/texture"
 
 type BlockymodelJSON = {
 	nodes: BlockymodelNode[]
@@ -531,13 +531,19 @@ export function setupBlockymodelCodec(): Codec {
 						let tg = TextureGroup.all.find(t => t.name === c.name);
 						if (tg) {
 							texPaths = Texture.all.filter(t => t.group === tg!.uuid)
-								.map(t => PathModule.relative(modelDir, t.path).replace(/\\/g, '/'))
+								.map(t => {
+									let p = resolveTexturePath(t);
+									return p ? PathModule.relative(modelDir, p).replace(/\\/g, '/') : '';
+								})
 								.filter(Boolean);
 						}
 						let ac = c as AttachmentCollection;
 						if (ac.texture) {
 							let tex = Texture.all.find(t => t.uuid === ac.texture);
-							if (tex?.path) primaryTex = PathModule.relative(modelDir, tex.path).replace(/\\/g, '/');
+							if (tex) {
+								let p = resolveTexturePath(tex);
+								if (p) primaryTex = PathModule.relative(modelDir, p).replace(/\\/g, '/');
+							}
 						}
 					}
 					type FolderCollection = Collection & { folder: string };

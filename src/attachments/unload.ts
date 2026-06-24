@@ -4,7 +4,7 @@
 import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
 import { discoverTexturePaths } from "../blockymodel";
-import { AttachmentCollection } from "./texture";
+import { AttachmentCollection, resolveTexturePath } from "./texture";
 import { unwatchCollection, watchCollection } from "./watcher";
 import { CollectionFolder, scheduleFolderUpdate } from "./collection_folder";
 
@@ -74,12 +74,12 @@ export function unloadCollection(collection: Collection) {
     let primaryUuid = (collection as AttachmentCollection).texture || '';
     if (primaryUuid) {
         let pt = Texture.all.find(t => t.uuid === primaryUuid);
-        if (pt?.path) primaryTexturePath = pt.path;
+        if (pt) primaryTexturePath = resolveTexturePath(pt);
     }
     let tg = TextureGroup.all.find(t => t.name === collection.name);
     if (tg) {
         let textures = Texture.all.filter(t => t.group === tg!.uuid);
-        texturePaths = textures.map(t => t.path).filter(Boolean);
+        texturePaths = textures.map(t => resolveTexturePath(t)).filter(Boolean);
         textures.forEach(t => t.remove(true));
         tg.remove();
     }
@@ -148,7 +148,14 @@ export function reloadCollection(collection: Collection) {
     let allTextures: Texture[] = [];
     for (let tp of texturePaths) {
         let existing = Texture.all.find(t => t.path === tp);
-        if (existing) {
+        if (existing && existing.group && existing.group !== tg.uuid) {
+            // Texture belongs to another group — load a linked copy from disk
+            if (fs.existsSync(tp)) {
+                let tex = new Texture().fromPath(tp).add(false, true);
+                tex.group = tg.uuid;
+                allTextures.push(tex);
+            }
+        } else if (existing) {
             existing.group = tg.uuid;
             allTextures.push(existing);
         } else if (fs.existsSync(tp)) {

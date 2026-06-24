@@ -83,7 +83,15 @@
     let cloned = new Texture(copy);
     cloned.convertToInternal(tex.getDataURL());
     cloned.load();
+    let sourcePath = tex.path || tex.source_path;
+    if (sourcePath) cloned.source_path = sourcePath;
     return cloned;
+  }
+  function resolveTexturePath(tex) {
+    if (tex.path) return tex.path;
+    if (tex.source_path) return tex.source_path;
+    let source = Texture.all.find((s) => s.name === tex.name && s.path && s.uuid !== tex.uuid);
+    return source?.path || "";
   }
   function isAttachmentTextureGroup(groupUuid) {
     let tg = TextureGroup.all.find((tg2) => tg2.uuid === groupUuid);
@@ -1013,12 +1021,12 @@
     let primaryUuid = collection.texture || "";
     if (primaryUuid) {
       let pt = Texture.all.find((t) => t.uuid === primaryUuid);
-      if (pt?.path) primaryTexturePath = pt.path;
+      if (pt) primaryTexturePath = resolveTexturePath(pt);
     }
     let tg = TextureGroup.all.find((t) => t.name === collection.name);
     if (tg) {
       let textures = Texture.all.filter((t) => t.group === tg.uuid);
-      texturePaths = textures.map((t) => t.path).filter(Boolean);
+      texturePaths = textures.map((t) => resolveTexturePath(t)).filter(Boolean);
       textures.forEach((t) => t.remove(true));
       tg.remove();
     }
@@ -1079,7 +1087,13 @@
     let allTextures = [];
     for (let tp of texturePaths) {
       let existing = Texture.all.find((t) => t.path === tp);
-      if (existing) {
+      if (existing && existing.group && existing.group !== tg.uuid) {
+        if (fs.existsSync(tp)) {
+          let tex = new Texture().fromPath(tp).add(false, true);
+          tex.group = tg.uuid;
+          allTextures.push(tex);
+        }
+      } else if (existing) {
         existing.group = tg.uuid;
         allTextures.push(existing);
       } else if (fs.existsSync(tp)) {
@@ -1972,12 +1986,18 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             } else {
               let tg = TextureGroup.all.find((t) => t.name === c.name);
               if (tg) {
-                texPaths = Texture.all.filter((t) => t.group === tg.uuid).map((t) => PathModule.relative(modelDir, t.path).replace(/\\/g, "/")).filter(Boolean);
+                texPaths = Texture.all.filter((t) => t.group === tg.uuid).map((t) => {
+                  let p = resolveTexturePath(t);
+                  return p ? PathModule.relative(modelDir, p).replace(/\\/g, "/") : "";
+                }).filter(Boolean);
               }
               let ac = c;
               if (ac.texture) {
                 let tex = Texture.all.find((t) => t.uuid === ac.texture);
-                if (tex?.path) primaryTex = PathModule.relative(modelDir, tex.path).replace(/\\/g, "/");
+                if (tex) {
+                  let p = resolveTexturePath(tex);
+                  if (p) primaryTex = PathModule.relative(modelDir, p).replace(/\\/g, "/");
+                }
               }
             }
             let colorIndex = c.color;

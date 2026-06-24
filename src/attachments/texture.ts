@@ -9,14 +9,23 @@ export type AttachmentCollection = Collection & {
 	texture: string;
 }
 
-function cloneTexture(tex: Texture): Texture {
+export function cloneTexture(tex: Texture): Texture {
 	let copy = tex.getSaveCopy();
 	delete copy.path;
 	delete copy.uuid;
 	let cloned = new Texture(copy);
 	cloned.convertToInternal(tex.getDataURL());
 	cloned.load();
+	let sourcePath = tex.path || (tex as any).source_path;
+	if (sourcePath) (cloned as any).source_path = sourcePath;
 	return cloned;
+}
+
+export function resolveTexturePath(tex: Texture): string {
+	if (tex.path) return tex.path;
+	if ((tex as any).source_path) return (tex as any).source_path;
+	let source = Texture.all.find(s => s.name === tex.name && s.path && s.uuid !== tex.uuid);
+	return source?.path || '';
 }
 
 function isAttachmentTextureGroup(groupUuid: string): boolean {

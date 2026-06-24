@@ -3,7 +3,7 @@
 
 import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
-import { isUnloaded, reloadCollection, promptAndUnload, toggleCollectionChildVisibility } from "./unload";
+import { isUnloaded, reloadCollection, promptAndUnload, toggleCollectionChildVisibility, syncUnloadButtons } from "./unload";
 import { importAttachmentToFolder } from "./import";
 import { unwatchCollection } from "./watcher";
 import { applyCollectionColors } from "./collection_color";
@@ -219,6 +219,7 @@ function injectFolderDOM() {
 
     observer?.observe(list, { childList: true });
     applyCollectionColors();
+    syncUnloadButtons();
 }
 
 function createFolderGroup(folder: CollectionFolder, collectionEls: HTMLElement[]): HTMLElement {
@@ -491,7 +492,7 @@ export function setupCollectionFolders() {
             white-space: nowrap;
             cursor: pointer;
         }
-        .${HEAD_CLASS} > .in_list_button {
+        .${HEAD_CLASS} > label + .in_list_button {
             margin-left: auto;
         }
         .${HEAD_CLASS}.folded > label {

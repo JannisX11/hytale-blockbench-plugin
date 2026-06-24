@@ -241,6 +241,49 @@ export function toggleCollectionChildVisibility(collections: Collection[]) {
     Canvas.updateView({ elements: allElements, element_aspects: { visibility: true } });
 }
 
+export function syncUnloadButtons() {
+    if (!isHytaleFormat()) return;
+    let list = Panels.collections?.node?.querySelector('#collections_list');
+    if (!list) return;
+    for (let collection of Collection.all) {
+        let el = list.querySelector(`[uuid="${collection.uuid}"]`) as HTMLElement;
+        if (!el) continue;
+
+        let unloaded = isUnloaded(collection);
+        if (unloaded) el.setAttribute(UNLOADED_ATTR, '');
+        else el.removeAttribute(UNLOADED_ATTR);
+
+        if (collection.export_codec !== 'blockymodel') continue;
+
+        el.style.setProperty('--color-scope', 'transparent', 'important');
+
+        let existing = el.querySelector('.hytale_unload_btn');
+        if (existing) {
+            let icon = existing.querySelector('i')!;
+            icon.textContent = unloaded ? 'download' : 'eject';
+            icon.classList.toggle('toggle_disabled', unloaded);
+            continue;
+        }
+
+        let visBtn = el.querySelector(':scope > .in_list_button:last-child') as HTMLElement;
+        if (!visBtn) continue;
+
+        let btn = document.createElement('div');
+        btn.className = 'in_list_button hytale_unload_btn';
+        let icon = document.createElement('i');
+        icon.className = 'material-icons icon';
+        icon.textContent = unloaded ? 'download' : 'eject';
+        if (unloaded) icon.classList.add('toggle_disabled');
+        btn.appendChild(icon);
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleCollectionLoaded(collection);
+        });
+        btn.addEventListener('dblclick', (e) => e.stopPropagation());
+        visBtn.insertAdjacentElement('beforebegin', btn);
+    }
+}
+
 export function setupUnload() {
     let unloadedProp = new Property(Collection, 'boolean', 'unloaded', {
         default: false,
@@ -282,50 +325,6 @@ export function setupUnload() {
         }
     `);
     track(style);
-
-    function syncUnloadButtons() {
-        if (!isHytaleFormat()) return;
-        let list = Panels.collections?.node?.querySelector('#collections_list');
-        if (!list) return;
-        for (let collection of Collection.all) {
-            let el = list.querySelector(`[uuid="${collection.uuid}"]`) as HTMLElement;
-            if (!el) continue;
-
-            let unloaded = isUnloaded(collection);
-            if (unloaded) el.setAttribute(UNLOADED_ATTR, '');
-            else el.removeAttribute(UNLOADED_ATTR);
-
-            if (collection.export_codec !== 'blockymodel') continue;
-
-            // Hide the scope color border (scope is used for save-tracking only)
-            el.style.setProperty('--color-scope', 'transparent', 'important');
-
-            let existing = el.querySelector('.hytale_unload_btn');
-            if (existing) {
-                let icon = existing.querySelector('i')!;
-                icon.textContent = unloaded ? 'download' : 'eject';
-                icon.classList.toggle('toggle_disabled', unloaded);
-                continue;
-            }
-
-            let visBtn = el.querySelector(':scope > .in_list_button:last-child') as HTMLElement;
-            if (!visBtn) continue;
-
-            let btn = document.createElement('div');
-            btn.className = 'in_list_button hytale_unload_btn';
-            let icon = document.createElement('i');
-            icon.className = 'material-icons icon';
-            icon.textContent = unloaded ? 'download' : 'eject';
-            if (unloaded) icon.classList.add('toggle_disabled');
-            btn.appendChild(icon);
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                toggleCollectionLoaded(collection);
-            });
-            btn.addEventListener('dblclick', (e) => e.stopPropagation());
-            visBtn.insertAdjacentElement('beforebegin', btn);
-        }
-    }
 
     function unloadAllOnOpen() {
         if (!isHytaleFormat()) return;

@@ -24,6 +24,7 @@ function setupCollectionDoubleClick() {
 
 	function onDblClick(e: MouseEvent) {
 		if (!isHytaleFormat()) return;
+		if ((e.target as HTMLElement).closest('.in_list_button')) return;
 
 		let target = e.target as HTMLElement;
 		while (target && !target.classList?.contains('collection')) {

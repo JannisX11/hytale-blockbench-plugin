@@ -138,9 +138,27 @@
         CubeFace.prototype.getTexture = originalGetTexture;
       }
     });
+    let isDedupRemove = false;
+    let originalFromPath = Texture.prototype.fromPath;
+    Texture.prototype.fromPath = function(...args) {
+      if (isHytaleFormat()) {
+        isDedupRemove = true;
+        try {
+          return originalFromPath.apply(this, args);
+        } finally {
+          isDedupRemove = false;
+        }
+      }
+      return originalFromPath.apply(this, args);
+    };
+    track({
+      delete() {
+        Texture.prototype.fromPath = originalFromPath;
+      }
+    });
     let originalRemove = Texture.prototype.remove;
     Texture.prototype.remove = function(...args) {
-      if (isHytaleFormat() && this.group && isAttachmentTextureGroup(this.group)) {
+      if (isDedupRemove && this.group && isAttachmentTextureGroup(this.group)) {
         return;
       }
       return originalRemove.apply(this, args);
@@ -209,10 +227,36 @@
         Collection.menu.removeAction("set_texture");
       }
     });
+    let cloneKeybind = new KeybindItem("hytale_clone_texture_modifier", {
+      name: "Duplicate Texture on Drop",
+      description: "Hold this key while dropping a texture to duplicate it instead of moving",
+      keybind: new Keybind({ key: 18 }),
+      category: "textures"
+    });
+    track(cloneKeybind);
+    let cloneModifierHeld = false;
+    function onCloneKeyDown(e) {
+      let kb = cloneKeybind.keybind;
+      if (e.keyCode === kb.key || e.key === "Alt" && (kb.key === 18 || kb.alt)) {
+        cloneModifierHeld = true;
+      }
+    }
+    function onCloneKeyUp(e) {
+      let kb = cloneKeybind.keybind;
+      if (e.keyCode === kb.key || e.key === "Alt" && (kb.key === 18 || kb.alt)) {
+        cloneModifierHeld = false;
+      }
+    }
+    document.addEventListener("keydown", onCloneKeyDown, true);
+    document.addEventListener("keyup", onCloneKeyUp, true);
+    track({ delete() {
+      document.removeEventListener("keydown", onCloneKeyDown, true);
+      document.removeEventListener("keyup", onCloneKeyUp, true);
+    } });
     let pendingCloneFixups = [];
     let finishEditListener = Blockbench.on("finish_edit", (event) => {
       try {
-        if (!isHytaleFormat()) return;
+        if (!isHytaleFormat() || !cloneModifierHeld) return;
         let aspects = event.aspects;
         let beforeSave = Undo.current_save;
         if (!beforeSave?.textures || !aspects?.textures) return;

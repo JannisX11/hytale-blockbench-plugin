@@ -85,9 +85,29 @@ export function setupAttachmentTextures() {
 
 	// BB deduplicates textures by path in fromPath() (removes duplicate) and add()
 	// (returns existing). Both break sharing the same texture across attachment groups.
+	let isDedupRemove = false;
+
+	let originalFromPath = Texture.prototype.fromPath;
+	Texture.prototype.fromPath = function(this: Texture, ...args: any[]) {
+		if (isHytaleFormat()) {
+			isDedupRemove = true;
+			try {
+				return originalFromPath.apply(this, args);
+			} finally {
+				isDedupRemove = false;
+			}
+		}
+		return originalFromPath.apply(this, args);
+	};
+	track({
+		delete() {
+			Texture.prototype.fromPath = originalFromPath;
+		}
+	});
+
 	let originalRemove = Texture.prototype.remove;
 	Texture.prototype.remove = function(this: Texture, ...args: any[]) {
-		if (isHytaleFormat() && this.group && isAttachmentTextureGroup(this.group)) {
+		if (isDedupRemove && this.group && isAttachmentTextureGroup(this.group)) {
 			return;
 		}
 		return originalRemove.apply(this, args);
@@ -164,12 +184,40 @@ export function setupAttachmentTextures() {
 		}
 	});
 
-	// Drag-and-drop: clone texture back into its attachment group, send clone to target
+	// Ctrl+drag: clone texture into target group, keep original in source group
+	let cloneKeybind = new KeybindItem('hytale_clone_texture_modifier', {
+		name: 'Duplicate Texture on Drop',
+		description: 'Hold this key while dropping a texture to duplicate it instead of moving',
+		keybind: new Keybind({ key: 18 }),
+		category: 'textures'
+	});
+	track(cloneKeybind);
+
+	let cloneModifierHeld = false;
+	function onCloneKeyDown(e: KeyboardEvent) {
+		let kb = cloneKeybind.keybind;
+		if (e.keyCode === kb.key || (e.key === 'Alt' && (kb.key === 18 || kb.alt))) {
+			cloneModifierHeld = true;
+		}
+	}
+	function onCloneKeyUp(e: KeyboardEvent) {
+		let kb = cloneKeybind.keybind;
+		if (e.keyCode === kb.key || (e.key === 'Alt' && (kb.key === 18 || kb.alt))) {
+			cloneModifierHeld = false;
+		}
+	}
+	document.addEventListener('keydown', onCloneKeyDown, true);
+	document.addEventListener('keyup', onCloneKeyUp, true);
+	track({ delete() {
+		document.removeEventListener('keydown', onCloneKeyDown, true);
+		document.removeEventListener('keyup', onCloneKeyUp, true);
+	}});
+
 	let pendingCloneFixups: Texture[] = [];
 
 	let finishEditListener = Blockbench.on('finish_edit', (event: any) => {
 		try {
-			if (!isHytaleFormat()) return;
+			if (!isHytaleFormat() || !cloneModifierHeld) return;
 			let aspects = event.aspects;
 			let beforeSave = Undo.current_save;
 			if (!beforeSave?.textures || !aspects?.textures) return;

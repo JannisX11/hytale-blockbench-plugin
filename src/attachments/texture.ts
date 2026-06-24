@@ -4,21 +4,10 @@
 import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
 import { updateUVSize } from "../texture";
+import { cloneTexture, syncFromSiblings } from "../clone_texture";
 
 export type AttachmentCollection = Collection & {
 	texture: string;
-}
-
-export function cloneTexture(tex: Texture): Texture {
-	let copy = tex.getSaveCopy();
-	delete copy.path;
-	delete copy.uuid;
-	let cloned = new Texture(copy);
-	cloned.convertToInternal(tex.getDataURL());
-	cloned.load();
-	let sourcePath = tex.path || (tex as any).source_path;
-	if (sourcePath) (cloned as any).source_path = sourcePath;
-	return cloned;
 }
 
 export function resolveTexturePath(tex: Texture): string {
@@ -28,7 +17,7 @@ export function resolveTexturePath(tex: Texture): string {
 	return source?.path || '';
 }
 
-function isAttachmentTextureGroup(groupUuid: string): boolean {
+export function isAttachmentTextureGroup(groupUuid: string): boolean {
 	let tg = TextureGroup.all.find(tg => tg.uuid === groupUuid);
 	if (!tg) return false;
 	return Collection.all.some(c => c.name === tg.name && c.export_codec === 'blockymodel');
@@ -55,6 +44,7 @@ export function processAttachmentTextures(attachmentName: string, newTextures: T
 			newTextures[i] = cloned;
 		}
 		tex.group = textureGroup.uuid;
+		syncFromSiblings(tex);
 		updateUVSize(tex);
 	}
 
@@ -192,98 +182,4 @@ export function setupAttachmentTextures() {
 			Collection.menu.removeAction('set_texture');
 		}
 	});
-
-	// Ctrl+drag: clone texture into target group, keep original in source group
-	let cloneKeybind = new KeybindItem('hytale_clone_texture_modifier', {
-		name: 'Duplicate Texture on Drop',
-		description: 'Hold this key while dropping a texture to duplicate it instead of moving',
-		keybind: new Keybind({ key: 18 }),
-		category: 'textures'
-	});
-	track(cloneKeybind);
-
-	let cloneModifierHeld = false;
-	function onCloneKeyDown(e: KeyboardEvent) {
-		let kb = cloneKeybind.keybind;
-		if (e.keyCode === kb.key || (e.key === 'Alt' && (kb.key === 18 || kb.alt))) {
-			cloneModifierHeld = true;
-		}
-	}
-	function onCloneKeyUp(e: KeyboardEvent) {
-		let kb = cloneKeybind.keybind;
-		if (e.keyCode === kb.key || (e.key === 'Alt' && (kb.key === 18 || kb.alt))) {
-			cloneModifierHeld = false;
-		}
-	}
-	document.addEventListener('keydown', onCloneKeyDown, true);
-	document.addEventListener('keyup', onCloneKeyUp, true);
-	track({ delete() {
-		document.removeEventListener('keydown', onCloneKeyDown, true);
-		document.removeEventListener('keyup', onCloneKeyUp, true);
-	}});
-
-	let pendingCloneFixups: Texture[] = [];
-
-	let finishEditListener = Blockbench.on('finish_edit', (event: any) => {
-		try {
-			if (!isHytaleFormat() || !cloneModifierHeld) return;
-			let aspects = event.aspects;
-			let beforeSave = Undo.current_save;
-			if (!beforeSave?.textures || !aspects?.textures) return;
-
-			let clones: Texture[] = [];
-			for (let tex of aspects.textures) {
-				let saved = beforeSave.textures[tex.uuid];
-				if (!saved) continue;
-
-				let oldGroup = saved.group;
-				if (!oldGroup || oldGroup === tex.group) continue;
-				if (!isAttachmentTextureGroup(oldGroup)) continue;
-
-				// Restore original to its attachment group, clone goes to target
-				let targetGroup = tex.group;
-				tex.group = oldGroup;
-
-				let cloned = cloneTexture(tex);
-				cloned.group = targetGroup;
-				cloned.add(false);
-				clones.push(cloned);
-
-				pendingCloneFixups.push(cloned);
-			}
-			if (clones.length) {
-				aspects.textures.push(...clones);
-				Canvas.updateLayeredTextures();
-			}
-		} catch (e) {
-			console.error('[Hytale] texture clone error:', e);
-		}
-	});
-	track(finishEditListener);
-
-	let finishedEditListener = Blockbench.on('finished_edit', (event: any) => {
-		if (!isHytaleFormat()) return;
-
-		// Drag-clones are internal, mark saved to hide save icon
-		for (let clone of pendingCloneFixups) {
-			if (Texture.all.includes(clone)) {
-				clone.saved = true;
-			}
-		}
-		pendingCloneFixups.length = 0;
-
-		// Auto-assign imported texture to collection if it has none
-		let aspects = event.aspects;
-		if (!aspects?.textures) return;
-		for (let tex of aspects.textures) {
-			if (!tex.group || !isAttachmentTextureGroup(tex.group)) continue;
-			let tg = TextureGroup.all.find(tg => tg.uuid === tex.group);
-			if (!tg) continue;
-			let collection = Collection.all.find(c => c.name === tg.name && c.export_codec === 'blockymodel') as AttachmentCollection | undefined;
-			if (!collection || collection.texture) continue;
-			collection.texture = tex.uuid;
-			Canvas.updateAllFaces();
-		}
-	});
-	track(finishedEditListener);
 }

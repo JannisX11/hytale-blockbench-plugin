@@ -75,7 +75,7 @@
     track(handler);
   }
 
-  // src/attachments/texture.ts
+  // src/clone_texture.ts
   function cloneTexture(tex) {
     let copy = tex.getSaveCopy();
     delete copy.path;
@@ -87,6 +87,166 @@
     if (sourcePath) cloned.source_path = sourcePath;
     return cloned;
   }
+  function getTextureSiblings(tex) {
+    let path = resolveTexturePath(tex);
+    if (!path) return [];
+    return Texture.all.filter((t) => t.uuid !== tex.uuid && resolveTexturePath(t) === path);
+  }
+  function syncSavedState(source) {
+    let changed = false;
+    for (let sibling of getTextureSiblings(source)) {
+      if (sibling.saved !== source.saved) {
+        sibling.saved = source.saved;
+        changed = true;
+      }
+    }
+    if (changed) Panels.textures.inside_vue.$forceUpdate();
+  }
+  function applySiblingSync(tex, edited) {
+    tex.canvas.width = edited.canvas.width;
+    tex.canvas.height = edited.canvas.height;
+    tex.ctx.drawImage(edited.canvas, 0, 0);
+    tex.source = tex.canvas.toDataURL();
+    tex.updateImageFromCanvas();
+    tex.saved = false;
+    Panels.textures.inside_vue.$forceUpdate();
+  }
+  function syncFromSiblings(tex) {
+    let siblings = getTextureSiblings(tex);
+    let edited = siblings.find((s) => !s.saved);
+    if (!edited) return;
+    let origOnload = tex.img.onload;
+    tex.img.onload = function(...args) {
+      if (origOnload) origOnload.apply(this, args);
+      applySiblingSync(tex, edited);
+    };
+  }
+  function setupCloneTexture() {
+    let editTextureListener = Blockbench.on("edit_texture", (event) => {
+      if (!isHytaleFormat()) return;
+      let tex = event.texture;
+      let siblings = getTextureSiblings(tex);
+      for (let sibling of siblings) {
+        sibling.canvas.width = tex.canvas.width;
+        sibling.canvas.height = tex.canvas.height;
+        sibling.ctx.drawImage(tex.canvas, 0, 0);
+        sibling.getOwnMaterial().map.needsUpdate = true;
+      }
+    });
+    track(editTextureListener);
+    let paintEndListener = Blockbench.on("finished_edit", (event) => {
+      if (!isHytaleFormat()) return;
+      let aspects = event.aspects;
+      if (!aspects?.textures) return;
+      for (let tex of aspects.textures) {
+        if (tex.saved) continue;
+        let siblings = getTextureSiblings(tex);
+        for (let sibling of siblings) {
+          sibling.canvas.width = tex.canvas.width;
+          sibling.canvas.height = tex.canvas.height;
+          sibling.ctx.drawImage(tex.canvas, 0, 0);
+          sibling.source = sibling.canvas.toDataURL();
+          sibling.updateImageFromCanvas();
+          sibling.saved = false;
+        }
+        if (siblings.length) Panels.textures.inside_vue.$forceUpdate();
+      }
+    });
+    track(paintEndListener);
+    let originalSave = Texture.prototype.save;
+    Texture.prototype.save = function(...args) {
+      let result = originalSave.apply(this, args);
+      if (isHytaleFormat() && this.saved) {
+        syncSavedState(this);
+      }
+      return result;
+    };
+    track({
+      delete() {
+        Texture.prototype.save = originalSave;
+      }
+    });
+    let cloneKeybind = new KeybindItem("hytale_clone_texture_modifier", {
+      name: "Duplicate Texture on Drop",
+      description: "Hold this key while dropping a texture to duplicate it instead of moving",
+      keybind: new Keybind({ key: 18 }),
+      category: "textures"
+    });
+    track(cloneKeybind);
+    let cloneModifierHeld = false;
+    function onCloneKeyDown(e) {
+      let kb = cloneKeybind.keybind;
+      if (e.keyCode === kb.key || e.key === "Alt" && (kb.key === 18 || kb.alt)) {
+        cloneModifierHeld = true;
+      }
+    }
+    function onCloneKeyUp(e) {
+      let kb = cloneKeybind.keybind;
+      if (e.keyCode === kb.key || e.key === "Alt" && (kb.key === 18 || kb.alt)) {
+        cloneModifierHeld = false;
+      }
+    }
+    document.addEventListener("keydown", onCloneKeyDown, true);
+    document.addEventListener("keyup", onCloneKeyUp, true);
+    track({ delete() {
+      document.removeEventListener("keydown", onCloneKeyDown, true);
+      document.removeEventListener("keyup", onCloneKeyUp, true);
+    } });
+    let pendingCloneFixups = [];
+    let finishEditListener = Blockbench.on("finish_edit", (event) => {
+      try {
+        if (!isHytaleFormat() || !cloneModifierHeld) return;
+        let aspects = event.aspects;
+        let beforeSave = Undo.current_save;
+        if (!beforeSave?.textures || !aspects?.textures) return;
+        let clones = [];
+        for (let tex of aspects.textures) {
+          let saved = beforeSave.textures[tex.uuid];
+          if (!saved) continue;
+          let oldGroup = saved.group;
+          if (!oldGroup || oldGroup === tex.group) continue;
+          if (!isAttachmentTextureGroup(oldGroup)) continue;
+          let targetGroup = tex.group;
+          tex.group = oldGroup;
+          let cloned = cloneTexture(tex);
+          cloned.group = targetGroup;
+          cloned.add(false);
+          clones.push(cloned);
+          pendingCloneFixups.push(cloned);
+        }
+        if (clones.length) {
+          aspects.textures.push(...clones);
+          Canvas.updateLayeredTextures();
+        }
+      } catch (e) {
+        console.error("[Hytale] texture clone error:", e);
+      }
+    });
+    track(finishEditListener);
+    let finishedEditListener = Blockbench.on("finished_edit", (event) => {
+      if (!isHytaleFormat()) return;
+      for (let clone of pendingCloneFixups) {
+        if (Texture.all.includes(clone)) {
+          clone.saved = true;
+        }
+      }
+      pendingCloneFixups.length = 0;
+      let aspects = event.aspects;
+      if (!aspects?.textures) return;
+      for (let tex of aspects.textures) {
+        if (!tex.group || !isAttachmentTextureGroup(tex.group)) continue;
+        let tg = TextureGroup.all.find((tg2) => tg2.uuid === tex.group);
+        if (!tg) continue;
+        let collection = Collection.all.find((c) => c.name === tg.name && c.export_codec === "blockymodel");
+        if (!collection || collection.texture) continue;
+        collection.texture = tex.uuid;
+        Canvas.updateAllFaces();
+      }
+    });
+    track(finishedEditListener);
+  }
+
+  // src/attachments/texture.ts
   function resolveTexturePath(tex) {
     if (tex.path) return tex.path;
     if (tex.source_path) return tex.source_path;
@@ -115,6 +275,7 @@
         newTextures[i] = cloned;
       }
       tex.group = textureGroup.uuid;
+      syncFromSiblings(tex);
       updateUVSize(tex);
     }
     let texture = newTextures.find((t) => t.name.startsWith(attachmentName)) ?? newTextures[0];
@@ -235,84 +396,6 @@
         Collection.menu.removeAction("set_texture");
       }
     });
-    let cloneKeybind = new KeybindItem("hytale_clone_texture_modifier", {
-      name: "Duplicate Texture on Drop",
-      description: "Hold this key while dropping a texture to duplicate it instead of moving",
-      keybind: new Keybind({ key: 18 }),
-      category: "textures"
-    });
-    track(cloneKeybind);
-    let cloneModifierHeld = false;
-    function onCloneKeyDown(e) {
-      let kb = cloneKeybind.keybind;
-      if (e.keyCode === kb.key || e.key === "Alt" && (kb.key === 18 || kb.alt)) {
-        cloneModifierHeld = true;
-      }
-    }
-    function onCloneKeyUp(e) {
-      let kb = cloneKeybind.keybind;
-      if (e.keyCode === kb.key || e.key === "Alt" && (kb.key === 18 || kb.alt)) {
-        cloneModifierHeld = false;
-      }
-    }
-    document.addEventListener("keydown", onCloneKeyDown, true);
-    document.addEventListener("keyup", onCloneKeyUp, true);
-    track({ delete() {
-      document.removeEventListener("keydown", onCloneKeyDown, true);
-      document.removeEventListener("keyup", onCloneKeyUp, true);
-    } });
-    let pendingCloneFixups = [];
-    let finishEditListener = Blockbench.on("finish_edit", (event) => {
-      try {
-        if (!isHytaleFormat() || !cloneModifierHeld) return;
-        let aspects = event.aspects;
-        let beforeSave = Undo.current_save;
-        if (!beforeSave?.textures || !aspects?.textures) return;
-        let clones = [];
-        for (let tex of aspects.textures) {
-          let saved = beforeSave.textures[tex.uuid];
-          if (!saved) continue;
-          let oldGroup = saved.group;
-          if (!oldGroup || oldGroup === tex.group) continue;
-          if (!isAttachmentTextureGroup(oldGroup)) continue;
-          let targetGroup = tex.group;
-          tex.group = oldGroup;
-          let cloned = cloneTexture(tex);
-          cloned.group = targetGroup;
-          cloned.add(false);
-          clones.push(cloned);
-          pendingCloneFixups.push(cloned);
-        }
-        if (clones.length) {
-          aspects.textures.push(...clones);
-          Canvas.updateLayeredTextures();
-        }
-      } catch (e) {
-        console.error("[Hytale] texture clone error:", e);
-      }
-    });
-    track(finishEditListener);
-    let finishedEditListener = Blockbench.on("finished_edit", (event) => {
-      if (!isHytaleFormat()) return;
-      for (let clone of pendingCloneFixups) {
-        if (Texture.all.includes(clone)) {
-          clone.saved = true;
-        }
-      }
-      pendingCloneFixups.length = 0;
-      let aspects = event.aspects;
-      if (!aspects?.textures) return;
-      for (let tex of aspects.textures) {
-        if (!tex.group || !isAttachmentTextureGroup(tex.group)) continue;
-        let tg = TextureGroup.all.find((tg2) => tg2.uuid === tex.group);
-        if (!tg) continue;
-        let collection = Collection.all.find((c) => c.name === tg.name && c.export_codec === "blockymodel");
-        if (!collection || collection.texture) continue;
-        collection.texture = tex.uuid;
-        Canvas.updateAllFaces();
-      }
-    });
-    track(finishedEditListener);
   }
 
   // src/attachments/collection_color.ts
@@ -3456,6 +3539,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
   }
   function setupAttachments() {
     setupAttachmentTextures();
+    setupCloneTexture();
     setupDelete();
     setupImport();
     setupCreateAttachment();

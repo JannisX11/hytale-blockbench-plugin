@@ -4,6 +4,7 @@
 import { track } from "../cleanup";
 import { isHytaleFormat } from "../formats";
 import { setupAttachmentTextures } from "./texture";
+import { setupCloneTexture } from "../clone_texture";
 import { setupDelete } from "./delete";
 import { setupImport } from "./import";
 import { setupCreateAttachment } from "./create";
@@ -62,6 +63,7 @@ function setupUnsavedIndicator() {
 
 export function setupAttachments() {
 	setupAttachmentTextures();
+	setupCloneTexture();
 	setupDelete();
 	setupImport();
 	setupCreateAttachment();

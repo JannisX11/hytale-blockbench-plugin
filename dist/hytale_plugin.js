@@ -3933,12 +3933,12 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     const faces = [];
     for (const cube of Cube.all) {
       if (!cube.visibility) continue;
-      for (const faceKey in cube.faces) {
-        const face = cube.faces[faceKey];
+      for (const faceKey2 in cube.faces) {
+        const face = cube.faces[faceKey2];
         if (face.enabled === false) continue;
         const rect = face.getBoundingRect();
         if (isPointInRect(uvX, uvY, rect)) {
-          faces.push({ cube, faceKey });
+          faces.push({ cube, faceKey: faceKey2 });
         }
       }
     }
@@ -3961,9 +3961,9 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     }
     return faces;
   }
-  function selectFace(cube, faceKey) {
+  function selectFace(cube, faceKey2) {
     cube.select();
-    UVEditor.getSelectedFaces(cube, true).replace([faceKey]);
+    UVEditor.getSelectedFaces(cube, true).replace([faceKey2]);
     UVEditor.vue.$forceUpdate();
     Canvas.updateView({
       elements: [cube],
@@ -3991,8 +3991,8 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
         const isSamePosition = cycleState !== null && Math.abs(uvPos.x - cycleState.lastClickX) <= CLICK_THRESHOLD && Math.abs(uvPos.y - cycleState.lastClickY) <= CLICK_THRESHOLD;
         if (isSamePosition && cycleState) {
           cycleState.currentIndex = (cycleState.currentIndex + 1) % cycleState.facesAtPosition.length;
-          const { cube, faceKey } = cycleState.facesAtPosition[cycleState.currentIndex];
-          setTimeout(() => selectFace(cube, faceKey), 50);
+          const { cube, faceKey: faceKey2 } = cycleState.facesAtPosition[cycleState.currentIndex];
+          setTimeout(() => selectFace(cube, faceKey2), 50);
         } else {
           const faces = getFacesAtUVPosition(uvPos.x, uvPos.y);
           if (faces.length > 1) {
@@ -6487,6 +6487,512 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     });
   }
 
+  // src/nondestructive_uv_move.ts
+  var activeSession = null;
+  var insideUndoRedo = false;
+  function shouldUseLinkedMode() {
+    return !!(FORMAT_IDS.includes(Format.id) && BarItems.move_texture_with_uv?.value && UVEditor.vue?.texture);
+  }
+  function getPixelFactors(texture) {
+    return [
+      texture.width / UVEditor.getUVWidth(),
+      texture.height / UVEditor.getUVHeight()
+    ];
+  }
+  function faceKey(cubeUuid, fkey) {
+    return `${cubeUuid}:${fkey}`;
+  }
+  function getFacePixelRect(face, factorX, factorY) {
+    let rect = face.getBoundingRect();
+    let x = Math.floor(rect.ax * factorX);
+    let y = Math.floor(rect.ay * factorY);
+    let w = Math.ceil(rect.bx * factorX) - x;
+    let h = Math.ceil(rect.by * factorY) - y;
+    return { x, y, w, h };
+  }
+  function getBoxUVPixelRect(cube, factorX, factorY) {
+    let size = cube.size(void 0, Format.box_uv_float_size != true);
+    let uvW = size[2] + size[0] + (size[1] ? size[2] : 0) + size[0];
+    let uvH = size[2] + size[1];
+    let x = Math.floor(cube.uv_offset[0] * factorX);
+    let y = Math.floor(cube.uv_offset[1] * factorY);
+    let w = Math.ceil((cube.uv_offset[0] + uvW) * factorX) - x;
+    let h = Math.ceil((cube.uv_offset[1] + uvH) * factorY) - y;
+    return { x, y, w, h };
+  }
+  function captureUVs(texture) {
+    let originalUVs = /* @__PURE__ */ new Map();
+    for (let cube of Cube.all) {
+      if (cube.box_uv) {
+        originalUVs.set(faceKey(cube.uuid, "__box__"), [...cube.uv_offset]);
+      } else {
+        for (let fkey in cube.faces) {
+          let face = cube.faces[fkey];
+          if (face.texture === null) continue;
+          if (face.getTexture() !== texture) continue;
+          originalUVs.set(faceKey(cube.uuid, fkey), [...face.uv]);
+        }
+      }
+    }
+    return originalUVs;
+  }
+  function snapshotCanvas(texture) {
+    let canvas = document.createElement("canvas");
+    canvas.width = texture.width;
+    canvas.height = texture.height;
+    canvas.getContext("2d").drawImage(texture.canvas, 0, 0);
+    return canvas;
+  }
+  function rebuildSessionFromLayers(texture) {
+    let layers = texture.layers;
+    let baseLayer = layers[0];
+    texture.updateLayerChanges(false);
+    let originalCanvas = snapshotCanvas(texture);
+    let faceLayerMap = /* @__PURE__ */ new Map();
+    for (let i = 1; i < layers.length; i++) {
+      let layer = layers[i];
+      if (layer.name && layer.name.includes(":")) {
+        faceLayerMap.set(layer.name, layer);
+      }
+    }
+    activeSession = {
+      texture,
+      originalCanvas,
+      originalUVs: captureUVs(texture),
+      faceLayerMap,
+      baseLayer
+    };
+    return activeSession;
+  }
+  function ensureSession(texture, elements) {
+    if (activeSession && activeSession.texture === texture) return activeSession;
+    if (activeSession && activeSession.texture !== texture) {
+      bakeSession();
+    }
+    if (texture.layers_enabled) {
+      return rebuildSessionFromLayers(texture);
+    }
+    let originalCanvas = snapshotCanvas(texture);
+    texture.activateLayers(false);
+    let baseLayer = texture.layers[0];
+    activeSession = {
+      texture,
+      originalCanvas,
+      originalUVs: captureUVs(texture),
+      faceLayerMap: /* @__PURE__ */ new Map(),
+      baseLayer
+    };
+    return activeSession;
+  }
+  function rectsOverlap(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+  function getOverlappingNonDraggedRects(pixelRect, draggedKeys, texture, factorX, factorY) {
+    let rects = [];
+    for (let cube of Cube.all) {
+      if (!cube.visibility) continue;
+      if (cube.box_uv) {
+        let key = faceKey(cube.uuid, "__box__");
+        if (draggedKeys.has(key)) continue;
+        let otherRect = getBoxUVPixelRect(cube, factorX, factorY);
+        if (rectsOverlap(pixelRect, otherRect)) rects.push(otherRect);
+      } else {
+        for (let fkey in cube.faces) {
+          let face = cube.faces[fkey];
+          if (face.texture === null) continue;
+          if (face.getTexture() !== texture) continue;
+          let key = faceKey(cube.uuid, fkey);
+          if (draggedKeys.has(key)) continue;
+          let otherRect = getFacePixelRect(face, factorX, factorY);
+          if (rectsOverlap(pixelRect, otherRect)) rects.push(otherRect);
+        }
+      }
+    }
+    return rects;
+  }
+  function ensureFaceLayer(session, cube, layerKey, pixelRect, overlappingRects = []) {
+    if (session.faceLayerMap.has(layerKey)) return;
+    if (pixelRect.w <= 0 || pixelRect.h <= 0) return;
+    let layer = new TextureLayer(
+      { offset: [pixelRect.x, pixelRect.y] },
+      session.texture
+    );
+    layer.setSize(pixelRect.w, pixelRect.h);
+    layer.ctx.drawImage(
+      session.originalCanvas,
+      pixelRect.x,
+      pixelRect.y,
+      pixelRect.w,
+      pixelRect.h,
+      0,
+      0,
+      pixelRect.w,
+      pixelRect.h
+    );
+    let baseOffX = session.baseLayer.offset[0];
+    let baseOffY = session.baseLayer.offset[1];
+    session.baseLayer.ctx.clearRect(
+      pixelRect.x - baseOffX,
+      pixelRect.y - baseOffY,
+      pixelRect.w,
+      pixelRect.h
+    );
+    for (let other of overlappingRects) {
+      let ix = Math.max(pixelRect.x, other.x);
+      let iy = Math.max(pixelRect.y, other.y);
+      let iw = Math.min(pixelRect.x + pixelRect.w, other.x + other.w) - ix;
+      let ih = Math.min(pixelRect.y + pixelRect.h, other.y + other.h) - iy;
+      if (iw <= 0 || ih <= 0) continue;
+      session.baseLayer.ctx.drawImage(
+        session.originalCanvas,
+        ix,
+        iy,
+        iw,
+        ih,
+        ix - baseOffX,
+        iy - baseOffY,
+        iw,
+        ih
+      );
+    }
+    layer.name = layerKey;
+    layer.addForEditing();
+    session.faceLayerMap.set(layerKey, layer);
+  }
+  function createLayersForDraggedFaces(session, elements, texture) {
+    let [factorX, factorY] = getPixelFactors(texture);
+    let draggedKeys = /* @__PURE__ */ new Set();
+    for (let el of elements) {
+      if (!(el instanceof Cube)) continue;
+      if (el.box_uv) {
+        draggedKeys.add(faceKey(el.uuid, "__box__"));
+      } else {
+        let selectedFaces = UVEditor.getSelectedFaces(el);
+        for (let fkey of selectedFaces) {
+          let face = el.faces[fkey];
+          if (!face || face.texture === null) continue;
+          if (face.getTexture() !== texture) continue;
+          draggedKeys.add(faceKey(el.uuid, fkey));
+        }
+      }
+    }
+    for (let el of elements) {
+      if (!(el instanceof Cube)) continue;
+      if (el.box_uv) {
+        let key = faceKey(el.uuid, "__box__");
+        let pixelRect = getBoxUVPixelRect(el, factorX, factorY);
+        let overlaps = getOverlappingNonDraggedRects(pixelRect, draggedKeys, texture, factorX, factorY);
+        ensureFaceLayer(session, el, key, pixelRect, overlaps);
+      } else {
+        let selectedFaces = UVEditor.getSelectedFaces(el);
+        for (let fkey of selectedFaces) {
+          let face = el.faces[fkey];
+          if (!face || face.texture === null) continue;
+          if (face.getTexture() !== texture) continue;
+          let key = faceKey(el.uuid, fkey);
+          let pixelRect = getFacePixelRect(face, factorX, factorY);
+          let overlaps = getOverlappingNonDraggedRects(pixelRect, draggedKeys, texture, factorX, factorY);
+          ensureFaceLayer(session, el, key, pixelRect, overlaps);
+        }
+      }
+    }
+  }
+  function bringDraggedLayersToTop(session, elements, texture) {
+    let draggedLayers = [];
+    for (let el of elements) {
+      if (!(el instanceof Cube)) continue;
+      if (el.box_uv) {
+        let layer = session.faceLayerMap.get(faceKey(el.uuid, "__box__"));
+        if (layer) draggedLayers.push(layer);
+      } else {
+        let selectedFaces = UVEditor.getSelectedFaces(el);
+        for (let fkey of selectedFaces) {
+          let layer = session.faceLayerMap.get(faceKey(el.uuid, fkey));
+          if (layer) draggedLayers.push(layer);
+        }
+      }
+    }
+    let layers = texture.layers;
+    for (let layer of draggedLayers) {
+      let idx = layers.indexOf(layer);
+      if (idx > -1) layers.splice(idx, 1);
+    }
+    layers.push(...draggedLayers);
+  }
+  function syncLayerOffsets(session, elements, texture) {
+    let [factorX, factorY] = getPixelFactors(texture);
+    for (let el of elements) {
+      if (!(el instanceof Cube)) continue;
+      if (el.box_uv) {
+        let key = faceKey(el.uuid, "__box__");
+        let layer = session.faceLayerMap.get(key);
+        if (layer) {
+          layer.offset[0] = Math.round(el.uv_offset[0] * factorX);
+          layer.offset[1] = Math.round(el.uv_offset[1] * factorY);
+        }
+      } else {
+        let selectedFaces = UVEditor.getSelectedFaces(el);
+        for (let fkey of selectedFaces) {
+          let key = faceKey(el.uuid, fkey);
+          let layer = session.faceLayerMap.get(key);
+          if (!layer) continue;
+          let face = el.faces[fkey];
+          let rect = face.getBoundingRect();
+          layer.offset[0] = Math.round(rect.ax * factorX);
+          layer.offset[1] = Math.round(rect.ay * factorY);
+        }
+      }
+    }
+  }
+  function flattenTexture(texture) {
+    if (!texture.layers_enabled) return;
+    texture.updateLayerChanges(true);
+    let composited = document.createElement("canvas");
+    composited.width = texture.width;
+    composited.height = texture.height;
+    composited.getContext("2d").drawImage(texture.canvas, 0, 0);
+    while (texture.layers.length) {
+      texture.layers[0].remove(false);
+    }
+    texture.layers_enabled = false;
+    texture.selected_layer = null;
+    let ctx = texture.ctx;
+    ctx.clearRect(0, 0, texture.width, texture.height);
+    ctx.drawImage(composited, 0, 0);
+    texture.updateChangesAfterEdit();
+  }
+  function bakeSession() {
+    if (!activeSession) return;
+    let { texture } = activeSession;
+    Undo.initEdit({ textures: [texture], bitmap: true });
+    flattenTexture(texture);
+    Undo.finishEdit("Bake linked UV layout");
+    activeSession = null;
+  }
+  function teardownSession() {
+    if (!activeSession) return;
+    let { texture } = activeSession;
+    activeSession = null;
+    flattenTexture(texture);
+  }
+  function linkedDragFace(element, face_key, event) {
+    if (event.which == 2 || event.which == 3) return;
+    let me = event;
+    let addToSelection = me.shiftKey || me.ctrlOrCmd || Pressing.overrides?.shift || Pressing.overrides?.ctrl;
+    if (element && face_key && !addToSelection) {
+      let currentFaces = UVEditor.getSelectedFaces(element);
+      if (!currentFaces.includes(face_key)) {
+        for (let el of UVEditor.getMappableElements()) {
+          if (el === element) continue;
+          let faces = UVEditor.getSelectedFaces(el, true);
+          if (faces?.length) faces.empty?.() || faces.splice(0);
+        }
+      }
+    }
+    if (element && face_key) this.selectFace(element, face_key, event, true);
+    let elements = UVEditor.getMappableElements();
+    let texture = this.texture;
+    if (!texture) return;
+    Undo.initEdit({ elements, uv_only: true });
+    let started = false;
+    let session;
+    this.drag({
+      event,
+      snap: UVEditor.isBoxUV() ? 1 : void 0,
+      onDrag: (diff_x, diff_y) => {
+        if (!started) {
+          started = true;
+          Undo.initEdit({
+            elements,
+            uv_only: true,
+            bitmap: true,
+            textures: [texture]
+          });
+          session = ensureSession(texture, elements);
+          createLayersForDraggedFaces(session, elements, texture);
+          bringDraggedLayersToTop(session, elements, texture);
+        }
+        elements.forEach((el) => {
+          if (el.box_uv) {
+            let size = el.size(void 0, Format.box_uv_float_size != true);
+            let uv_size = [
+              size[2] + size[0] + (size[1] ? size[2] : 0) + size[0],
+              size[2] + size[1]
+            ];
+            if (UVEditor.isUVClamped()) {
+              diff_x = Math.clamp(diff_x, -el.uv_offset[0] - (size[1] ? 0 : size[2]), UVEditor.getUVWidth() - el.uv_offset[0] - uv_size[0]);
+              diff_y = Math.clamp(diff_y, -el.uv_offset[1] - (size[0] ? 0 : size[2]), UVEditor.getUVHeight() - el.uv_offset[1] - uv_size[1]);
+            }
+          } else {
+            if (UVEditor.isUVClamped()) {
+              UVEditor.getSelectedFaces(el).forEach((key) => {
+                let face = el.faces[key];
+                if (face && el.getTypeBehavior?.("cube_faces") && face.texture !== null) {
+                  diff_x = Math.clamp(diff_x, -face.uv[0], UVEditor.getUVWidth() - face.uv[0]);
+                  diff_y = Math.clamp(diff_y, -face.uv[1], UVEditor.getUVHeight() - face.uv[1]);
+                  diff_x = Math.clamp(diff_x, -face.uv[2], UVEditor.getUVWidth() - face.uv[2]);
+                  diff_y = Math.clamp(diff_y, -face.uv[3], UVEditor.getUVHeight() - face.uv[3]);
+                }
+              });
+            }
+          }
+        });
+        elements.forEach((el) => {
+          if (el.box_uv) {
+            el.uv_offset[0] = Math.floor(el.uv_offset[0] + diff_x);
+            el.uv_offset[1] = Math.floor(el.uv_offset[1] + diff_y);
+          } else {
+            UVEditor.getSelectedFaces(el).forEach((key) => {
+              let face = el.faces[key];
+              if (face instanceof CubeFace && face.texture !== null) {
+                face.uv[0] += diff_x;
+                face.uv[1] += diff_y;
+                face.uv[2] += diff_x;
+                face.uv[3] += diff_y;
+              }
+            });
+          }
+        });
+        if (session) {
+          syncLayerOffsets(session, elements, texture);
+          texture.updateLayerChanges(false);
+        }
+        return [diff_x, diff_y];
+      },
+      onEnd: () => {
+        UVEditor.disableAutoUV();
+        if (session) {
+          texture.updateLayerChanges(true);
+        }
+        Canvas.updateView({ elements, element_aspects: { uv: true } });
+        Undo.finishEdit("Move UV");
+      },
+      onAbort: () => {
+      }
+    });
+  }
+  function getSelectedFaceKey() {
+    if (!activeSession) return null;
+    let elements = UVEditor.getMappableElements();
+    for (let el of elements) {
+      if (!(el instanceof Cube)) continue;
+      let selected2 = UVEditor.getSelectedFaces(el);
+      if (selected2.length) {
+        if (el.box_uv) {
+          return faceKey(el.uuid, "__box__");
+        }
+        return faceKey(el.uuid, selected2[0]);
+      }
+    }
+    return null;
+  }
+  function moveFaceLayer(direction) {
+    if (!activeSession) return;
+    let key = getSelectedFaceKey();
+    if (!key) return;
+    let layer = activeSession.faceLayerMap.get(key);
+    if (!layer) return;
+    let layers = activeSession.texture.layers;
+    let idx = layers.indexOf(layer);
+    let targetIdx = idx + direction;
+    if (targetIdx < 1 || targetIdx >= layers.length) return;
+    Undo.initEdit({ textures: [activeSession.texture], bitmap: true });
+    [layers[idx], layers[targetIdx]] = [layers[targetIdx], layers[idx]];
+    activeSession.texture.updateLayerChanges(true);
+    Undo.finishEdit("Reorder UV face layer");
+  }
+  function setupNondestructiveUVMove() {
+    let vue = UVEditor.vue;
+    let originalDragFace = vue.dragFace;
+    vue.dragFace = function(element, face_key, event) {
+      if (shouldUseLinkedMode()) {
+        return linkedDragFace.call(this, element, face_key, event);
+      }
+      return originalDragFace.call(this, element, face_key, event);
+    };
+    track({
+      delete() {
+        vue.dragFace = originalDragFace;
+      }
+    });
+    let bakeAction = new Action("hytale_bake_uv_texture", {
+      name: "Bake UV Layout",
+      icon: "layers_clear",
+      category: "uv",
+      condition: { formats: FORMAT_IDS, modes: ["edit"] },
+      click: () => bakeSession()
+    });
+    track(bakeAction);
+    Toolbars.uv_editor?.add(bakeAction, 2);
+    let moveUpAction = new Action("hytale_uv_face_up", {
+      name: "Move UV Face Up",
+      icon: "arrow_upward",
+      category: "uv",
+      condition: { formats: FORMAT_IDS, modes: ["edit"] },
+      click: () => moveFaceLayer(1)
+    });
+    track(moveUpAction);
+    Toolbars.uv_editor?.add(moveUpAction, 3);
+    let moveDownAction = new Action("hytale_uv_face_down", {
+      name: "Move UV Face Down",
+      icon: "arrow_downward",
+      category: "uv",
+      condition: { formats: FORMAT_IDS, modes: ["edit"] },
+      click: () => moveFaceLayer(-1)
+    });
+    track(moveDownAction);
+    Toolbars.uv_editor?.add(moveDownAction, 4);
+    function onUndoRedo() {
+      insideUndoRedo = true;
+      activeSession = null;
+      insideUndoRedo = false;
+    }
+    let undoListener = Blockbench.on("undo", onUndoRedo);
+    track(undoListener);
+    let redoListener = Blockbench.on("redo", onUndoRedo);
+    track(redoListener);
+    function bakeOrphanedLayers() {
+      Texture.all.forEach((tex) => {
+        if (tex.layers_enabled && (!activeSession || activeSession.texture !== tex)) {
+          rebuildSessionFromLayers(tex);
+          bakeSession();
+        }
+      });
+    }
+    let unwatchTexture = null;
+    function setupTextureWatcher() {
+      if (unwatchTexture) unwatchTexture();
+      let vueInst = UVEditor.vue;
+      if (vueInst?.$watch) {
+        unwatchTexture = vueInst.$watch("texture", () => {
+          if (insideUndoRedo) return;
+          if (activeSession) bakeSession();
+          bakeOrphanedLayers();
+        });
+      }
+    }
+    setupTextureWatcher();
+    track({
+      delete() {
+        if (unwatchTexture) unwatchTexture();
+      }
+    });
+    let modeListener = Blockbench.on("select_mode", () => {
+      if (insideUndoRedo) return;
+      if (activeSession) bakeSession();
+      bakeOrphanedLayers();
+    });
+    track(modeListener);
+    track({
+      delete() {
+        try {
+          teardownSession();
+        } catch (_) {
+        }
+      }
+    });
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -6528,6 +7034,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupPreviewScenes();
       setupUVCanvasResize();
       setupShortcuts();
+      setupNondestructiveUVMove();
       let panel_setup_listener;
       function showCollectionPanel() {
         const local_storage_key = "hytale_plugin:collection_panel_setup";

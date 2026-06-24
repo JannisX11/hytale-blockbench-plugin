@@ -24,6 +24,7 @@ import { setupPivotControl } from "./pivot_control";
 import { setupMirrorFix } from "./mirror_fix";
 import { setupChangeOrientation } from "./change_orientation";
 import { setupShortcuts } from "./shortcuts";
+import { setupNondestructiveUVMove } from "./nondestructive_uv_move";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -66,6 +67,7 @@ BBPlugin.register('hytale_plugin', {
         setupPreviewScenes();
         setupUVCanvasResize();
         setupShortcuts();
+        setupNondestructiveUVMove();
 
         // Collections panel setting
         let panel_setup_listener: Deletable;

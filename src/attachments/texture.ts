@@ -73,7 +73,6 @@ export function setupAttachmentTextures() {
 	let originalGetTexture = CubeFace.prototype.getTexture;
 	CubeFace.prototype.getTexture = function(...args) {
 		if (isHytaleFormat()) {
-			if (this.texture == null) return null;
 			let collection = getCollection(this.cube);
 			if (collection && "texture" in collection) {
 				if (collection.texture) {
@@ -82,6 +81,7 @@ export function setupAttachmentTextures() {
 				}
 				return null;
 			}
+			if (this.texture == null) return null;
 			return Texture.getDefault();
 		}
 		return originalGetTexture.call(this, ...args);

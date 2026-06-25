@@ -2058,9 +2058,16 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             Math.roundTo(Math.radToDeg(rotation_euler.z), 3)
           ];
           if (args.attachment && !parent_node && parent_group instanceof Group) {
-            let reference_node = getMainShape(parent_group) ?? parent_group;
+            let reference_node = getMainShape(parent_group);
             original_position = origin;
-            origin = reference_node.origin.slice();
+            if (reference_node) {
+              origin = reference_node.origin.slice();
+            } else {
+              origin = parent_group.origin.slice();
+              if (parent_group.original_offset) {
+                origin.V3_add(parent_group.original_offset);
+              }
+            }
           } else if (parent_offset && parent_group instanceof Group) {
             origin.V3_add(parent_offset);
             origin.V3_add(parent_group.origin);
@@ -2958,11 +2965,12 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       if (parent instanceof Group) {
         let wrapper = wrappersByParent.get(parent);
         if (!wrapper) {
-          let referenceNode = getMainShape(parent) ?? parent;
+          let referenceNode = getMainShape(parent);
+          let wrapperOrigin = referenceNode ? referenceNode.origin.slice() : parent.origin.slice().V3_add(parent.original_offset ?? [0, 0, 0]);
           wrapper = new Group({
             name: attachmentName + ":" + parent.name,
             autouv: 1,
-            origin: referenceNode.origin.slice(),
+            origin: wrapperOrigin,
             rotation: [0, 0, 0],
             visibility: true
           });
@@ -3126,11 +3134,12 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       if (parent instanceof Group) {
         let wrapper = wrappersByParent.get(parent);
         if (!wrapper) {
-          let referenceNode = getMainShape(parent) ?? parent;
+          let referenceNode = getMainShape(parent);
+          let wrapperOrigin = referenceNode ? referenceNode.origin.slice() : parent.origin.slice().V3_add(parent.original_offset ?? [0, 0, 0]);
           wrapper = new Group({
             name: attachmentName + ":" + parent.name,
             autouv: 1,
-            origin: referenceNode.origin.slice(),
+            origin: wrapperOrigin,
             rotation: [0, 0, 0],
             visibility: true
           });

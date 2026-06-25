@@ -607,9 +607,16 @@ export function setupBlockymodelCodec(): Codec {
 					Math.roundTo(Math.radToDeg(rotation_euler.z), 3),
 				];
 				if (args.attachment && !parent_node && parent_group instanceof Group) {
-					let reference_node = getMainShape(parent_group) ?? parent_group;
+					let reference_node = getMainShape(parent_group);
 					original_position = origin;
-					origin = reference_node.origin.slice() as ArrayVector3;
+					if (reference_node) {
+						origin = reference_node.origin.slice() as ArrayVector3;
+					} else {
+						origin = parent_group.origin.slice() as ArrayVector3;
+						if (parent_group.original_offset) {
+							(origin as ArrayVector3).V3_add(parent_group.original_offset);
+						}
+					}
 
 				} else if (parent_offset && parent_group instanceof Group) {
 					origin.V3_add(parent_offset);

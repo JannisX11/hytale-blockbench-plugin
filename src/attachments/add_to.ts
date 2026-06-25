@@ -43,12 +43,15 @@ function addGroupsToAttachment(attachmentName: string, selectedGroups: Group[], 
 		if (parent instanceof Group) {
 			let wrapper = wrappersByParent.get(parent);
 			if (!wrapper) {
-				let referenceNode = getMainShape(parent) ?? parent;
+				let referenceNode = getMainShape(parent);
+				let wrapperOrigin = referenceNode
+					? referenceNode.origin.slice()
+					: parent.origin.slice().V3_add(parent.original_offset ?? [0, 0, 0]);
 
 				wrapper = new Group({
 					name: attachmentName + ':' + parent.name,
 					autouv: 1,
-					origin: referenceNode.origin.slice(),
+					origin: wrapperOrigin,
 					rotation: [0, 0, 0],
 					visibility: true,
 				});

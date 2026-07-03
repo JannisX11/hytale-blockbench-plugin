@@ -4133,6 +4133,137 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     });
   }
 
+  // src/pivot_coordinates.ts
+  var snapshot = null;
+  function takeSnapshot() {
+    let result = { origins: /* @__PURE__ */ new Map(), children: /* @__PURE__ */ new Map() };
+    let pivotObjects = getPivotObjects();
+    if (!pivotObjects) return result;
+    for (let obj of pivotObjects) {
+      result.origins.set(obj, obj.origin.slice());
+    }
+    let children = pivotObjects[0] instanceof Group ? (() => {
+      let list2 = [];
+      for (let group of pivotObjects) group.forEachChild((child) => list2.push(child));
+      return list2;
+    })() : pivotObjects;
+    for (let child of children) {
+      let element = child;
+      result.children.set(child, {
+        origin: element.origin?.slice(),
+        from: element.from?.slice(),
+        to: element.to?.slice()
+      });
+    }
+    return result;
+  }
+  function computeTransferShift(mesh, oldOrigin, newOrigin) {
+    let quaternion = new THREE.Quaternion().copy(mesh.quaternion);
+    let shift = new THREE.Vector3(oldOrigin[0] - newOrigin[0], oldOrigin[1] - newOrigin[1], oldOrigin[2] - newOrigin[2]);
+    let rotatedShift = new THREE.Vector3().copy(shift);
+    rotatedShift.applyQuaternion(quaternion);
+    shift.sub(rotatedShift).applyQuaternion(quaternion.invert());
+    return [shift.x, shift.y, shift.z];
+  }
+  function restoreWithShift(target, saved, dx, dy, dz) {
+    if (!target || !saved) return;
+    target[0] = saved[0] + dx;
+    target[1] = saved[1] + dy;
+    target[2] = saved[2] + dz;
+  }
+  function compensate(snap, locked) {
+    let pivotObjects = getPivotObjects();
+    if (!pivotObjects) return;
+    let isGroup = pivotObjects[0] instanceof Group;
+    for (let obj of pivotObjects) {
+      let element = obj;
+      let oldOrigin = snap.origins.get(obj);
+      if (!oldOrigin || !element.mesh) continue;
+      let [dx, dy, dz] = locked ? [element.origin[0] - oldOrigin[0], element.origin[1] - oldOrigin[1], element.origin[2] - oldOrigin[2]] : computeTransferShift(element.mesh, oldOrigin, element.origin);
+      if (!dx && !dy && !dz) continue;
+      if (isGroup) {
+        obj.forEachChild((child) => {
+          let saved = snap.children.get(child);
+          if (!saved) return;
+          let childElement = child;
+          restoreWithShift(childElement.origin, saved.origin, dx, dy, dz);
+          restoreWithShift(childElement.from, saved.from, dx, dy, dz);
+          restoreWithShift(childElement.to, saved.to, dx, dy, dz);
+        });
+      } else {
+        let saved = snap.children.get(obj);
+        if (!saved) continue;
+        restoreWithShift(element.from, saved.from, dx, dy, dz);
+        restoreWithShift(element.to, saved.to, dx, dy, dz);
+      }
+    }
+    let childElements = [];
+    if (isGroup) {
+      for (let group of pivotObjects) {
+        group.forEachChild((child) => childElements.safePush(child), OutlinerElement);
+      }
+    }
+    Canvas.updateView({
+      groups: Group.all,
+      group_aspects: { transform: true },
+      elements: childElements.length ? childElements : pivotObjects,
+      element_aspects: { transform: true, geometry: true },
+      selection: true
+    });
+  }
+  function setupPivotCoordinates() {
+    let toggle = new Toggle("hytale_lock_pivot_geometry", {
+      name: "Lock Geometry to Pivot",
+      description: "When locked, geometry follows pivot changes. When unlocked, pivot moves freely without affecting geometry.",
+      icon: "fas.fa-lock",
+      category: "transform",
+      condition: () => isHytaleFormat() && Modes.edit && getPivotObjects() && (Group.first_selected || Outliner.selected.length > Locator.selected.length),
+      default: true,
+      save_on_restart: true
+    });
+    track(toggle);
+    Toolbars.element_origin.add(toggle);
+    track({ delete() {
+      Toolbars.element_origin.remove(toggle);
+    } });
+    ["x", "y", "z"].forEach((axis) => {
+      let slider = BarItems[`slider_origin_${axis}`];
+      let originalChange = slider.change;
+      let originalOnBefore = slider.onBefore;
+      let originalOnAfter = slider.onAfter;
+      slider.onBefore = function() {
+        if (!isHytaleFormat()) {
+          snapshot = null;
+          return originalOnBefore?.call(this);
+        }
+        snapshot = takeSnapshot();
+        let elements = [...selected];
+        let groups = [...Group.multi_selected];
+        for (let group of Group.multi_selected) {
+          group.forEachChild((child) => {
+            if (child instanceof Group) groups.safePush(child);
+            else elements.safePush(child);
+          });
+        }
+        Undo.initEdit({ elements, groups });
+      };
+      slider.change = function(modify) {
+        originalChange?.call(this, modify);
+        if (isHytaleFormat() && snapshot) compensate(snapshot, toggle.value);
+      };
+      slider.onAfter = function(difference) {
+        if (!isHytaleFormat()) return originalOnAfter?.call(this, difference);
+        snapshot = null;
+        Undo.finishEdit("Change pivot point");
+      };
+      track({ delete() {
+        slider.change = originalChange;
+        slider.onBefore = originalOnBefore;
+        slider.onAfter = originalOnAfter;
+      } });
+    });
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -4172,6 +4303,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupPreviewScenes();
       setupUVCanvasResize();
       setupShortcuts();
+      setupPivotCoordinates();
       let panel_setup_listener;
       function showCollectionPanel() {
         const local_storage_key = "hytale_plugin:collection_panel_setup";

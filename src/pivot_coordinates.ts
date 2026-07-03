@@ -72,7 +72,6 @@ function compensate(snap: PivotSnapshot, locked: boolean) {
 		let [dx, dy, dz] = locked
 			? [element.origin[0] - oldOrigin[0], element.origin[1] - oldOrigin[1], element.origin[2] - oldOrigin[2]]
 			: computeTransferShift(element.mesh, oldOrigin, element.origin);
-		if (!dx && !dy && !dz) continue;
 
 		if (isGroup) {
 			(obj as Group).forEachChild(child => {

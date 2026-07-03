@@ -4180,7 +4180,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       let oldOrigin = snap.origins.get(obj);
       if (!oldOrigin || !element.mesh) continue;
       let [dx, dy, dz] = locked ? [element.origin[0] - oldOrigin[0], element.origin[1] - oldOrigin[1], element.origin[2] - oldOrigin[2]] : computeTransferShift(element.mesh, oldOrigin, element.origin);
-      if (!dx && !dy && !dz) continue;
       if (isGroup) {
         obj.forEachChild((child) => {
           let saved = snap.children.get(child);

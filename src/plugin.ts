@@ -26,6 +26,7 @@ import { setupChangeOrientation } from "./change_orientation";
 import { setupShortcuts } from "./shortcuts";
 import { setupPivotSnap } from "./pivot_snap";
 import { setupNondestructiveUVMove } from "./nondestructive_uv_move";
+import { setupUVSelect } from "./uv_select";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -58,6 +59,7 @@ BBPlugin.register('hytale_plugin', {
         setupChecks();
         setupPhotoshopTools();
         setupUVCycling();
+        setupUVSelect();
         setupTextureHandling();
         setupAltDuplicate();
         setupNameOverlap();

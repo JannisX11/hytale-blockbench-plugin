@@ -15,6 +15,15 @@ interface LinkedSession {
 let activeSession: LinkedSession | null = null;
 let insideUndoRedo = false;
 
+interface LayerSnapshot {
+    canvas: HTMLCanvasElement;
+}
+
+let layerRotationState: {
+    snapshots: Map<string, LayerSnapshot>;
+    originalRotations: Map<string, number>;
+} | null = null;
+
 function shouldUseLinkedMode(): boolean {
     return !!(
         FORMAT_IDS.includes(Format.id) &&
@@ -373,6 +382,186 @@ function teardownSession() {
     flattenTexture(texture);
 }
 
+function rotateCanvasByDegrees(source: HTMLCanvasElement, degrees: number): HTMLCanvasElement {
+    let norm = ((degrees % 360) + 360) % 360;
+    let sw = source.width, sh = source.height;
+    let result = document.createElement('canvas');
+    if (norm === 90 || norm === 270) {
+        result.width = sh;
+        result.height = sw;
+    } else {
+        result.width = sw;
+        result.height = sh;
+    }
+    if (norm === 0) {
+        result.getContext('2d')!.drawImage(source, 0, 0);
+        return result;
+    }
+    let ctx = result.getContext('2d')!;
+    ctx.translate(result.width / 2, result.height / 2);
+    ctx.rotate(-norm * Math.PI / 180);
+    ctx.drawImage(source, -sw / 2, -sh / 2);
+    return result;
+}
+
+function captureLayerSnapshotsForRotation(session: LinkedSession): Map<string, LayerSnapshot> {
+    let snapshots = new Map<string, LayerSnapshot>();
+    for (let el of UVEditor.getMappableElements()) {
+        if (!(el instanceof Cube)) continue;
+        for (let fkey of UVEditor.getSelectedFaces(el)) {
+            let key = faceKey(el.uuid, fkey);
+            let layer = session.faceLayerMap.get(key);
+            if (!layer) continue;
+            let canvas = document.createElement('canvas');
+            canvas.width = layer.canvas.width;
+            canvas.height = layer.canvas.height;
+            canvas.getContext('2d')!.drawImage(layer.canvas, 0, 0);
+            snapshots.set(key, { canvas });
+        }
+    }
+    return snapshots;
+}
+
+function captureCurrentRotations(): Map<string, number> {
+    let rotations = new Map<string, number>();
+    for (let el of UVEditor.getMappableElements()) {
+        if (!(el instanceof Cube)) continue;
+        for (let fkey of UVEditor.getSelectedFaces(el)) {
+            let face = el.faces[fkey as CubeFaceDirection];
+            rotations.set(faceKey(el.uuid, fkey), face.rotation || 0);
+        }
+    }
+    return rotations;
+}
+
+function applyLayerRotations(
+    session: LinkedSession,
+    snapshots: Map<string, LayerSnapshot>,
+    getDegrees: (key: string) => number
+) {
+    for (let [key, snapshot] of snapshots) {
+        let layer = session.faceLayerMap.get(key);
+        if (!layer) continue;
+        let degrees = getDegrees(key);
+        let rotated = rotateCanvasByDegrees(snapshot.canvas, degrees);
+        layer.setSize(rotated.width, rotated.height);
+        layer.ctx.drawImage(rotated, 0, 0);
+    }
+    syncLayerOffsets(session, UVEditor.getMappableElements(), session.texture);
+}
+
+function linkedRotateFace(this: any, event: MouseEvent | TouchEvent) {
+    let me = event as MouseEvent;
+    if (me.which === 2 || me.which === 3) return;
+    event.stopPropagation();
+    (window as any).convertTouchEvent(event);
+
+    let elements = UVEditor.getMappableElements();
+    let texture = this.texture as Texture;
+    if (!texture) return;
+
+    Undo.initEdit({
+        elements,
+        uv_only: true,
+        bitmap: true,
+        textures: [texture]
+    } as any);
+
+    let session = ensureSession(texture, elements);
+    createLayersForDraggedFaces(session, elements, texture);
+
+    let faceCenter = [0, 0];
+    let points = 0;
+    for (let el of elements) {
+        if (!(el instanceof Cube)) continue;
+        for (let fkey of UVEditor.getSelectedFaces(el)) {
+            let face = el.faces[fkey as CubeFaceDirection];
+            if (face instanceof CubeFace) {
+                faceCenter[0] += face.uv[0] + face.uv[2];
+                faceCenter[1] += face.uv[1] + face.uv[3];
+                points += 2;
+            }
+        }
+    }
+    if (points === 0) return;
+    faceCenter[0] /= points;
+    faceCenter[1] /= points;
+
+    let snapshots = captureLayerSnapshotsForRotation(session);
+
+    let frameOffset = ($ as any)(this.$refs.frame).offset();
+    let pixelSize = UVEditor.getUVPixelSize();
+    let centerOnScreen = [
+        faceCenter[0] * pixelSize + frameOffset.left,
+        faceCenter[1] * pixelSize + frameOffset.top,
+    ];
+
+    let lastAngle: number | undefined;
+    let originalAngle: number | undefined;
+    let cumulativeRotation = 0;
+    let scope = this;
+    let dragging = false;
+
+    let drag = (e1: Event) => {
+        (window as any).convertTouchEvent(e1);
+        let me1 = e1 as MouseEvent;
+        let angle = Math.atan2(
+            me1.clientY - centerOnScreen[1],
+            me1.clientX - centerOnScreen[0],
+        );
+        angle = Math.round(Math.radToDeg(angle) / 90) * 90;
+        if (originalAngle === undefined) originalAngle = angle;
+        angle -= originalAngle;
+        if (lastAngle === undefined) lastAngle = angle;
+        if (Math.abs(angle - lastAngle) > 300) lastAngle = angle;
+
+        if (angle !== lastAngle) {
+            scope.helper_lines.x = scope.helper_lines.y = -1;
+            let rotationStep = 90 * Math.sign(lastAngle - angle);
+            cumulativeRotation = (cumulativeRotation + rotationStep + 360) % 360;
+
+            for (let el of elements) {
+                if (!(el instanceof Cube)) continue;
+                if (!(el as any).getTypeBehavior?.('cube_faces')) continue;
+                for (let fkey of UVEditor.getSelectedFaces(el)) {
+                    let face = el.faces[fkey as CubeFaceDirection];
+                    if (!face) continue;
+                    face.rotation = ((face.rotation || 0) + rotationStep + 360) % 360;
+                }
+                (el as any).preview_controller.updateUV(el);
+            }
+
+            UVEditor.turnMapping();
+            applyLayerRotations(session, snapshots, () => cumulativeRotation);
+            (texture as any).updateLayerChanges(false);
+
+            lastAngle = angle;
+            UVEditor.loadData();
+            (UVEditor as any).vue.$forceUpdate();
+            Canvas.updateView({ elements, element_aspects: { uv: true } });
+            scope.dragging_uv = true;
+            dragging = true;
+        }
+    };
+
+    let stop = () => {
+        (window as any).removeEventListeners(document, 'mousemove touchmove', drag);
+        (window as any).removeEventListeners(document, 'mouseup touchend', stop);
+        scope.helper_lines.x = scope.helper_lines.y = -1;
+        if (dragging) {
+            (texture as any).updateLayerChanges(true);
+            UVEditor.disableAutoUV();
+            Undo.finishEdit('Rotate UV');
+            setTimeout(() => scope.dragging_uv = false, 10);
+        } else {
+            Undo.cancelEdit();
+        }
+    };
+
+    (window as any).addEventListeners(document, 'mousemove touchmove', drag);
+    (window as any).addEventListeners(document, 'mouseup touchend', stop);
+}
+
 function linkedDragFace(this: any, element: any, face_key: string | null, event: MouseEvent | TouchEvent) {
     if ((event as MouseEvent).which == 2 || (event as MouseEvent).which == 3) return;
 
@@ -535,6 +724,81 @@ export function setupNondestructiveUVMove() {
     track({
         delete() {
             vue.dragFace = originalDragFace;
+        }
+    });
+
+    // Intercept rotateFace (corner drag) to rotate layers instead of corrupting texture.ctx
+    let originalRotateFace = vue.rotateFace;
+    vue.rotateFace = function (event: MouseEvent | TouchEvent) {
+        if (shouldUseLinkedMode()) {
+            return linkedRotateFace.call(this, event);
+        }
+        return originalRotateFace.call(this, event);
+    };
+    track({
+        delete() {
+            vue.rotateFace = originalRotateFace;
+        }
+    });
+
+    // Intercept rotation slider to rotate layers instead of corrupting texture.ctx
+    let rotationSlider = BarItems.uv_rotation as any;
+    let originalRotate = UVEditor.rotate.bind(UVEditor);
+    if (rotationSlider) {
+        let originalOnBefore = rotationSlider.onBefore;
+        let originalOnAfter = rotationSlider.onAfter;
+
+        rotationSlider.onBefore = function (...args: any[]) {
+            if (shouldUseLinkedMode()) {
+                let texture = (UVEditor as any).vue?.texture as Texture;
+                if (!texture) return originalOnBefore?.apply(this, args);
+
+                originalOnBefore?.apply(this, args);
+
+                let elements = UVEditor.getMappableElements();
+                let session = ensureSession(texture, elements);
+                createLayersForDraggedFaces(session, elements, texture);
+
+                layerRotationState = {
+                    snapshots: captureLayerSnapshotsForRotation(session),
+                    originalRotations: captureCurrentRotations(),
+                };
+                (UVEditor as any)._originalPixels = null;
+                return;
+            }
+            return originalOnBefore?.apply(this, args);
+        };
+
+        rotationSlider.onAfter = function (...args: any[]) {
+            if (layerRotationState && activeSession) {
+                (activeSession.texture as any).updateLayerChanges(true);
+                layerRotationState = null;
+            }
+            return originalOnAfter?.apply(this, args);
+        };
+
+        track({
+            delete() {
+                rotationSlider.onBefore = originalOnBefore;
+                rotationSlider.onAfter = originalOnAfter;
+            }
+        });
+    }
+
+    (UVEditor as any).rotate = function (...args: any[]) {
+        originalRotate(...args);
+        if (layerRotationState && activeSession) {
+            let value = parseInt(rotationSlider?.get() || '0');
+            applyLayerRotations(activeSession, layerRotationState.snapshots, key => {
+                let origRot = layerRotationState!.originalRotations.get(key) || 0;
+                return (value - origRot + 360) % 360;
+            });
+            (activeSession.texture as any).updateLayerChanges(false);
+        }
+    };
+    track({
+        delete() {
+            (UVEditor as any).rotate = originalRotate;
         }
     });
 

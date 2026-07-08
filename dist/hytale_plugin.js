@@ -4856,6 +4856,70 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     });
   }
 
+  // src/uv_select.ts
+  function findCubeAtUV(u, v) {
+    for (let cube of Cube.all) {
+      if (!cube.visibility || cube.selected) continue;
+      for (let fkey in cube.faces) {
+        let face = cube.faces[fkey];
+        if (face.enabled === false) continue;
+        let rect = face.getBoundingRect();
+        if (u >= Math.min(rect.ax, rect.bx) && u <= Math.max(rect.ax, rect.bx) && v >= Math.min(rect.ay, rect.by) && v <= Math.max(rect.ay, rect.by)) {
+          return cube;
+        }
+      }
+    }
+    return null;
+  }
+  function setupUVSelect() {
+    let style = document.createElement("style");
+    style.textContent = ".cube_uv_face.unselected, .cube_box_uv.unselected { pointer-events: auto !important; cursor: pointer; }";
+    document.head.appendChild(style);
+    track({ delete() {
+      style.remove();
+    } });
+    let uvPanel = Panels.uv;
+    if (!uvPanel) return;
+    function initHandler() {
+      let viewport = uvPanel.node?.querySelector("#uv_viewport");
+      if (!viewport) return false;
+      function onMouseDown(event) {
+        let me = event;
+        if (!FORMAT_IDS.includes(Format.id)) return;
+        if (me.button !== 0) return;
+        let target = me.target;
+        if (!target.closest(".cube_uv_face.unselected, .cube_box_uv.unselected")) return;
+        let frame = document.getElementById("uv_frame");
+        if (!frame) return;
+        let frameRect = frame.getBoundingClientRect();
+        let vue = UVEditor.vue;
+        let u = (me.clientX - frameRect.left) / vue.inner_width * UVEditor.getResolution(0);
+        let v = (me.clientY - frameRect.top) / vue.inner_height * UVEditor.getResolution(1);
+        let cube = findCubeAtUV(u, v);
+        if (!cube) return;
+        let add = me.shiftKey || me.ctrlOrCmd || Pressing.overrides?.shift || Pressing.overrides?.ctrl;
+        if (!add) {
+          window.unselectAllElements([cube]);
+        }
+        cube.markAsSelected();
+      }
+      viewport.addEventListener("mousedown", onMouseDown, true);
+      track({ delete() {
+        viewport.removeEventListener("mousedown", onMouseDown, true);
+      } });
+      return true;
+    }
+    if (initHandler()) return;
+    let attempts = 0;
+    let interval = setInterval(() => {
+      attempts++;
+      if (initHandler() || attempts >= 50) clearInterval(interval);
+    }, 100);
+    track({ delete() {
+      clearInterval(interval);
+    } });
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -4886,6 +4950,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupChecks();
       setupPhotoshopTools();
       setupUVCycling();
+      setupUVSelect();
       setupTextureHandling();
       setupAltDuplicate();
       setupNameOverlap();

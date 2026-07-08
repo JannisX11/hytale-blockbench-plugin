@@ -1693,6 +1693,7 @@
     });
     const per_shape_channels = /* @__PURE__ */ new Set(["scale", "visibility", "uv_offset"]);
     const on_init_edit = Blockbench.on("init_edit", (arg) => {
+      if (!isHytaleFormat()) return;
       if (arg.aspects.keyframes?.length == 1 && per_shape_channels.has(arg.aspects.keyframes[0].channel)) {
         let kf = arg.aspects.keyframes[0];
         let group = kf.animator.group;
@@ -4106,12 +4107,11 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     let selecting = false;
     brush_tool.addSubKeybind("switch_preset", "Switch Preset", null, (event) => {
       if (Toolbox.selected == brush_tool && !selecting) {
-        let options = brush_tool.side_menu.structure();
-        options = options.slice(0, -2);
-        let index = options.findIndex((option) => option.name == last_brush_preset?.name);
+        let options = [...Painter.default_brush_presets, ...StateMemory.brush_presets];
+        let index = options.indexOf(last_brush_preset);
         let next_index = (index + 1) % options.length;
         let next_option = options[next_index];
-        next_option.click(null, event);
+        Painter.loadBrushPreset(next_option);
         Blockbench.showQuickMessage(`Brush ${next_index + 1}: ${tl(next_option.name)}`);
       }
     });

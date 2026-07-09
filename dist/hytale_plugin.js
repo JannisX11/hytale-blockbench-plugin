@@ -4133,6 +4133,76 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     });
   }
 
+  // src/uv_fill.ts
+  function setupUVFill() {
+    const originalUseFilltool = Painter.useFilltool;
+    Painter.useFilltool = function(texture, ctx, x, y, area) {
+      const fill_mode = BarItems.fill_mode.get();
+      const element = Painter.current.element;
+      if (!element) {
+        const hit = findFaceAtUV(texture, x, y, area.uvFactorX, area.uvFactorY);
+        if (hit) {
+          if (fill_mode === "face" || fill_mode === "element") {
+            Painter.current.element = hit.element;
+            Painter.current.face = hit.faceKey;
+          } else if (fill_mode === "color" || fill_mode === "color_connected") {
+            const r = hit.region;
+            area = { ...area, rect: [r.minX, r.minY, r.maxX, r.maxY], w: r.maxX - r.minX, h: r.maxY - r.minY };
+          }
+        }
+      }
+      return originalUseFilltool.call(Painter, texture, ctx, x, y, area);
+    };
+    track({
+      delete() {
+        Painter.useFilltool = originalUseFilltool;
+      }
+    });
+  }
+  function findFaceAtUV(texture, x, y, uvFactorX, uvFactorY) {
+    const animOffset = texture.display_height * texture.currentFrame;
+    for (const cube of Cube.all) {
+      for (const faceKey in cube.faces) {
+        const face = cube.faces[faceKey];
+        const faceTexture = face.getTexture();
+        if (!faceTexture || Painter.getTextureToEdit(faceTexture) !== texture) continue;
+        const uv = face.uv;
+        if (!uv) continue;
+        const minX = Math.floor(Math.min(uv[0], uv[2]) * uvFactorX);
+        const maxX = Math.ceil(Math.max(uv[0], uv[2]) * uvFactorX);
+        const minY = Math.floor(Math.min(uv[1], uv[3]) * uvFactorY) + animOffset;
+        const maxY = Math.ceil(Math.max(uv[1], uv[3]) * uvFactorY) + animOffset;
+        if (x >= minX && x < maxX && y >= minY && y < maxY) {
+          return { element: cube, faceKey, region: { minX, minY, maxX, maxY } };
+        }
+      }
+    }
+    for (const mesh of Mesh.all) {
+      for (const faceKey in mesh.faces) {
+        const face = mesh.faces[faceKey];
+        const faceTexture = face.getTexture();
+        if (!faceTexture || Painter.getTextureToEdit(faceTexture) !== texture) continue;
+        if (face.vertices.length < 3) continue;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const vkey in face.uv) {
+          const uv = face.uv[vkey];
+          minX = Math.min(minX, uv[0] * uvFactorX);
+          maxX = Math.max(maxX, uv[0] * uvFactorX);
+          minY = Math.min(minY, uv[1] * uvFactorY);
+          maxY = Math.max(maxY, uv[1] * uvFactorY);
+        }
+        minX = Math.floor(minX);
+        minY = Math.floor(minY) + animOffset;
+        maxX = Math.ceil(maxX);
+        maxY = Math.ceil(maxY) + animOffset;
+        if (x >= minX && x < maxX && y >= minY && y < maxY) {
+          return { element: mesh, faceKey, region: { minX, minY, maxX, maxY } };
+        }
+      }
+    }
+    return null;
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -4172,6 +4242,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupPreviewScenes();
       setupUVCanvasResize();
       setupShortcuts();
+      setupUVFill();
       let panel_setup_listener;
       function showCollectionPanel() {
         const local_storage_key = "hytale_plugin:collection_panel_setup";

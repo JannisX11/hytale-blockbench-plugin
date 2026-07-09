@@ -3675,6 +3675,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     });
     const per_shape_channels = /* @__PURE__ */ new Set(["scale", "visibility", "uv_offset"]);
     const on_init_edit = Blockbench.on("init_edit", (arg) => {
+      if (!isHytaleFormat()) return;
       if (arg.aspects.keyframes?.length == 1 && per_shape_channels.has(arg.aspects.keyframes[0].channel)) {
         let kf = arg.aspects.keyframes[0];
         let group = kf.animator.group;
@@ -4058,6 +4059,11 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
         node_count++;
       }
     }
+    Outliner.root.forEach((node) => {
+      if (node instanceof Cube && node.export) {
+        node_count++;
+      }
+    });
     return node_count;
   }
   function setupChecks() {
@@ -6471,12 +6477,11 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     let selecting = false;
     brush_tool.addSubKeybind("switch_preset", "Switch Preset", null, (event) => {
       if (Toolbox.selected == brush_tool && !selecting) {
-        let options = brush_tool.side_menu.structure();
-        options = options.slice(0, -2);
-        let index = options.findIndex((option) => option.name == last_brush_preset?.name);
+        let options = [...Painter.default_brush_presets, ...StateMemory.brush_presets];
+        let index = options.indexOf(last_brush_preset);
         let next_index = (index + 1) % options.length;
         let next_option = options[next_index];
-        next_option.click(null, event);
+        Painter.loadBrushPreset(next_option);
         Blockbench.showQuickMessage(`Brush ${next_index + 1}: ${tl(next_option.name)}`);
       }
     });
@@ -7704,6 +7709,76 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     } });
   }
 
+  // src/uv_fill.ts
+  function setupUVFill() {
+    const originalUseFilltool = Painter.useFilltool;
+    Painter.useFilltool = function(texture, ctx, x, y, area) {
+      const fill_mode = BarItems.fill_mode.get();
+      const element = Painter.current.element;
+      if (!element) {
+        const hit = findFaceAtUV(texture, x, y, area.uvFactorX, area.uvFactorY);
+        if (hit) {
+          if (fill_mode === "face" || fill_mode === "element") {
+            Painter.current.element = hit.element;
+            Painter.current.face = hit.faceKey;
+          } else if (fill_mode === "color" || fill_mode === "color_connected") {
+            const r = hit.region;
+            area = { ...area, rect: [r.minX, r.minY, r.maxX, r.maxY], w: r.maxX - r.minX, h: r.maxY - r.minY };
+          }
+        }
+      }
+      return originalUseFilltool.call(Painter, texture, ctx, x, y, area);
+    };
+    track({
+      delete() {
+        Painter.useFilltool = originalUseFilltool;
+      }
+    });
+  }
+  function findFaceAtUV(texture, x, y, uvFactorX, uvFactorY) {
+    const animOffset = texture.display_height * texture.currentFrame;
+    for (const cube of Cube.all) {
+      for (const faceKey2 in cube.faces) {
+        const face = cube.faces[faceKey2];
+        const faceTexture = face.getTexture();
+        if (!faceTexture || Painter.getTextureToEdit(faceTexture) !== texture) continue;
+        const uv = face.uv;
+        if (!uv) continue;
+        const minX = Math.floor(Math.min(uv[0], uv[2]) * uvFactorX);
+        const maxX = Math.ceil(Math.max(uv[0], uv[2]) * uvFactorX);
+        const minY = Math.floor(Math.min(uv[1], uv[3]) * uvFactorY) + animOffset;
+        const maxY = Math.ceil(Math.max(uv[1], uv[3]) * uvFactorY) + animOffset;
+        if (x >= minX && x < maxX && y >= minY && y < maxY) {
+          return { element: cube, faceKey: faceKey2, region: { minX, minY, maxX, maxY } };
+        }
+      }
+    }
+    for (const mesh of Mesh.all) {
+      for (const faceKey2 in mesh.faces) {
+        const face = mesh.faces[faceKey2];
+        const faceTexture = face.getTexture();
+        if (!faceTexture || Painter.getTextureToEdit(faceTexture) !== texture) continue;
+        if (face.vertices.length < 3) continue;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const vkey in face.uv) {
+          const uv = face.uv[vkey];
+          minX = Math.min(minX, uv[0] * uvFactorX);
+          maxX = Math.max(maxX, uv[0] * uvFactorX);
+          minY = Math.min(minY, uv[1] * uvFactorY);
+          maxY = Math.max(maxY, uv[1] * uvFactorY);
+        }
+        minX = Math.floor(minX);
+        minY = Math.floor(minY) + animOffset;
+        maxX = Math.ceil(maxX);
+        maxY = Math.ceil(maxY) + animOffset;
+        if (x >= minX && x < maxX && y >= minY && y < maxY) {
+          return { element: mesh, faceKey: faceKey2, region: { minX, minY, maxX, maxY } };
+        }
+      }
+    }
+    return null;
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -7748,6 +7823,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupShortcuts();
       setupPivotSnap();
       setupNondestructiveUVMove();
+      setupUVFill();
       let panel_setup_listener;
       function showCollectionPanel() {
         const local_storage_key = "hytale_plugin:collection_panel_setup";

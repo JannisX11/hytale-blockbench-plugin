@@ -227,6 +227,7 @@ export function setupAnimation() {
     // Warning if no default shape
     const per_shape_channels = new Set(['scale', 'visibility', 'uv_offset']);
     const on_init_edit = Blockbench.on('init_edit', arg => {
+        if (!isHytaleFormat()) return;
         if (arg.aspects.keyframes?.length == 1 && per_shape_channels.has(arg.aspects.keyframes[0].channel)) {
             let kf = arg.aspects.keyframes[0];
             let group = (kf.animator as BoneAnimator).group;

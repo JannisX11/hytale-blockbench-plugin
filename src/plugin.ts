@@ -27,6 +27,7 @@ import { setupShortcuts } from "./shortcuts";
 import { setupPivotSnap } from "./pivot_snap";
 import { setupNondestructiveUVMove } from "./nondestructive_uv_move";
 import { setupUVSelect } from "./uv_select";
+import { setupUVFill } from "./uv_fill";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -72,6 +73,7 @@ BBPlugin.register('hytale_plugin', {
         setupShortcuts();
         setupPivotSnap();
         setupNondestructiveUVMove();
+        setupUVFill();
 
         // Collections panel setting
         let panel_setup_listener: Deletable;

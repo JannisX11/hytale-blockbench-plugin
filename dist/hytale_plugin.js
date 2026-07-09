@@ -7653,10 +7653,14 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
   function setupUVSelect() {
     let style = document.createElement("style");
     style.textContent = ".cube_uv_face.unselected, .cube_box_uv.unselected { pointer-events: auto !important; cursor: pointer; }";
+    style.disabled = Modes.paint;
     document.head.appendChild(style);
     track({ delete() {
       style.remove();
     } });
+    track(Blockbench.on("select_mode", () => {
+      style.disabled = Modes.paint;
+    }));
     let uvPanel = Panels.uv;
     if (!uvPanel) return;
     function initHandler() {
@@ -7665,6 +7669,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       function onMouseDown(event) {
         let me = event;
         if (!FORMAT_IDS.includes(Format.id)) return;
+        if (Modes.paint) return;
         if (me.button !== 0) return;
         let target = me.target;
         if (!target.closest(".cube_uv_face.unselected, .cube_box_uv.unselected")) return;

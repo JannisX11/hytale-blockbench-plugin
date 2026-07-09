@@ -31,8 +31,11 @@ function findCubeAtUV(u: number, v: number): Cube | null {
 export function setupUVSelect() {
 	let style = document.createElement('style');
 	style.textContent = '.cube_uv_face.unselected, .cube_box_uv.unselected { pointer-events: auto !important; cursor: pointer; }';
+	style.disabled = Modes.paint;
 	document.head.appendChild(style);
 	track({ delete() { style.remove(); } });
+
+	track(Blockbench.on('select_mode', () => { style.disabled = Modes.paint; }));
 
 	let uvPanel = (Panels as any).uv;
 	if (!uvPanel) return;
@@ -44,6 +47,7 @@ export function setupUVSelect() {
 		function onMouseDown(event: Event) {
 			let me = event as MouseEvent;
 			if (!FORMAT_IDS.includes(Format.id)) return;
+			if (Modes.paint) return;
 			if (me.button !== 0) return;
 
 			let target = me.target as HTMLElement;

@@ -4264,7 +4264,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     pts.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
     pts.geometry.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(colors), 3));
   }
-  function recolorElementPoints(el, hoveredIndex, isHoveredElement) {
+  function recolorElementPoints(el, hoveredIndex) {
     let points = el.mesh?.vertex_points;
     if (!points) return;
     let colorAttr = points.geometry.attributes.color;
@@ -4287,7 +4287,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       arr[offset + 2] = color.b;
     }
     colorAttr.needsUpdate = true;
-    points.material.depthTest = !isHoveredElement;
   }
   var _mouse = new THREE.Vector2();
   var _raycaster = new THREE.Raycaster();
@@ -4410,10 +4409,8 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         allPoints.push(localPos.toArray());
       }
       rebuildPointsGeometry(pts, allPoints);
-      if (pts._parent_pivot_index != null) {
-        pts.renderOrder = 901;
-        pts.material.depthTest = false;
-      }
+      pts.renderOrder = 901;
+      pts.material.depthTest = false;
       if (!Vertexsnap.step1 && element === _sourceElement) {
         let idx = Vertexsnap.vertex_index;
         let colorAttr = pts.geometry.attributes.color;
@@ -4504,16 +4501,14 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         Project.model_3d.remove(Vertexsnap.line);
         removeGuideLine();
         if (_prevHoveredEl) {
-          recolorElementPoints(_prevHoveredEl, -1, false);
+          recolorElementPoints(_prevHoveredEl, -1);
           _prevHoveredEl = null;
         }
       }
       let hoveredEl = data?.element;
       if (hoveredEl?.mesh?.vertex_points) {
         if (data.type === "vertex") {
-          recolorElementPoints(hoveredEl, data.vertex_index, true);
-        } else {
-          hoveredEl.mesh.vertex_points.material.depthTest = false;
+          recolorElementPoints(hoveredEl, data.vertex_index);
         }
         _prevHoveredEl = hoveredEl;
       }

@@ -134,7 +134,7 @@ function rebuildPointsGeometry(pts: any, verts: number[][]) {
 	pts.geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(colors), 3));
 }
 
-function recolorElementPoints(el: any, hoveredIndex: number, isHoveredElement: boolean) {
+function recolorElementPoints(el: any, hoveredIndex: number) {
 	let points = el.mesh?.vertex_points;
 	if (!points) return;
 
@@ -159,7 +159,6 @@ function recolorElementPoints(el: any, hoveredIndex: number, isHoveredElement: b
 		arr[offset + 2] = color.b;
 	}
 	colorAttr.needsUpdate = true;
-	points.material.depthTest = !isHoveredElement;
 }
 
 // Reusable objects for per-frame raycasting to avoid allocations in mousemove
@@ -308,10 +307,8 @@ export function setupPivotSnap() {
 		}
 
 		rebuildPointsGeometry(pts, allPoints);
-		if (pts._parent_pivot_index != null) {
-			pts.renderOrder = 901;
-			pts.material.depthTest = false;
-		}
+		pts.renderOrder = 901;
+		pts.material.depthTest = false;
 
 		if (!Vertexsnap.step1 && element === _sourceElement) {
 			let idx = Vertexsnap.vertex_index;
@@ -421,7 +418,7 @@ export function setupPivotSnap() {
 			removeGuideLine();
 
 			if (_prevHoveredEl) {
-				recolorElementPoints(_prevHoveredEl, -1, false);
+				recolorElementPoints(_prevHoveredEl, -1);
 				_prevHoveredEl = null;
 			}
 		}
@@ -429,9 +426,7 @@ export function setupPivotSnap() {
 		let hoveredEl = data?.element;
 		if (hoveredEl?.mesh?.vertex_points) {
 			if (data.type === 'vertex') {
-				recolorElementPoints(hoveredEl, data.vertex_index, true);
-			} else {
-				hoveredEl.mesh.vertex_points.material.depthTest = false;
+				recolorElementPoints(hoveredEl, data.vertex_index);
 			}
 			_prevHoveredEl = hoveredEl;
 		}

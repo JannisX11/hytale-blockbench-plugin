@@ -3996,7 +3996,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       description: "When enabled, the pivot point moves along with the element when using the move tool",
       icon: pivotFollowEnabled ? "location_searching" : "location_disabled",
       category: "edit",
-      condition: { formats: FORMAT_IDS, modes: ["edit"] },
+      condition: { formats: FORMAT_IDS, modes: ["edit"], tools: ["move_tool"] },
       default: pivotFollowEnabled,
       onChange(value) {
         pivotFollowEnabled = value;

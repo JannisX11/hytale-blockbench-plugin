@@ -45,6 +45,7 @@ BBPlugin.register('hytale_plugin', {
     onload() {
 
         setupFormats();
+        setupTempFixes();
         setupElements();
         setupAnimation();
         setupAnimationCodec();
@@ -57,7 +58,6 @@ BBPlugin.register('hytale_plugin', {
         setupAltDuplicate();
         setupNameOverlap();
         setupUVOutline();
-        setupTempFixes();
         setupChangeOrientation();
         setupPreviewScenes();
         setupUVCanvasResize();

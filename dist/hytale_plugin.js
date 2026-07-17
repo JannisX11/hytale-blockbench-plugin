@@ -1878,6 +1878,57 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
         Cube.prototype.setUVMode = set_uv_mode_original;
       }
     });
+    let original_add_group_click = BarItems.add_group.click;
+    BarItems.add_group.click = function(...args) {
+      if (!isHytaleFormat() || Outliner.selected.length !== 1 || Group.multi_selected.length > 0) {
+        return original_add_group_click.apply(this, args);
+      }
+      let element = Outliner.selected[0];
+      if (!(element instanceof Cube)) {
+        return original_add_group_click.apply(this, args);
+      }
+      let has_rotation = element.rotation.some((v) => v !== 0);
+      Undo.initEdit({
+        outliner: true,
+        elements: has_rotation ? [element] : [],
+        groups: []
+      });
+      let base_group = new Group({
+        origin: element.origin,
+        rotation: has_rotation ? [...element.rotation] : void 0,
+        name: element.name === "cube" ? void 0 : element.name
+      });
+      base_group.sortInBefore(element);
+      base_group.isOpen = true;
+      base_group.init();
+      if (base_group.getTypeBehavior("unique_name")) {
+        base_group.createUniqueName();
+      }
+      element.addTo(base_group);
+      if (has_rotation) {
+        element.rotation = [0, 0, 0];
+      }
+      element.preview_controller.updateTransform(element);
+      base_group.select();
+      Undo.finishEdit("Add group", {
+        outliner: true,
+        elements: has_rotation ? [element] : [],
+        groups: [base_group]
+      });
+      Vue.nextTick(function() {
+        updateSelection();
+        if (settings.create_rename.value) {
+          base_group.rename();
+        }
+        base_group.showInOutliner();
+        Blockbench.dispatchEvent("add_group", { object: base_group });
+      });
+    };
+    track({
+      delete() {
+        BarItems.add_group.click = original_add_group_click;
+      }
+    });
     let inflate_condition_original = BarItems.slider_inflate.condition;
     BarItems.slider_inflate.condition = () => {
       if (isHytaleFormat()) return false;
@@ -4155,6 +4206,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     contributors: ["Hedaox", "MelodicAlbuild"],
     onload() {
       setupFormats();
+      setupTempFixes();
       setupElements();
       setupAnimation();
       setupAnimationCodec();
@@ -4167,7 +4219,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupAltDuplicate();
       setupNameOverlap();
       setupUVOutline();
-      setupTempFixes();
       setupChangeOrientation();
       setupPreviewScenes();
       setupUVCanvasResize();

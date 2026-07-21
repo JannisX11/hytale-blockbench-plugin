@@ -566,7 +566,7 @@ export function setupUVCanvasResize() {
     });
     track(resizeToggle);
 
-    (Toolbars as any).uv_editor?.add(resizeToggle, 0);
+    (Toolbars as any).uv_editor?.add(resizeToggle, 1);
 
     track(Blockbench.on('select_mode', () => {
         cropTool?.deactivate();

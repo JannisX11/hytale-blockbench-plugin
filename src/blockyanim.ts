@@ -117,7 +117,7 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 	const nodeAnimations: Record<string, IAnimationObject> = {};
 	const file: IBlockyAnimJSON = {
 		formatVersion: 1,
-		duration: Math.round(animation.length * FPS),
+		duration: Math.round(animation.length * FPS) || FPS * 2,
 		holdLastKeyframe: animation.loop == 'hold',
 		nodeAnimations,
 	}
@@ -154,11 +154,6 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 					};
 					delta = new oneLiner(delta);
 				} else {
-					delta = {
-						x: parseFloat(data_point.x),
-						y: parseFloat(data_point.y),
-						z: parseFloat(data_point.z),
-					};
 					if (channel == 'rotation') {
 						let euler = new THREE.Euler(
 							Math.degToRad(kf.calc('x')),
@@ -167,12 +162,17 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 							Format.euler_order,
 						);
 						let quaternion = new THREE.Quaternion().setFromEuler(euler);
-
 						delta = {
 							x: quaternion.x,
 							y: quaternion.y,
 							z: quaternion.z,
 							w: quaternion.w,
+						};
+					} else {
+						delta = {
+							x: kf.calc('x'),
+							y: kf.calc('y'),
+							z: kf.calc('z'),
 						};
 					}
 					delta = new oneLiner(delta);

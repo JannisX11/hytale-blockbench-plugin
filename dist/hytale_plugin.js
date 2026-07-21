@@ -1051,7 +1051,7 @@
     const nodeAnimations = {};
     const file = {
       formatVersion: 1,
-      duration: Math.round(animation.length * FPS),
+      duration: Math.round(animation.length * FPS) || FPS * 2,
       holdLastKeyframe: animation.loop == "hold",
       nodeAnimations
     };
@@ -1085,11 +1085,6 @@
             };
             delta = new oneLiner(delta);
           } else {
-            delta = {
-              x: parseFloat(data_point.x),
-              y: parseFloat(data_point.y),
-              z: parseFloat(data_point.z)
-            };
             if (channel == "rotation") {
               let euler = new THREE.Euler(
                 Math.degToRad(kf.calc("x")),
@@ -1103,6 +1098,12 @@
                 y: quaternion.y,
                 z: quaternion.z,
                 w: quaternion.w
+              };
+            } else {
+              delta = {
+                x: kf.calc("x"),
+                y: kf.calc("y"),
+                z: kf.calc("z")
               };
             }
             delta = new oneLiner(delta);
@@ -1696,6 +1697,7 @@
     });
     const per_shape_channels = /* @__PURE__ */ new Set(["scale", "visibility", "uv_offset"]);
     const on_init_edit = Blockbench.on("init_edit", (arg) => {
+      if (!isHytaleFormat()) return;
       if (arg.aspects.keyframes?.length == 1 && per_shape_channels.has(arg.aspects.keyframes[0].channel)) {
         let kf = arg.aspects.keyframes[0];
         let group = kf.animator.group;
@@ -2079,6 +2081,11 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
         node_count++;
       }
     }
+    Outliner.root.forEach((node) => {
+      if (node instanceof Cube && node.export) {
+        node_count++;
+      }
+    });
     return node_count;
   }
   function setupChecks() {
@@ -2132,7 +2139,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.8.5",
+    version: "0.9.1",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
@@ -3869,7 +3876,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       }
     });
     track(resizeToggle);
-    Toolbars.uv_editor?.add(resizeToggle, 0);
+    Toolbars.uv_editor?.add(resizeToggle, 1);
     track(Blockbench.on("select_mode", () => {
       cropTool?.deactivate();
       resizeToggle?.set(false);
@@ -4022,6 +4029,147 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     track({ delete: () => events.forEach(([type, handler]) => document.removeEventListener(type, handler, true)) });
   }
 
+  // src/change_orientation.ts
+  function canChangeParentGroup(cube) {
+    let parent = cube.parent;
+    if (parent instanceof Group == false || !parent.selected) return false;
+    if (parent.children.find((c) => c instanceof Cube == false || !c.selected)) return false;
+    return true;
+  }
+  function changeCubeOrientation(axis, direction) {
+    let affected_groups = [];
+    let changed_groups = [];
+    for (let cube of Cube.selected) {
+      if (canChangeParentGroup(cube)) affected_groups.safePush(cube.parent);
+    }
+    Undo.initEdit({ elements: Cube.selected, groups: affected_groups });
+    for (let cube of Cube.selected) {
+      let flip_direction = direction == -1;
+      if (axis == 1) flip_direction = !flip_direction;
+      let node_to_rotate = canChangeParentGroup(cube) ? cube.parent : cube;
+      let quat_initial = Reusable.quat2.copy(node_to_rotate.mesh.quaternion);
+      cube.roll(axis, flip_direction ? 3 : 1, node_to_rotate.origin);
+      if (changed_groups.includes(node_to_rotate)) {
+        continue;
+      } else if (node_to_rotate instanceof Group) {
+        changed_groups.push(node_to_rotate);
+      }
+      let change_euler = Reusable.euler1.set(0, 0, 0);
+      change_euler[getAxisLetter(axis)] = Math.degToRad(-direction * 90);
+      node_to_rotate.mesh.quaternion.multiplyQuaternions(quat_initial, Reusable.quat1.setFromEuler(change_euler));
+      let new_rotation = node_to_rotate.mesh.rotation.toArray().slice(0, 3).map((r) => Math.radToDeg(r));
+      node_to_rotate.rotation.V3_set(new_rotation.map((r) => Math.roundTo(r, 2)));
+      node_to_rotate.preview_controller.updateTransform(node_to_rotate);
+    }
+    ;
+    Undo.finishEdit("Change cube orientation");
+    updateSelection();
+  }
+  function setupChangeOrientation() {
+    let action = new Action("change_cube_orientation", {
+      name: "Change Orientation",
+      icon: "screen_rotation_up",
+      condition: { modes: ["edit"], selected: { cube: true } },
+      children: [
+        {
+          id: "x_plus",
+          name: "X+",
+          icon: "rotate_right",
+          color: "x",
+          click() {
+            changeCubeOrientation(0, 1);
+          }
+        },
+        {
+          id: "x_minus",
+          name: "X-",
+          icon: "rotate_left",
+          color: "x",
+          click() {
+            changeCubeOrientation(0, -1);
+          }
+        },
+        {
+          id: "y_plus",
+          name: "Y+",
+          icon: "rotate_right",
+          color: "y",
+          click() {
+            changeCubeOrientation(1, 1);
+          }
+        },
+        {
+          id: "y_minus",
+          name: "Y-",
+          icon: "rotate_left",
+          color: "y",
+          click() {
+            changeCubeOrientation(1, -1);
+          }
+        },
+        {
+          id: "z_plus",
+          name: "Z+",
+          icon: "rotate_right",
+          color: "z",
+          click() {
+            changeCubeOrientation(2, 1);
+          }
+        },
+        {
+          id: "z_minus",
+          name: "Z-",
+          icon: "rotate_left",
+          color: "z",
+          click() {
+            changeCubeOrientation(2, -1);
+          }
+        }
+      ],
+      click(e) {
+        new Menu("change_cube_orientation", this.children, {}).open(e.target);
+      }
+    });
+    for (let item of action.children) {
+      action.addSubKeybind(item.id, item.name, null, item.click);
+    }
+    MenuBar.menus.transform.addAction(action);
+    track(action);
+  }
+
+  // src/shortcuts.ts
+  function setupShortcuts() {
+    const brush_tool = BarItems.brush_tool;
+    let last_brush_preset = Painter.default_brush_presets[0];
+    let selecting = false;
+    brush_tool.addSubKeybind("switch_preset", "Switch Preset", null, (event) => {
+      if (Toolbox.selected == brush_tool && !selecting) {
+        let options = [...Painter.default_brush_presets, ...StateMemory.brush_presets];
+        let index = options.indexOf(last_brush_preset);
+        let next_index = (index + 1) % options.length;
+        let next_option = options[next_index];
+        Painter.loadBrushPreset(next_option);
+        Blockbench.showQuickMessage(`Brush ${next_index + 1}: ${tl(next_option.name)}`);
+      }
+    });
+    let select_listener = brush_tool.on("select", () => {
+      selecting = true;
+      setTimeout(() => selecting = false, 60);
+    });
+    let originalApplyBrushPreset = Painter.loadBrushPreset;
+    Painter.loadBrushPreset = function(preset) {
+      last_brush_preset = preset;
+      originalApplyBrushPreset.call(Painter, preset);
+    };
+    track({
+      delete() {
+        select_listener.delete();
+        delete brush_tool.sub_keybinds.switch_preset;
+        Painter.loadBrushPreset = originalApplyBrushPreset;
+      }
+    });
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -4041,7 +4189,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     },
     repository: "https://github.com/JannisX11/hytale-blockbench-plugin",
     bug_tracker: "https://github.com/JannisX11/hytale-blockbench-plugin/issues",
-    contributors: ["Hedaox"],
+    contributors: ["Hedaox", "MelodicAlbuild"],
     onload() {
       setupFormats();
       setupElements();
@@ -4057,8 +4205,10 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupNameOverlap();
       setupUVOutline();
       setupTempFixes();
+      setupChangeOrientation();
       setupPreviewScenes();
       setupUVCanvasResize();
+      setupShortcuts();
       let panel_setup_listener;
       function showCollectionPanel() {
         const local_storage_key = "hytale_plugin:collection_panel_setup";

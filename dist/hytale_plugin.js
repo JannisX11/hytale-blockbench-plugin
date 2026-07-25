@@ -3930,6 +3930,57 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
         Cube.prototype.setUVMode = set_uv_mode_original;
       }
     });
+    let original_add_group_click = BarItems.add_group.click;
+    BarItems.add_group.click = function(...args) {
+      if (!isHytaleFormat() || Outliner.selected.length !== 1 || Group.multi_selected.length > 0) {
+        return original_add_group_click.apply(this, args);
+      }
+      let element = Outliner.selected[0];
+      if (!(element instanceof Cube)) {
+        return original_add_group_click.apply(this, args);
+      }
+      let has_rotation = element.rotation.some((v) => v !== 0);
+      Undo.initEdit({
+        outliner: true,
+        elements: has_rotation ? [element] : [],
+        groups: []
+      });
+      let base_group = new Group({
+        origin: element.origin,
+        rotation: has_rotation ? [...element.rotation] : void 0,
+        name: element.name === "cube" ? void 0 : element.name
+      });
+      base_group.sortInBefore(element);
+      base_group.isOpen = true;
+      base_group.init();
+      if (base_group.getTypeBehavior("unique_name")) {
+        base_group.createUniqueName();
+      }
+      element.addTo(base_group);
+      if (has_rotation) {
+        element.rotation = [0, 0, 0];
+      }
+      element.preview_controller.updateTransform(element);
+      base_group.select();
+      Undo.finishEdit("Add group", {
+        outliner: true,
+        elements: has_rotation ? [element] : [],
+        groups: [base_group]
+      });
+      Vue.nextTick(function() {
+        updateSelection();
+        if (settings.create_rename.value) {
+          base_group.rename();
+        }
+        base_group.showInOutliner();
+        Blockbench.dispatchEvent("add_group", { object: base_group });
+      });
+    };
+    track({
+      delete() {
+        BarItems.add_group.click = original_add_group_click;
+      }
+    });
     let inflate_condition_original = BarItems.slider_inflate.condition;
     BarItems.slider_inflate.condition = () => {
       if (isHytaleFormat()) return false;
@@ -6507,6 +6558,241 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     track(action);
   }
 
+  // src/group_rotation.ts
+  var affectChildrenEnabled = true;
+  function setupGroupRotation() {
+    let toggle = new Toggle("hytale_affect_children", {
+      name: "Affect Children",
+      description: "When enabled, children follow the rotation of the parent group. When disabled, only the group rotates while children stay in place.",
+      icon: "link",
+      category: "edit",
+      condition: {
+        formats: FORMAT_IDS,
+        modes: ["edit"],
+        tools: ["rotate_tool"],
+        method: () => {
+          let group = Group.first_selected;
+          return !!(group && group.children.length > 0);
+        }
+      },
+      default: true,
+      onChange(value) {
+        affectChildrenEnabled = value;
+        toggle.setIcon(value ? "link" : "link_off");
+      }
+    });
+    let rsItem = BarItems.rotation_space;
+    if (rsItem) {
+      for (let toolbar of Object.values(Toolbars)) {
+        let children = toolbar.children;
+        if (Array.isArray(children) && children.includes(rsItem)) {
+          let index = children.indexOf(rsItem);
+          toolbar.add(toggle, index + 1);
+          break;
+        }
+      }
+    }
+    let rotateSnapshots = null;
+    let cumulativeAngle = 0;
+    function applyCounterRotation(groups, axisNumber, totalAngle) {
+      let elementsToUpdate = [];
+      let axis = new THREE.Vector3();
+      axis.setComponent(axisNumber, 1);
+      let delta = new THREE.Quaternion().setFromAxisAngle(axis, Math.degToRad(totalAngle));
+      for (let group of groups) {
+        let snap = rotateSnapshots?.get(group.uuid);
+        if (!snap) continue;
+        let newQuat;
+        if (snap.spaceMode === "local") {
+          newQuat = snap.initialQuat.clone().multiply(delta);
+        } else if (snap.spaceMode === "global") {
+          let p = snap.parentWorldQuat;
+          let localDelta = new THREE.Quaternion().multiplyQuaternions(p.clone().invert(), delta).multiply(p);
+          newQuat = new THREE.Quaternion().multiplyQuaternions(localDelta, snap.initialQuat);
+        } else {
+          newQuat = new THREE.Quaternion().multiplyQuaternions(delta, snap.initialQuat);
+        }
+        let e = new THREE.Euler().setFromQuaternion(newQuat, "ZYX");
+        group.rotation[0] = Math.radToDeg(e.x);
+        group.rotation[1] = Math.radToDeg(e.y);
+        group.rotation[2] = Math.radToDeg(e.z);
+        let dQ = newQuat.clone().invert().multiply(snap.initialQuat);
+        let groupOrigin = new THREE.Vector3(...group.origin);
+        for (let child of group.children) {
+          let cs = snap.children.get(child.uuid);
+          if (!cs) continue;
+          let offset = new THREE.Vector3(...cs.origin).sub(groupOrigin).applyQuaternion(dQ);
+          let newOrigin = groupOrigin.clone().add(offset);
+          child.origin[0] = newOrigin.x;
+          child.origin[1] = newOrigin.y;
+          child.origin[2] = newOrigin.z;
+          if (cs.rotation) {
+            let cq = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+              Math.degToRad(cs.rotation[0]),
+              Math.degToRad(cs.rotation[1]),
+              Math.degToRad(cs.rotation[2]),
+              "ZYX"
+            ));
+            cq.premultiply(dQ);
+            let ce = new THREE.Euler().setFromQuaternion(cq, "ZYX");
+            child.rotation[0] = Math.radToDeg(ce.x);
+            child.rotation[1] = Math.radToDeg(ce.y);
+            child.rotation[2] = Math.radToDeg(ce.z);
+          }
+          let od = [newOrigin.x - cs.origin[0], newOrigin.y - cs.origin[1], newOrigin.z - cs.origin[2]];
+          if (child instanceof Cube && cs.from && cs.to) {
+            for (let i = 0; i < 3; i++) {
+              child.from[i] = cs.from[i] + od[i];
+              child.to[i] = cs.to[i] + od[i];
+            }
+          }
+          if (child instanceof Group) {
+            child.forEachChild((desc) => {
+              let ds = snap.descendants.get(desc.uuid);
+              if (!ds) return;
+              for (let i = 0; i < 3; i++) desc.origin[i] = ds.origin[i] + od[i];
+              if (desc instanceof Cube && ds.from && ds.to) {
+                for (let i = 0; i < 3; i++) {
+                  desc.from[i] = ds.from[i] + od[i];
+                  desc.to[i] = ds.to[i] + od[i];
+                }
+              }
+            });
+          }
+          if (child instanceof OutlinerElement) elementsToUpdate.push(child);
+          if (child instanceof Group) {
+            child.forEachChild((el) => {
+              if (el instanceof OutlinerElement) elementsToUpdate.push(el);
+            }, OutlinerElement);
+          }
+        }
+      }
+      return elementsToUpdate;
+    }
+    let module = new TransformerModule("hytale_group_rotate", {
+      priority: 2,
+      condition: () => {
+        if (!isHytaleFormat() || Modes.id !== "edit" || Toolbox.selected?.id !== "rotate_tool") return false;
+        if (!Format.bone_rig || affectChildrenEnabled) return false;
+        let group = Group.first_selected;
+        return !!(group && group.children.length > 0);
+      },
+      updateGizmo() {
+        if (!Transformer.visible) return;
+        let group = Group.first_selected;
+        if (!group || !group.mesh) {
+          Transformer.detach();
+          return;
+        }
+        Transformer.rotation_object = group;
+        group.mesh.getWorldPosition(Transformer.position);
+        Transformer.position.sub(Canvas.scene.position);
+        let space = getEditTransformSpace();
+        if (typeof space === "number" && space >= 2) {
+          Transformer.rotation_ref = group.mesh;
+        } else if (space instanceof OutlinerNode && space.getTypeBehavior?.("parent")) {
+          Transformer.rotation_ref = space.mesh;
+        } else {
+          Transformer.rotation_ref = null;
+        }
+      },
+      calculateOffset(context) {
+        let snap = getRotationInterval(context.event);
+        let angle = context.angle ?? 0;
+        angle = Math.round(angle / snap) * snap;
+        if (Math.abs(angle) > 300) angle = angle > 0 ? -snap : snap;
+        return angle;
+      },
+      onStart() {
+        cumulativeAngle = 0;
+        let groups = Group.multi_selected.filter((g) => !g.parent?.selected);
+        let space = getEditTransformSpace();
+        let spaceMode;
+        if (typeof space === "number" && space >= 2) spaceMode = "local";
+        else if (space instanceof OutlinerNode) spaceMode = "bone";
+        else spaceMode = "global";
+        rotateSnapshots = /* @__PURE__ */ new Map();
+        let elements = [];
+        let allGroups = [...groups];
+        for (let group of groups) {
+          let childSnaps = /* @__PURE__ */ new Map();
+          let descendantSnaps = /* @__PURE__ */ new Map();
+          for (let child of group.children) {
+            childSnaps.set(child.uuid, {
+              origin: [...child.origin],
+              rotation: child.rotation ? [...child.rotation] : void 0,
+              from: child instanceof Cube ? [...child.from] : void 0,
+              to: child instanceof Cube ? [...child.to] : void 0
+            });
+            if (child instanceof OutlinerElement) elements.push(child);
+            if (child instanceof Group) {
+              allGroups.push(child);
+              child.forEachChild((el) => {
+                if (el instanceof OutlinerElement) elements.push(el);
+                if (el instanceof Group) allGroups.push(el);
+                descendantSnaps.set(el.uuid, {
+                  origin: [...el.origin],
+                  from: el instanceof Cube ? [...el.from] : void 0,
+                  to: el instanceof Cube ? [...el.to] : void 0
+                });
+              });
+            }
+          }
+          let parentWorldQuat = new THREE.Quaternion();
+          if (group.parent instanceof Group && group.parent.mesh) {
+            parentWorldQuat.setFromRotationMatrix(
+              new THREE.Matrix4().extractRotation(group.parent.mesh.matrixWorld)
+            );
+          }
+          rotateSnapshots.set(group.uuid, {
+            initialQuat: new THREE.Quaternion().setFromEuler(new THREE.Euler(
+              Math.degToRad(group.rotation[0]),
+              Math.degToRad(group.rotation[1]),
+              Math.degToRad(group.rotation[2]),
+              "ZYX"
+            )),
+            parentWorldQuat,
+            spaceMode,
+            children: childSnaps,
+            descendants: descendantSnaps
+          });
+        }
+        Undo.initEdit({ elements, groups: allGroups });
+      },
+      onMove(context) {
+        let { axis_number, value } = context;
+        let difference = value - (this.previous_value ?? value);
+        if (difference > 180) difference -= 360;
+        if (difference < -180) difference += 360;
+        cumulativeAngle += difference;
+        let groups = Group.multi_selected.filter((g) => !g.parent?.selected);
+        let elementsToUpdate = applyCounterRotation(groups, axis_number, cumulativeAngle);
+        Blockbench.setCursorTooltip(trimFloatNumber(cumulativeAngle));
+        Canvas.updateAllBones();
+        Canvas.updateView({
+          elements: elementsToUpdate,
+          element_aspects: { geometry: true, transform: true }
+        });
+        Transformer.updateSelection();
+      },
+      onEnd(context) {
+        rotateSnapshots = null;
+        if (context.has_changed && context.keep_changes) {
+          Undo.finishEdit("Rotate group");
+        }
+      },
+      onCancel() {
+        rotateSnapshots = null;
+        Undo.cancelEdit(true);
+      }
+    });
+    track(toggle, {
+      delete() {
+        module.delete();
+      }
+    });
+  }
+
   // src/shortcuts.ts
   function setupShortcuts() {
     const brush_tool = BarItems.brush_tool;
@@ -7892,8 +8178,10 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     contributors: ["Hedaox", "MelodicAlbuild"],
     onload() {
       setupFormats();
+      setupTempFixes();
       setupElements();
       setupPivotControl();
+      setupGroupRotation();
       setupAnimation();
       setupAnimationCodec();
       setupAttachments();

@@ -6536,26 +6536,84 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     [1, 3, 4, 6]
     // North (z = from)
   ];
+  var COLLAPSE_PAIRS = [
+    [[0, 5], [1, 4], [2, 7], [3, 6]],
+    // X
+    [[0, 2], [1, 3], [4, 6], [5, 7]],
+    // Y
+    [[0, 1], [2, 3], [4, 5], [6, 7]]
+    // Z
+  ];
   function getSnapTo() {
     return BarItems.snap_to?.value ?? "vertex";
   }
-  function buildSnapPoints(corners, mode) {
-    if (mode === "vertex") return corners.slice();
-    if (mode === "edge") {
-      return CUBE_EDGES.map(([ai, bi]) => {
-        let a = corners[ai], b = corners[bi];
-        return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+  function getCornerMergeMap(element) {
+    let hasCollapse = false;
+    let map = /* @__PURE__ */ new Map();
+    for (let i = 0; i < CORNER_COUNT; i++) map.set(i, i);
+    for (let dim = 0; dim < 3; dim++) {
+      if (element.from[dim] !== element.to[dim]) continue;
+      hasCollapse = true;
+      for (let [a, b] of COLLAPSE_PAIRS[dim]) {
+        let ca = map.get(a), cb = map.get(b);
+        let keep = Math.min(ca, cb), drop = Math.max(ca, cb);
+        if (keep === drop) continue;
+        for (let [k, v] of map) {
+          if (v === drop) map.set(k, keep);
+        }
+      }
+    }
+    return hasCollapse ? map : null;
+  }
+  function midpoint(a, b) {
+    return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+  }
+  function buildSnapPoints(corners, mode, mergeMap) {
+    if (!mergeMap) {
+      if (mode === "vertex") return corners.slice();
+      if (mode === "edge") return CUBE_EDGES.map(([a, b]) => midpoint(corners[a], corners[b]));
+      return CUBE_FACES.map((face) => {
+        let x = 0, y = 0, z = 0;
+        for (let i of face) {
+          x += corners[i][0];
+          y += corners[i][1];
+          z += corners[i][2];
+        }
+        return [x / face.length, y / face.length, z / face.length];
       });
     }
-    return CUBE_FACES.map((face) => {
+    let canonicals = [...new Set(mergeMap.values())].sort((a, b) => a - b);
+    if (mode === "vertex") return canonicals.map((i) => corners[i]);
+    if (mode === "edge") {
+      let seen2 = /* @__PURE__ */ new Set();
+      let points2 = [];
+      for (let [ai, bi] of CUBE_EDGES) {
+        let ca = mergeMap.get(ai), cb = mergeMap.get(bi);
+        if (ca === cb) continue;
+        let key = Math.min(ca, cb) + "," + Math.max(ca, cb);
+        if (seen2.has(key)) continue;
+        seen2.add(key);
+        points2.push(midpoint(corners[ca], corners[cb]));
+      }
+      return points2;
+    }
+    let seen = /* @__PURE__ */ new Set();
+    let points = [];
+    for (let face of CUBE_FACES) {
+      let unique = [...new Set(face.map((i) => mergeMap.get(i)))].sort((a, b) => a - b);
+      if (unique.length < 3) continue;
+      let key = unique.join(",");
+      if (seen.has(key)) continue;
+      seen.add(key);
       let x = 0, y = 0, z = 0;
-      for (let i of face) {
+      for (let i of unique) {
         x += corners[i][0];
         y += corners[i][1];
         z += corners[i][2];
       }
-      return [x / face.length, y / face.length, z / face.length];
-    });
+      points.push([x / unique.length, y / unique.length, z / unique.length]);
+    }
+    return points;
   }
   var _accentColor = null;
   var _sourceElement = null;
@@ -6581,7 +6639,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     pts.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(positions), 3));
     pts.geometry.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(colors), 3));
   }
-  function recolorElementPoints(el, hoveredIndex, isHoveredElement) {
+  function recolorElementPoints(el, hoveredIndex) {
     let points = el.mesh?.vertex_points;
     if (!points) return;
     let colorAttr = points.geometry.attributes.color;
@@ -6604,7 +6662,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       arr[offset + 2] = color.b;
     }
     colorAttr.needsUpdate = true;
-    points.material.depthTest = !isHoveredElement;
   }
   var _mouse = new THREE.Vector2();
   var _raycaster = new THREE.Raycaster();
@@ -6714,7 +6771,8 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       if (verts.length < CORNER_COUNT + 1) return;
       let corners = verts.slice(0, CORNER_COUNT);
       pts._snap_corners = corners;
-      let snapPoints = buildSnapPoints(corners, getSnapTo());
+      let mergeMap = getCornerMergeMap(element);
+      let snapPoints = buildSnapPoints(corners, getSnapTo(), mergeMap);
       let allPoints = [...snapPoints, [0, 0, 0]];
       pts._parent_pivot_index = null;
       let parentGroup = element.parent;
@@ -6726,10 +6784,8 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         allPoints.push(localPos.toArray());
       }
       rebuildPointsGeometry(pts, allPoints);
-      if (pts._parent_pivot_index != null) {
-        pts.renderOrder = 901;
-        pts.material.depthTest = false;
-      }
+      pts.renderOrder = 901;
+      pts.material.depthTest = false;
       if (!Vertexsnap.step1 && element === _sourceElement) {
         let idx = Vertexsnap.vertex_index;
         let colorAttr = pts.geometry.attributes.color;
@@ -6820,16 +6876,14 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         Project.model_3d.remove(Vertexsnap.line);
         removeGuideLine();
         if (_prevHoveredEl) {
-          recolorElementPoints(_prevHoveredEl, -1, false);
+          recolorElementPoints(_prevHoveredEl, -1);
           _prevHoveredEl = null;
         }
       }
       let hoveredEl = data?.element;
       if (hoveredEl?.mesh?.vertex_points) {
         if (data.type === "vertex") {
-          recolorElementPoints(hoveredEl, data.vertex_index, true);
-        } else {
-          hoveredEl.mesh.vertex_points.material.depthTest = false;
+          recolorElementPoints(hoveredEl, data.vertex_index);
         }
         _prevHoveredEl = hoveredEl;
       }

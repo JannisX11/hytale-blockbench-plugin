@@ -23,27 +23,85 @@ const CUBE_FACES: number[][] = [
 	[1, 3, 4, 6], // North (z = from)
 ];
 
+// Corner pairs that collapse when a dimension is flat (from[i] === to[i])
+const COLLAPSE_PAIRS: [number, number][][] = [
+	[[0, 5], [1, 4], [2, 7], [3, 6]], // X
+	[[0, 2], [1, 3], [4, 6], [5, 7]], // Y
+	[[0, 1], [2, 3], [4, 5], [6, 7]], // Z
+];
+
 type SnapPointMode = 'vertex' | 'edge' | 'face';
 
 function getSnapTo(): SnapPointMode {
 	return (BarItems.snap_to as BarSelect)?.value as SnapPointMode ?? 'vertex';
 }
 
-function buildSnapPoints(corners: number[][], mode: SnapPointMode): number[][] {
-	if (mode === 'vertex') return corners.slice();
+function getCornerMergeMap(element: any): Map<number, number> | null {
+	let hasCollapse = false;
+	let map = new Map<number, number>();
+	for (let i = 0; i < CORNER_COUNT; i++) map.set(i, i);
 
-	if (mode === 'edge') {
-		return CUBE_EDGES.map(([ai, bi]) => {
-			let a = corners[ai], b = corners[bi];
-			return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+	for (let dim = 0; dim < 3; dim++) {
+		if (element.from[dim] !== element.to[dim]) continue;
+		hasCollapse = true;
+		for (let [a, b] of COLLAPSE_PAIRS[dim]) {
+			let ca = map.get(a)!, cb = map.get(b)!;
+			let keep = Math.min(ca, cb), drop = Math.max(ca, cb);
+			if (keep === drop) continue;
+			for (let [k, v] of map) {
+				if (v === drop) map.set(k, keep);
+			}
+		}
+	}
+	return hasCollapse ? map : null;
+}
+
+function midpoint(a: number[], b: number[]): number[] {
+	return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+}
+
+function buildSnapPoints(corners: number[][], mode: SnapPointMode, mergeMap?: Map<number, number> | null): number[][] {
+	if (!mergeMap) {
+		if (mode === 'vertex') return corners.slice();
+		if (mode === 'edge') return CUBE_EDGES.map(([a, b]) => midpoint(corners[a], corners[b]));
+		return CUBE_FACES.map(face => {
+			let x = 0, y = 0, z = 0;
+			for (let i of face) { x += corners[i][0]; y += corners[i][1]; z += corners[i][2]; }
+			return [x / face.length, y / face.length, z / face.length];
 		});
 	}
 
-	return CUBE_FACES.map(face => {
+	let canonicals = [...new Set(mergeMap.values())].sort((a, b) => a - b);
+
+	if (mode === 'vertex') return canonicals.map(i => corners[i]);
+
+	if (mode === 'edge') {
+		let seen = new Set<string>();
+		let points: number[][] = [];
+		for (let [ai, bi] of CUBE_EDGES) {
+			let ca = mergeMap.get(ai)!, cb = mergeMap.get(bi)!;
+			if (ca === cb) continue;
+			let key = Math.min(ca, cb) + ',' + Math.max(ca, cb);
+			if (seen.has(key)) continue;
+			seen.add(key);
+			points.push(midpoint(corners[ca], corners[cb]));
+		}
+		return points;
+	}
+
+	let seen = new Set<string>();
+	let points: number[][] = [];
+	for (let face of CUBE_FACES) {
+		let unique = [...new Set(face.map(i => mergeMap.get(i)!))].sort((a, b) => a - b);
+		if (unique.length < 3) continue;
+		let key = unique.join(',');
+		if (seen.has(key)) continue;
+		seen.add(key);
 		let x = 0, y = 0, z = 0;
-		for (let i of face) { x += corners[i][0]; y += corners[i][1]; z += corners[i][2]; }
-		return [x / face.length, y / face.length, z / face.length];
-	});
+		for (let i of unique) { x += corners[i][0]; y += corners[i][1]; z += corners[i][2]; }
+		points.push([x / unique.length, y / unique.length, z / unique.length]);
+	}
+	return points;
 }
 
 let _accentColor: THREE.Color | null = null;
@@ -76,7 +134,7 @@ function rebuildPointsGeometry(pts: any, verts: number[][]) {
 	pts.geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(colors), 3));
 }
 
-function recolorElementPoints(el: any, hoveredIndex: number, isHoveredElement: boolean) {
+function recolorElementPoints(el: any, hoveredIndex: number) {
 	let points = el.mesh?.vertex_points;
 	if (!points) return;
 
@@ -101,7 +159,6 @@ function recolorElementPoints(el: any, hoveredIndex: number, isHoveredElement: b
 		arr[offset + 2] = color.b;
 	}
 	colorAttr.needsUpdate = true;
-	points.material.depthTest = !isHoveredElement;
 }
 
 // Reusable objects for per-frame raycasting to avoid allocations in mousemove
@@ -235,7 +292,8 @@ export function setupPivotSnap() {
 		let corners = verts.slice(0, CORNER_COUNT);
 		pts._snap_corners = corners;
 
-		let snapPoints = buildSnapPoints(corners, getSnapTo());
+		let mergeMap = getCornerMergeMap(element);
+		let snapPoints = buildSnapPoints(corners, getSnapTo(), mergeMap);
 		let allPoints = [...snapPoints, [0, 0, 0]];
 
 		pts._parent_pivot_index = null;
@@ -249,10 +307,8 @@ export function setupPivotSnap() {
 		}
 
 		rebuildPointsGeometry(pts, allPoints);
-		if (pts._parent_pivot_index != null) {
-			pts.renderOrder = 901;
-			pts.material.depthTest = false;
-		}
+		pts.renderOrder = 901;
+		pts.material.depthTest = false;
 
 		if (!Vertexsnap.step1 && element === _sourceElement) {
 			let idx = Vertexsnap.vertex_index;
@@ -362,7 +418,7 @@ export function setupPivotSnap() {
 			removeGuideLine();
 
 			if (_prevHoveredEl) {
-				recolorElementPoints(_prevHoveredEl, -1, false);
+				recolorElementPoints(_prevHoveredEl, -1);
 				_prevHoveredEl = null;
 			}
 		}
@@ -370,9 +426,7 @@ export function setupPivotSnap() {
 		let hoveredEl = data?.element;
 		if (hoveredEl?.mesh?.vertex_points) {
 			if (data.type === 'vertex') {
-				recolorElementPoints(hoveredEl, data.vertex_index, true);
-			} else {
-				hoveredEl.mesh.vertex_points.material.depthTest = false;
+				recolorElementPoints(hoveredEl, data.vertex_index);
 			}
 			_prevHoveredEl = hoveredEl;
 		}

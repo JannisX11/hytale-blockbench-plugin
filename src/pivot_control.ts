@@ -31,7 +31,7 @@ export function setupPivotControl() {
 		description: 'When enabled, the pivot point moves along with the element when using the move tool',
 		icon: pivotFollowEnabled ? 'location_searching' : 'location_disabled',
 		category: 'edit',
-		condition: {formats: FORMAT_IDS, modes: ['edit']},
+		condition: {formats: FORMAT_IDS, modes: ['edit'], tools: ['move_tool']},
 		default: pivotFollowEnabled,
 		onChange(value: boolean) {
 			pivotFollowEnabled = value;

@@ -8,3 +8,7 @@ This plugin adds support for the `.blockymodel` and `.blockyanim` file formats t
 It also adds a number of Hytale specific features and general quality-of-life features and tweaks.
 
 You can report issues on the [Issues Page](https://github.com/JannisX11/hytale-blockbench-plugin/issues).
+
+## Related Hytale Resources
+
+- [Hytale Character Recipes](https://hytalecharacter.com/) - fan-made character recipe references, screenshots, and manual recreation notes for avatar creators.

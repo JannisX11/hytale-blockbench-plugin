@@ -16,7 +16,6 @@ import { setupOutlinerFilter } from "./outliner_filter";
 import { setupTextureHandling, updateUVSize } from "./texture";
 import { setupNameOverlap } from "./name_overlap";
 import { setupUVOutline } from "./uv_outline";
-import { setupTempFixes } from './temp_fixes'
 import { setupPreviewScenes } from "./preview_scenes";
 import { setupUVCanvasResize } from "./uv_canvas_resize";
 import { setupAltDuplicate } from "./alt_duplicate";
@@ -57,7 +56,6 @@ BBPlugin.register('hytale_plugin', {
         setupAltDuplicate();
         setupNameOverlap();
         setupUVOutline();
-        setupTempFixes();
         setupChangeOrientation();
         setupPreviewScenes();
         setupUVCanvasResize();

@@ -324,7 +324,7 @@
           if (!element.export) return void 0;
           if (!options.attachment) {
             let collection = Collection.all.find((c) => c.contains(element));
-            if (collection) return;
+            if (collection && collection.export_codec == "blockymodel") return;
           }
           let euler = Reusable.euler1.set(
             Math.degToRad(element.rotation[0]),

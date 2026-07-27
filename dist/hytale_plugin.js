@@ -2640,7 +2640,7 @@ body.hytale-uv-outline-only #uv_frame:not(.overlay_mode) .cube_uv_face.selected:
     left: -2px;
     right: -2px;
     bottom: -2px;
-    border-width: 2px;
+    border-width: 4px;
     border-color: var(--color-accent);
 }
 body.hytale-uv-outline-only #uv_frame .mesh_uv_face polygon {
@@ -2651,6 +2651,9 @@ body.hytale-uv-outline-only #uv_frame:not(.overlay_mode) .mesh_uv_face.selected 
 }
 body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     background-color: transparent;
+}
+body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
+    border-color: var(--color-accent);
 }
 `;
   function updateHytaleFormatClass() {

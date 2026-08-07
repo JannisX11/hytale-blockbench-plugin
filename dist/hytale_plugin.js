@@ -8004,7 +8004,6 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     contributors: ["Hedaox", "MelodicAlbuild"],
     onload() {
       setupFormats();
-      setupTempFixes();
       setupElements();
       setupPivotControl();
       setupGroupRotation();

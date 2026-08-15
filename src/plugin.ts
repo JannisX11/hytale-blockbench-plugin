@@ -21,6 +21,8 @@ import { setupUVCanvasResize } from "./uv_canvas_resize";
 import { setupAltDuplicate } from "./alt_duplicate";
 import { setupChangeOrientation } from "./change_orientation";
 import { setupShortcuts } from "./shortcuts";
+import { setupNondestructiveUVMove } from "./nondestructive_uv_move";
+import { setupUVSelect } from "./uv_select";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -52,6 +54,7 @@ BBPlugin.register('hytale_plugin', {
         setupChecks();
         setupPhotoshopTools();
         setupUVCycling();
+        setupUVSelect();
         setupTextureHandling();
         setupAltDuplicate();
         setupNameOverlap();
@@ -60,6 +63,7 @@ BBPlugin.register('hytale_plugin', {
         setupPreviewScenes();
         setupUVCanvasResize();
         setupShortcuts();
+        setupNondestructiveUVMove();
 
         // Collections panel setting
         let panel_setup_listener: Deletable;

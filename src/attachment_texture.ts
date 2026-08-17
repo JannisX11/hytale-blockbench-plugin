@@ -1,6 +1,13 @@
 //! Copyright (C) 2025 Hypixel Studios Canada inc.
 //! Licensed under the GNU General Public License, see LICENSE.MD
 
+declare global {
+	interface Texture {
+		attachment_texture_groups: string[]
+	}
+}
+
+import { CustomMenuItem } from "blockbench-types/generated/interface/menu";
 import { track } from "./cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
 import { updateUVSize } from "./texture";
@@ -22,6 +29,8 @@ export function processAttachmentTextures(attachmentName: string, newTextures: T
 
 	for (let tex of newTextures) {
 		tex.group = textureGroup.uuid;
+		tex.attachment_texture_groups ??= [];
+		tex.attachment_texture_groups.push(textureGroup.uuid);
 		updateUVSize(tex);
 	}
 
@@ -55,6 +64,21 @@ export function setupAttachmentTextures() {
 	track({
 		delete() {
 			CubeFace.prototype.getTexture = originalGetTexture;
+		}
+	});
+
+	new Property(Texture, 'array', 'attachment_texture_groups');
+    let original_getTextures = TextureGroup.prototype.getTextures;
+    TextureGroup.prototype.getTextures = function() {
+        if (isHytaleFormat()) {
+			return Texture.all.filter(tex => tex.attachment_texture_groups?.includes(this.uuid));
+        } else {
+            return original_getTextures.call(this)
+        }
+    }
+	track({
+		delete() {
+			TextureGroup.prototype.getTextures = original_getTextures;
 		}
 	});
 

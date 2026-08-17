@@ -418,15 +418,15 @@ class UVCropTool {
         const selectedTexture = this.texture;
 
         // Check if this texture belongs to a TextureGroup (attachment textures are grouped)
-        const textureGroupUuid = (selectedTexture as any).group as string | undefined;
-        const isAttachmentTexture = !!textureGroupUuid;
+        const textureGroup = selectedTexture.getGroup();
+        const isAttachmentTexture = !!textureGroup;
 
         let texturesToCrop: Texture[];
         let elementsToAffect: OutlinerElement[];
 
         if (isAttachmentTexture) {
             // Get ALL textures in the same TextureGroup
-            texturesToCrop = Texture.all.filter(t => (t as any).group === textureGroupUuid);
+            texturesToCrop = textureGroup.getTextures();
 
             // Find collections that use any of these textures
             const relatedCollections = Collection.all.filter(c => {
@@ -445,7 +445,7 @@ class UVCropTool {
                 Collection.all.map(c => (c as AttachmentCollection).texture).filter(Boolean)
             );
             texturesToCrop = Texture.all.filter(t =>
-                !(t as any).group && !collectionTextureUuids.has(t.uuid)
+                !t.group && !collectionTextureUuids.has(t.uuid)
             );
             // Affect elements not in any collection
             elementsToAffect = Outliner.elements.filter(el =>

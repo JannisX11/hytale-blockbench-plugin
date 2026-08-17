@@ -1250,6 +1250,8 @@
     if (newTextures.length === 0) return "";
     for (let tex of newTextures) {
       tex.group = textureGroup.uuid;
+      tex.attachment_texture_groups ??= [];
+      tex.attachment_texture_groups.push(textureGroup.uuid);
       updateUVSize(tex);
     }
     let texture = newTextures.find((t) => t.name.startsWith(attachmentName)) ?? newTextures[0];
@@ -1279,6 +1281,20 @@
     track({
       delete() {
         CubeFace.prototype.getTexture = originalGetTexture;
+      }
+    });
+    new Property(Texture, "array", "attachment_texture_groups");
+    let original_getTextures = TextureGroup.prototype.getTextures;
+    TextureGroup.prototype.getTextures = function() {
+      if (isHytaleFormat()) {
+        return Texture.all.filter((tex) => tex.attachment_texture_groups?.includes(this.uuid));
+      } else {
+        return original_getTextures.call(this);
+      }
+    };
+    track({
+      delete() {
+        TextureGroup.prototype.getTextures = original_getTextures;
       }
     });
     let assignTexture = {
@@ -1348,7 +1364,9 @@
             }
             let texture_group = TextureGroup.all.find((tg) => tg.name === collection.name);
             if (texture_group) {
-              let textures2 = Texture.all.filter((t) => t.group === texture_group.uuid);
+              let textures2 = Texture.all.filter((t) => {
+                return t.group === texture_group.uuid || t.attachment_texture_groups?.includes(texture_group.uuid);
+              });
               textures.safePush(...textures2);
               texture_groups.push(texture_group);
             }
@@ -3515,12 +3533,12 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     apply() {
       if (!this.texture) return;
       const selectedTexture = this.texture;
-      const textureGroupUuid = selectedTexture.group;
-      const isAttachmentTexture = !!textureGroupUuid;
+      const textureGroup = selectedTexture.getGroup();
+      const isAttachmentTexture = !!textureGroup;
       let texturesToCrop;
       let elementsToAffect;
       if (isAttachmentTexture) {
-        texturesToCrop = Texture.all.filter((t) => t.group === textureGroupUuid);
+        texturesToCrop = textureGroup.getTextures();
         const relatedCollections = Collection.all.filter((c) => {
           const collectionTexUuid = c.texture;
           return texturesToCrop.some((t) => t.uuid === collectionTexUuid);

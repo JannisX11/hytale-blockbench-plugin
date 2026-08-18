@@ -44,6 +44,7 @@ BBPlugin.register('hytale_plugin', {
     onload() {
 
         setupFormats();
+        setupTempFixes();
         setupElements();
         setupAnimation();
         setupAnimationCodec();

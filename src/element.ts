@@ -133,6 +133,7 @@ export function setupElements() {
         name: 'Transparent Face',
         icon: 'wine_bar',
         category: 'uv',
+		condition: {formats: FORMAT_IDS},
         onChange(value) {
 			Undo.initEdit({elements: Cube.selected});
             for (let cube of Cube.selected) {
@@ -169,6 +170,7 @@ export function setupElements() {
         name: 'Toggle UV Lock',
         icon: 'sync_lock',
         category: 'uv',
+		condition: {formats: FORMAT_IDS},
         onChange(value) {
 			Undo.initEdit({elements: Cube.selected});
             for (let cube of Cube.selected) {

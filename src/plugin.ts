@@ -19,6 +19,7 @@ import { setupUVOutline } from "./uv_outline";
 import { setupPreviewScenes } from "./preview_scenes";
 import { setupUVCanvasResize } from "./uv_canvas_resize";
 import { setupAltDuplicate } from "./alt_duplicate";
+import { setupPivotControl } from "./pivot_control";
 import { setupChangeOrientation } from "./change_orientation";
 import { setupShortcuts } from "./shortcuts";
 
@@ -45,6 +46,7 @@ BBPlugin.register('hytale_plugin', {
 
         setupFormats();
         setupElements();
+        setupPivotControl();
         setupAnimation();
         setupAnimationCodec();
         setupAttachments();

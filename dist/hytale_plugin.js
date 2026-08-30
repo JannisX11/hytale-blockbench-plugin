@@ -3859,6 +3859,208 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     track({ delete: () => events.forEach(([type, handler]) => document.removeEventListener(type, handler, true)) });
   }
 
+  // src/pivot_control.ts
+  var pivotFollowEnabled = true;
+  function setupPivotControl() {
+    StateMemory.init("hytale_pivot_follow", "boolean");
+    pivotFollowEnabled = StateMemory.get("hytale_pivot_follow") ?? true;
+    let toggle = new Toggle("hytale_pivot_follow", {
+      name: "Pivot Follow",
+      description: "When enabled, the pivot point moves along with the element when using the move tool",
+      icon: pivotFollowEnabled ? "location_searching" : "location_disabled",
+      category: "edit",
+      condition: { formats: FORMAT_IDS, modes: ["edit"], tools: ["move_tool"] },
+      default: pivotFollowEnabled,
+      onChange(value) {
+        pivotFollowEnabled = value;
+        StateMemory.set("hytale_pivot_follow", value);
+        toggle.setIcon(value ? "location_searching" : "location_disabled");
+      }
+    });
+    let tsItem = BarItems.transform_space;
+    if (tsItem) {
+      for (let toolbar of Object.values(Toolbars)) {
+        let children = toolbar.children;
+        if (Array.isArray(children) && children.includes(tsItem)) {
+          let index = children.indexOf(tsItem);
+          toolbar.add(toggle, index + 1);
+          break;
+        }
+      }
+    }
+    let snapshots = null;
+    let trackedCubeUuid = null;
+    let savedUpdatePivotMarker = null;
+    function onPointerDown() {
+      if (!isHytaleFormat() || !Modes.edit) return;
+      if (Toolbox.selected?.id !== "move_tool") return;
+      if (!Transformer?.axis) return;
+      if (Group.selected.length) return;
+      snapshots = /* @__PURE__ */ new Map();
+      for (let el2 of Outliner.selected) {
+        if (el2 instanceof Cube) {
+          snapshots.set(el2.uuid, {
+            initialOrigin: [...el2.origin],
+            initialFrom: [...el2.from]
+          });
+        }
+      }
+      if (snapshots.size === 0) {
+        snapshots = null;
+        return;
+      }
+      trackedCubeUuid = null;
+      for (let [uuid] of snapshots) {
+        let el2 = OutlinerNode.uuids[uuid];
+        if (el2 instanceof Cube && el2.mesh?.parent) {
+          trackedCubeUuid = uuid;
+          break;
+        }
+      }
+      if (!trackedCubeUuid) return;
+      let el = OutlinerNode.uuids[trackedCubeUuid];
+      savedUpdatePivotMarker = Canvas.updatePivotMarker;
+      Canvas.updatePivotMarker = () => {
+      };
+      if (!pivotFollowEnabled) {
+        let worldPos = new THREE.Vector3();
+        let worldQuat = new THREE.Quaternion();
+        el.mesh.getWorldPosition(worldPos);
+        Canvas.pivot_marker.getWorldQuaternion(worldQuat);
+        Canvas.scene.add(Canvas.pivot_marker);
+        Canvas.pivot_marker.position.copy(worldPos);
+        Canvas.pivot_marker.quaternion.copy(worldQuat);
+      }
+    }
+    function onPointerMove() {
+      if (!pivotFollowEnabled || !snapshots || !trackedCubeUuid) return;
+      let snap = snapshots.get(trackedCubeUuid);
+      let el = OutlinerNode.uuids[trackedCubeUuid];
+      if (!snap || !(el instanceof Cube) || !el.mesh) return;
+      let originMoved = el.origin[0] !== snap.initialOrigin[0] || el.origin[1] !== snap.initialOrigin[1] || el.origin[2] !== snap.initialOrigin[2];
+      if (!originMoved) {
+        Canvas.pivot_marker.position.set(
+          el.from[0] - snap.initialFrom[0],
+          el.from[1] - snap.initialFrom[1],
+          el.from[2] - snap.initialFrom[2]
+        );
+      } else {
+        Canvas.pivot_marker.position.set(0, 0, 0);
+      }
+    }
+    function onFinishEdit() {
+      if (!snapshots) return;
+      let snapshotsCopy = snapshots;
+      snapshots = null;
+      trackedCubeUuid = null;
+      if (savedUpdatePivotMarker) {
+        Canvas.updatePivotMarker = savedUpdatePivotMarker;
+        savedUpdatePivotMarker = null;
+      }
+      let modified = [];
+      for (let [uuid, snap] of snapshotsCopy) {
+        let el = OutlinerNode.uuids[uuid];
+        if (!(el instanceof Cube) || !el.mesh) continue;
+        let originMoved = el.origin[0] !== snap.initialOrigin[0] || el.origin[1] !== snap.initialOrigin[1] || el.origin[2] !== snap.initialOrigin[2];
+        if (pivotFollowEnabled && !originMoved) {
+          let delta = new THREE.Vector3(
+            el.from[0] - snap.initialFrom[0],
+            el.from[1] - snap.initialFrom[1],
+            el.from[2] - snap.initialFrom[2]
+          );
+          delta.applyQuaternion(el.mesh.quaternion);
+          let desired = [
+            snap.initialOrigin[0] + delta.x,
+            snap.initialOrigin[1] + delta.y,
+            snap.initialOrigin[2] + delta.z
+          ];
+          el.transferOrigin(desired, false);
+          modified.push(el);
+        } else if (!pivotFollowEnabled && originMoved) {
+          el.transferOrigin(snap.initialOrigin, false);
+          modified.push(el);
+        }
+      }
+      Canvas.pivot_marker.position.set(0, 0, 0);
+      Canvas.pivot_marker.quaternion.identity();
+      Canvas.updatePivotMarker();
+      if (modified.length > 0) {
+        Canvas.updateView({
+          elements: modified,
+          element_aspects: { transform: true, geometry: true }
+        });
+      }
+    }
+    function onPointerUp() {
+      if (!snapshots) return;
+      let pendingSnapshots = snapshots;
+      setTimeout(() => {
+        if (snapshots !== pendingSnapshots) return;
+        snapshots = null;
+        trackedCubeUuid = null;
+        if (savedUpdatePivotMarker) {
+          Canvas.updatePivotMarker = savedUpdatePivotMarker;
+          savedUpdatePivotMarker = null;
+        }
+        Canvas.pivot_marker.position.set(0, 0, 0);
+        Canvas.pivot_marker.quaternion.identity();
+        Canvas.updatePivotMarker();
+      }, 0);
+    }
+    Blockbench.on("finish_edit", onFinishEdit);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("pointermove", onPointerMove, false);
+    document.addEventListener("pointerup", onPointerUp, true);
+    let toolOptions = {
+      move_tool: "Move",
+      resize_tool: "Resize",
+      rotate_tool: "Rotate",
+      pivot_tool: "Pivot",
+      vertex_snap_tool: "Vertex Snap"
+    };
+    let dblClickToolA = new Setting("hytale_dblclick_tool_a", {
+      name: "Double Click Tool A",
+      description: 'First tool in the double-click toggle pair. Requires "Double Click Switch Tools" to be enabled in Blockbench controls settings.',
+      category: "controls",
+      type: "select",
+      value: "move_tool",
+      options: toolOptions
+    });
+    track(dblClickToolA);
+    let dblClickToolB = new Setting("hytale_dblclick_tool_b", {
+      name: "Double Click Tool B",
+      description: 'Second tool in the double-click toggle pair. Requires "Double Click Switch Tools" to be enabled in Blockbench controls settings.',
+      category: "controls",
+      type: "select",
+      value: "resize_tool",
+      options: toolOptions
+    });
+    track(dblClickToolB);
+    let originalToggleTransforms = Toolbox.toggleTransforms;
+    Toolbox.toggleTransforms = function() {
+      let a = dblClickToolA.value;
+      let b = dblClickToolB.value;
+      if (Toolbox.selected.id === a) {
+        BarItems[b]?.select();
+      } else if (Toolbox.selected.id === b) {
+        BarItems[a]?.select();
+      }
+    };
+    track(toggle, {
+      delete() {
+        Blockbench.removeListener("finish_edit", onFinishEdit);
+        document.removeEventListener("pointerdown", onPointerDown, true);
+        document.removeEventListener("pointermove", onPointerMove, false);
+        document.removeEventListener("pointerup", onPointerUp, true);
+        if (savedUpdatePivotMarker) {
+          Canvas.updatePivotMarker = savedUpdatePivotMarker;
+          savedUpdatePivotMarker = null;
+        }
+        Toolbox.toggleTransforms = originalToggleTransforms;
+      }
+    });
+  }
+
   // src/change_orientation.ts
   function canChangeParentGroup(cube) {
     let parent = cube.parent;
@@ -4023,6 +4225,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     onload() {
       setupFormats();
       setupElements();
+      setupPivotControl();
       setupAnimation();
       setupAnimationCodec();
       setupAttachments();

@@ -16,7 +16,6 @@ import { setupOutlinerFilter } from "./outliner_filter";
 import { setupTextureHandling, updateUVSize } from "./texture";
 import { setupNameOverlap } from "./name_overlap";
 import { setupUVOutline } from "./uv_outline";
-import { setupTempFixes } from './temp_fixes'
 import { setupPreviewScenes } from "./preview_scenes";
 import { setupUVCanvasResize } from "./uv_canvas_resize";
 import { setupAltDuplicate } from "./alt_duplicate";
@@ -59,7 +58,6 @@ BBPlugin.register('hytale_plugin', {
         setupAltDuplicate();
         setupNameOverlap();
         setupUVOutline();
-        setupTempFixes();
         setupChangeOrientation();
         setupPreviewScenes();
         setupUVCanvasResize();
@@ -89,9 +87,9 @@ BBPlugin.register('hytale_plugin', {
             panel_setup_listener = Blockbench.on('select_mode', showCollectionPanel);
         }
 
-        let on_finish_edit = Blockbench.on('generate_texture_template', (arg: {texture: Texture, elements: Cube[]}) => {
+        let on_finish_edit = Blockbench.on('generate_texture_template', (arg: {texture: Texture, elements: OutlinerElement[]}) => {
             for (let element of arg.elements) {
-                if (typeof element.autouv != 'number') continue;
+                if (element instanceof Cube == false) continue;
                 element.autouv = 1;
             }
         })

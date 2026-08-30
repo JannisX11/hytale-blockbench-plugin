@@ -305,6 +305,12 @@
               mirror: new oneLiner({ x: mirror_x, y: mirror_y }),
               angle: uv_rot
             };
+            if ("uv_lock" in face && face.uv_lock) {
+              layout_face.lockUVs = true;
+            }
+            if ("transparent" in face && face.transparent) {
+              layout_face.transparent = true;
+            }
             node.shape.textureLayout[direction] = layout_face;
           }
         }
@@ -324,7 +330,7 @@
           if (!element.export) return void 0;
           if (!options.attachment) {
             let collection = Collection.all.find((c) => c.contains(element));
-            if (collection) return;
+            if (collection && collection.export_codec == "blockymodel") return;
           }
           let euler = Reusable.euler1.set(
             Math.degToRad(element.rotation[0]),
@@ -656,6 +662,8 @@
                 }
                 cube.faces[face_name].rotation = uv_rotation;
                 cube.faces[face_name].uv = result;
+                cube.faces[face_name].uv_lock = uv_source.lockUVs == true;
+                cube.faces[face_name].transparent = uv_source.transparent == true;
               }
             }
             cube.addTo(group || parent_group).init();
@@ -911,41 +919,6 @@
         if (changes) {
           Animator.preview();
         }
-      }
-    });
-    let bone_animator_select_original = BoneAnimator.prototype.select;
-    BoneAnimator.prototype.select = function select(group_is_selected) {
-      if (!this.getGroup()) {
-        unselectAllElements();
-        return this;
-      }
-      if (this.group.locked) return;
-      for (var key in this.animation.animators) {
-        this.animation.animators[key].selected = false;
-      }
-      if (group_is_selected !== true && this.group) {
-        this.group.select();
-      }
-      GeneralAnimator.prototype.select.call(this);
-      if (this[Toolbox.selected.animation_channel] && (Timeline.selected.length == 0 || Timeline.selected[0].animator != this) && !Blockbench.hasFlag("loading_selection_save")) {
-        var nearest;
-        this[Toolbox.selected.animation_channel].forEach((kf) => {
-          if (Math.abs(kf.time - Timeline.time) < 2e-3) {
-            nearest = kf;
-          }
-        });
-        if (nearest) {
-          nearest.select();
-        }
-      }
-      if (this.group && this.group.parent && this.group.parent !== "root") {
-        this.group.parent.openUp();
-      }
-      return this;
-    };
-    track({
-      delete() {
-        BoneAnimator.prototype.select = bone_animator_select_original;
       }
     });
     let setting = new Setting("hytale_duplicate_bone_names", {
@@ -1693,6 +1666,7 @@
     });
     const per_shape_channels = /* @__PURE__ */ new Set(["scale", "visibility", "uv_offset"]);
     const on_init_edit = Blockbench.on("init_edit", (arg) => {
+      if (!isHytaleFormat()) return;
       if (arg.aspects.keyframes?.length == 1 && per_shape_channels.has(arg.aspects.keyframes[0].channel)) {
         let kf = arg.aspects.keyframes[0];
         let group = kf.animator.group;
@@ -1778,6 +1752,74 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
       condition: { formats: FORMAT_IDS }
     });
     track(original_offset_property);
+    const transparent_property = new Property(CubeFace, "boolean", "transparent", {
+      condition: { formats: FORMAT_IDS },
+      default: false
+    });
+    const transparent_toggle = new Toggle("toggle_hytale_transparent", {
+      name: "Transparent Face",
+      icon: "wine_bar",
+      category: "uv",
+      condition: { formats: FORMAT_IDS },
+      onChange(value) {
+        Undo.initEdit({ elements: Cube.selected });
+        for (let cube of Cube.selected) {
+          for (let fkey of UVEditor.getFaces(cube)) {
+            cube.faces[fkey].transparent = value;
+          }
+        }
+        Undo.finishEdit("Toggle Transparent");
+      }
+    });
+    Toolbars.uv_editor.add(transparent_toggle);
+    const on_update_transparent = Blockbench.on("update_selection", (arg) => {
+      if (!Condition(transparent_toggle.condition)) return;
+      let value = false;
+      for (let cube of Cube.selected) {
+        for (let fkey of UVEditor.getFaces(cube)) {
+          if (cube.faces[fkey].transparent) value = true;
+        }
+      }
+      if (value != transparent_toggle.value) {
+        transparent_toggle.value = value;
+        transparent_toggle.updateEnabledState();
+      }
+    });
+    track(transparent_toggle, transparent_property, on_update_transparent);
+    const uv_lock_property = new Property(CubeFace, "boolean", "uv_lock", {
+      condition: { formats: FORMAT_IDS },
+      default: false
+    });
+    const uv_lock_toggle = new Toggle("toggle_hytale_uv_lock", {
+      name: "Toggle UV Lock",
+      icon: "sync_lock",
+      category: "uv",
+      condition: { formats: FORMAT_IDS },
+      onChange(value) {
+        Undo.initEdit({ elements: Cube.selected });
+        for (let cube of Cube.selected) {
+          for (let fkey of UVEditor.getFaces(cube)) {
+            cube.faces[fkey].uv_lock = value;
+          }
+        }
+        Undo.finishEdit("Toggle UV Lock");
+      }
+    });
+    Toolbars.uv_editor.add(uv_lock_toggle);
+    const on_update = Blockbench.on("update_selection", (arg) => {
+      if (!Condition(uv_lock_toggle.condition)) return;
+      let value = false;
+      for (let cube of Cube.selected) {
+        for (let fkey of UVEditor.getFaces(cube)) {
+          if (cube.faces[fkey].uv_lock) value = true;
+        }
+      }
+      if (value != uv_lock_toggle.value) {
+        uv_lock_toggle.value = value;
+        uv_lock_toggle.updateEnabledState();
+      }
+    });
+    track(uv_lock_toggle, uv_lock_property, on_update);
     let add_quad_action = new Action("hytale_add_quad", {
       name: "Add Quad",
       icon: "highlighter_size_5",
@@ -2043,6 +2085,11 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
         node_count++;
       }
     }
+    Outliner.root.forEach((node) => {
+      if (node instanceof Cube && node.export) {
+        node_count++;
+      }
+    });
     return node_count;
   }
   function setupChecks() {
@@ -2634,7 +2681,7 @@ body.hytale-uv-outline-only #uv_frame:not(.overlay_mode) .cube_uv_face.selected:
     left: -2px;
     right: -2px;
     bottom: -2px;
-    border-width: 2px;
+    border-width: 4px;
     border-color: var(--color-accent);
 }
 body.hytale-uv-outline-only #uv_frame .mesh_uv_face polygon {
@@ -2645,6 +2692,9 @@ body.hytale-uv-outline-only #uv_frame:not(.overlay_mode) .mesh_uv_face.selected 
 }
 body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     background-color: transparent;
+}
+body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
+    border-color: var(--color-accent);
 }
 `;
   function updateHytaleFormatClass() {
@@ -2667,183 +2717,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     track(selectProjectListener);
     document.body.classList.toggle("hytale-uv-outline-only", settings.uv_outline_only?.value ?? true);
     updateHytaleFormatClass();
-  }
-
-  // src/temp_fixes.js
-  function setupTempFixes() {
-    if (!Blockbench.isOlderThan("5.0.7")) return;
-    Cube.prototype.mapAutoUV = function(options = {}) {
-      if (this.box_uv) return;
-      var scope = this;
-      if (scope.autouv === 2) {
-        var all_faces = ["north", "south", "west", "east", "up", "down"];
-        let offset = Format.centered_grid ? 8 : 0;
-        all_faces.forEach(function(side) {
-          var uv = scope.faces[side].uv.slice();
-          let texture = scope.faces[side].getTexture();
-          let uv_width = Project.getUVWidth(texture);
-          let uv_height = Project.getUVHeight(texture);
-          switch (side) {
-            case "north":
-              uv = [
-                uv_width - (scope.to[0] + offset),
-                uv_height - scope.to[1],
-                uv_width - (scope.from[0] + offset),
-                uv_height - scope.from[1]
-              ];
-              break;
-            case "south":
-              uv = [
-                scope.from[0] + offset,
-                uv_height - scope.to[1],
-                scope.to[0] + offset,
-                uv_height - scope.from[1]
-              ];
-              break;
-            case "west":
-              uv = [
-                scope.from[2] + offset,
-                uv_height - scope.to[1],
-                scope.to[2] + offset,
-                uv_height - scope.from[1]
-              ];
-              break;
-            case "east":
-              uv = [
-                uv_width - (scope.to[2] + offset),
-                uv_height - scope.to[1],
-                uv_width - (scope.from[2] + offset),
-                uv_height - scope.from[1]
-              ];
-              break;
-            case "up":
-              uv = [
-                scope.from[0] + offset,
-                scope.from[2] + offset,
-                scope.to[0] + offset,
-                scope.to[2] + offset
-              ];
-              break;
-            case "down":
-              uv = [
-                scope.from[0] + offset,
-                uv_height - (scope.to[2] + offset),
-                scope.to[0] + offset,
-                uv_height - (scope.from[2] + offset)
-              ];
-              break;
-          }
-          if (Math.max(uv[0], uv[2]) > uv_width) {
-            let offset2 = Math.max(uv[0], uv[2]) - uv_width;
-            uv[0] -= offset2;
-            uv[2] -= offset2;
-          }
-          if (Math.min(uv[0], uv[2]) < 0) {
-            let offset2 = Math.min(uv[0], uv[2]);
-            uv[0] = Math.clamp(uv[0] - offset2, 0, uv_width);
-            uv[2] = Math.clamp(uv[2] - offset2, 0, uv_width);
-          }
-          if (Math.max(uv[1], uv[3]) > uv_height) {
-            let offset2 = Math.max(uv[1], uv[3]) - uv_height;
-            uv[1] -= offset2;
-            uv[3] -= offset2;
-          }
-          if (Math.min(uv[1], uv[3]) < 0) {
-            let offset2 = Math.min(uv[1], uv[3]);
-            uv[1] = Math.clamp(uv[1] - offset2, 0, uv_height);
-            uv[3] = Math.clamp(uv[3] - offset2, 0, uv_height);
-          }
-          scope.faces[side].uv = uv;
-        });
-        scope.preview_controller.updateUV(scope);
-      } else if (scope.autouv === 1) {
-        let calcAutoUV = function(fkey, dimension_axes, world_directions) {
-          let size = dimension_axes.map((axis) => scope.size(axis));
-          let face = scope.faces[fkey];
-          size[0] = Math.abs(size[0]);
-          size[1] = Math.abs(size[1]);
-          let sx = face.uv[0];
-          let sy = face.uv[1];
-          let previous_size = face.uv_size;
-          let rot = face.rotation;
-          let texture = face.getTexture();
-          let uv_width = Project.getUVWidth(texture);
-          let uv_height = Project.getUVHeight(texture);
-          if (rot === 90 || rot === 270) {
-            size.reverse();
-            dimension_axes.reverse();
-            world_directions.reverse();
-          }
-          if (rot == 180) {
-            world_directions[0] *= -1;
-            world_directions[1] *= -1;
-          }
-          size[0] = Math.clamp(size[0], -uv_width, uv_width) * (Math.sign(previous_size[0]) || 1);
-          size[1] = Math.clamp(size[1], -uv_height, uv_height) * (Math.sign(previous_size[1]) || 1);
-          if (options && typeof options.axis == "number") {
-            if (options.axis == dimension_axes[0] && options.direction == world_directions[0]) {
-              sx += previous_size[0] - size[0];
-            }
-            if (options.axis == dimension_axes[1] && options.direction == world_directions[1]) {
-              sy += previous_size[1] - size[1];
-            }
-          }
-          if (sx < 0) sx = 0;
-          if (sy < 0) sy = 0;
-          let endx = sx + size[0];
-          let endy = sy + size[1];
-          if (endx > uv_width) {
-            sx = uv_width - (endx - sx);
-            endx = uv_width;
-          }
-          if (endy > uv_height) {
-            sy = uv_height - (endy - sy);
-            endy = uv_height;
-          }
-          return [sx, sy, endx, endy];
-        };
-        scope.faces.north.uv = calcAutoUV("north", [0, 1], [1, 1]);
-        scope.faces.east.uv = calcAutoUV("east", [2, 1], [1, 1]);
-        scope.faces.south.uv = calcAutoUV("south", [0, 1], [-1, 1]);
-        scope.faces.west.uv = calcAutoUV("west", [2, 1], [-1, 1]);
-        scope.faces.up.uv = calcAutoUV("up", [0, 2], [-1, -1]);
-        scope.faces.down.uv = calcAutoUV("down", [0, 2], [-1, 1]);
-        scope.preview_controller.updateUV(scope);
-      }
-    };
-    BarItems.group_elements.click = function() {
-      Undo.initEdit({ outliner: true, groups: [] });
-      let add_group = Group.first_selected;
-      if (!add_group && Outliner.selected.length) {
-        add_group = Outliner.selected.last();
-      }
-      let new_name = add_group?.name;
-      let base_group = new Group({
-        origin: add_group ? add_group.origin : void 0,
-        name: ["cube", "mesh"].includes(new_name) ? void 0 : new_name
-      });
-      base_group.sortInBefore(add_group);
-      base_group.isOpen = true;
-      base_group.init();
-      if (base_group.getTypeBehavior("unique_name")) {
-        base_group.createUniqueName();
-      }
-      Outliner.selected.concat(Group.multi_selected).forEach((s) => {
-        if (s.parent?.selected) return;
-        s.addTo(base_group);
-        s.preview_controller.updateTransform(s);
-      });
-      base_group.select();
-      Undo.finishEdit("Add group", { outliner: true, groups: [base_group] });
-      Vue.nextTick(function() {
-        updateSelection();
-        if (settings.create_rename.value) {
-          base_group.rename();
-        }
-        base_group.showInOutliner();
-        Blockbench.dispatchEvent("group_elements", { object: base_group });
-      });
-    };
   }
 
   // src/references/player.json
@@ -4303,12 +4176,11 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     let selecting = false;
     brush_tool.addSubKeybind("switch_preset", "Switch Preset", null, (event) => {
       if (Toolbox.selected == brush_tool && !selecting) {
-        let options = brush_tool.side_menu.structure();
-        options = options.slice(0, -2);
-        let index = options.findIndex((option) => option.name == last_brush_preset?.name);
+        let options = [...Painter.default_brush_presets, ...StateMemory.brush_presets];
+        let index = options.indexOf(last_brush_preset);
         let next_index = (index + 1) % options.length;
         let next_option = options[next_index];
-        next_option.click(null, event);
+        Painter.loadBrushPreset(next_option);
         Blockbench.showQuickMessage(`Brush ${next_index + 1}: ${tl(next_option.name)}`);
       }
     });
@@ -4365,7 +4237,6 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       setupAltDuplicate();
       setupNameOverlap();
       setupUVOutline();
-      setupTempFixes();
       setupChangeOrientation();
       setupPreviewScenes();
       setupUVCanvasResize();

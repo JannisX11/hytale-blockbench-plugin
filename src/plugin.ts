@@ -85,9 +85,9 @@ BBPlugin.register('hytale_plugin', {
             panel_setup_listener = Blockbench.on('select_mode', showCollectionPanel);
         }
 
-        let on_finish_edit = Blockbench.on('generate_texture_template', (arg: {texture: Texture, elements: Cube[]}) => {
+        let on_finish_edit = Blockbench.on('generate_texture_template', (arg: {texture: Texture, elements: OutlinerElement[]}) => {
             for (let element of arg.elements) {
-                if (typeof element.autouv != 'number') continue;
+                if (element instanceof Cube == false) continue;
                 element.autouv = 1;
             }
         })

@@ -2,11 +2,12 @@
     "compilerOptions": {
         "target": "es2023",
         "module": "es2022",
-        "moduleResolution": "node",
+        "moduleResolution": "bundler",
         "allowUmdGlobalAccess": true,
         "lib": ["ES2023", "DOM", "DOM.Iterable"],
         "types": ["blockbench-types"],
         "rootDir": "src",
+        "strict": false,
         "strictNullChecks": false
     },
     "exclude": [

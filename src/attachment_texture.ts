@@ -1,6 +1,7 @@
 //! Copyright (C) 2025 Hypixel Studios Canada inc.
 //! Licensed under the GNU General Public License, see LICENSE.MD
 
+import { CustomMenuItem } from "blockbench-types/generated/interface/menu";
 import { track } from "./cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
 import { updateUVSize } from "./texture";
@@ -87,7 +88,6 @@ export function setupAttachmentTextures() {
 			Texture.all.forEach(t => {
 				arr.push({
 					name: t.name,
-					// @ts-expect-error
 					icon: t.img,
 					marked: t.uuid == context.texture,
 					click() {

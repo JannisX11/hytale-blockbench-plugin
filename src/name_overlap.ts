@@ -5,9 +5,9 @@ import { track } from "./cleanup";
 import { isHytaleFormat } from "./formats";
 
 // @ts-expect-error
-const Animation = window.Animation as typeof _Animation;
+const Animation = window.Animation as typeof BBAnimation;
 
-export function copyAnimationToGroupsWithSameName(animation: _Animation, source_group: Group) {
+export function copyAnimationToGroupsWithSameName(animation: BBAnimation, source_group: Group) {
     let source_animator = animation.getBoneAnimator(source_group);
     let other_groups = Group.all.filter(g => g.name == source_group.name && g != source_group);
     for (let group2 of other_groups) {

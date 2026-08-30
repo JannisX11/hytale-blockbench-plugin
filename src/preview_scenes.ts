@@ -8,9 +8,6 @@ import DefaultScene from './references/default.json'
 import DefaultTexture from './references/default/default.png'
 import { FORMAT_IDS } from './formats';
 
-declare global {
-	const ViewOptionsDialog: Dialog
-}
 
 export function setupPreviewScenes() {
     PreviewScene.menu_categories.hytale = {
@@ -20,7 +17,7 @@ export function setupPreviewScenes() {
     let base_path = 'https://cdn.jsdelivr.net/gh/JannisX11/hytale-blockbench-plugin/src/references/default/';
 	DefaultScene.preview_models.forEach(model => model.texture = DefaultTexture);
     new PreviewScene('hytale_default', {
-		...DefaultScene,
+		...DefaultScene as any,
 		name: 'Hytale',
         category: 'hytale',
         cubemap: [
@@ -36,7 +33,7 @@ export function setupPreviewScenes() {
 
 
     let player_model = new PreviewModel('hytale_player', {
-		...PlayerModelJSON,
+		...PlayerModelJSON as any,
 		texture: PlayerTexture,
     });
 	// track(player_model); // Currently has an unloading bug in Blockbench

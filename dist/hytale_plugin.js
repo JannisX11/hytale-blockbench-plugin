@@ -4161,7 +4161,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
   }
   function findFaceAtUV(texture, x, y, uvFactorX, uvFactorY) {
     const animOffset = texture.display_height * texture.currentFrame;
-    for (const cube of Cube.all) {
+    for (const cube of Cube.all.concat(Billboard.all)) {
       for (const faceKey in cube.faces) {
         const face = cube.faces[faceKey];
         const faceTexture = face.getTexture();
@@ -4195,7 +4195,8 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         minY = Math.floor(minY) + animOffset;
         maxX = Math.ceil(maxX);
         maxY = Math.ceil(maxY) + animOffset;
-        if (x >= minX && x < maxX && y >= minY && y < maxY) {
+        let polygon = face.getSortedVertices().map((vkey) => face.uv[vkey]);
+        if (pointInPolygon([x, y], polygon)) {
           return { element: mesh, faceKey, region: { minX, minY, maxX, maxY } };
         }
       }

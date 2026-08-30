@@ -1,5 +1,9 @@
 import { track } from "./cleanup";
 
+declare global {
+	function pointInPolygon(point: ArrayVector2, polygon: ArrayVector2[]): boolean
+}
+
 interface UVRegion {
 	minX: number;
 	minY: number;
@@ -25,7 +29,7 @@ export function setupUVFill() {
 	const originalUseFilltool = (Painter as any).useFilltool;
 
 	(Painter as any).useFilltool = function(texture: Texture, ctx: CanvasRenderingContext2D, x: number, y: number, area: FillArea) {
-		const fill_mode = (BarItems.fill_mode as BarSelect<string>).get();
+		const fill_mode = (BarItems.fill_mode as BarSelect).get();
 		const element = Painter.current.element;
 
 		if (!element) {
@@ -54,7 +58,7 @@ export function setupUVFill() {
 function findFaceAtUV(texture: Texture, x: number, y: number, uvFactorX: number, uvFactorY: number): FaceHit | null {
 	const animOffset = texture.display_height * texture.currentFrame;
 
-	for (const cube of Cube.all) {
+	for (const cube of (Cube.all as any).concat(Billboard.all)) {
 		for (const faceKey in cube.faces) {
 			const face = cube.faces[faceKey as CubeFaceDirection];
 			const faceTexture = face.getTexture();
@@ -95,7 +99,8 @@ function findFaceAtUV(texture: Texture, x: number, y: number, uvFactorX: number,
 			maxX = Math.ceil(maxX);
 			maxY = Math.ceil(maxY) + animOffset;
 
-			if (x >= minX && x < maxX && y >= minY && y < maxY) {
+			let polygon = face.getSortedVertices().map(vkey => face.uv[vkey]);
+			if (pointInPolygon([x, y], polygon)) {
 				return { element: mesh, faceKey, region: { minX, minY, maxX, maxY } };
 			}
 		}

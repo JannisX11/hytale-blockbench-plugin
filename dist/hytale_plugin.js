@@ -4547,6 +4547,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     }
     document.addEventListener("keydown", onKeyDown, true);
     let snapTo = new BarSelect("snap_to", {
+      name: "Vertex Snap To",
       options: {
         vertex: { name: "Vertex", icon: "fiber_manual_record" },
         edge: { name: "Edge", icon: "pen_size_3" },

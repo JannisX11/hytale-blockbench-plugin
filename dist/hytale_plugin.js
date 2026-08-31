@@ -1136,7 +1136,7 @@
     });
     track(export_anim);
     MenuBar.menus.animation.addAction(export_anim);
-    Panels.animations.toolbars[0].add(export_anim, "4");
+    Panels.animations.toolbars[0].add(export_anim, 4);
     let handler = Filesystem.addDragHandler("blockyanim", {
       extensions: ["blockyanim"],
       readtype: "text",
@@ -1315,7 +1315,6 @@
         Texture.all.forEach((t) => {
           arr.push({
             name: t.name,
-            // @ts-expect-error
             icon: t.img,
             marked: t.uuid == context.texture,
             click() {
@@ -1675,7 +1674,6 @@
         if (shape) return;
         if (document.getElementById("toast_notification_list").children.length) return;
         Blockbench.showToastNotification({
-          // @ts-expect-error
           id: "hytale_no_connected_shape_toast",
           text: `The group "${group.name}" has no connected shape, so the ${kf.channel} animation will not apply. Click to learn more.`,
           icon: "fa-cube",
@@ -2143,7 +2141,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.9.1",
+    version: "0.10.0",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
@@ -2154,7 +2152,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     author: "JannisX11, Kanno",
     license: "GPL-3.0",
     dependencies: {
-      "blockbench-types": "^5.1.0"
+      "blockbench-types": "^5.2.0-beta.1-next.6"
     },
     devDependencies: {
       esbuild: "^0.25.9"
@@ -4729,7 +4727,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       }
       let on_finish_edit = Blockbench.on("generate_texture_template", (arg) => {
         for (let element of arg.elements) {
-          if (typeof element.autouv != "number") continue;
+          if (element instanceof Cube == false) continue;
           element.autouv = 1;
         }
       });

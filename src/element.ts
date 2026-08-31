@@ -114,6 +114,91 @@ export function setupElements() {
 	});
 	track(is_piece_property);
 
+	let original_position_property = new Property(Group, 'vector', 'original_position', {
+		condition: {formats: FORMAT_IDS},
+	});
+	track(original_position_property);
+
+	let original_offset_property = new Property(Group, 'vector', 'original_offset', {
+		condition: {formats: FORMAT_IDS},
+	});
+	track(original_offset_property);
+
+	// Transparency
+    const transparent_property = new Property(CubeFace, 'boolean', 'transparent', {
+		condition: {formats: FORMAT_IDS},
+        default: false,
+    });
+    const transparent_toggle = new Toggle('toggle_hytale_transparent', {
+        name: 'Transparent Face',
+        icon: 'wine_bar',
+        category: 'uv',
+		condition: {formats: FORMAT_IDS},
+        onChange(value) {
+			Undo.initEdit({elements: Cube.selected});
+            for (let cube of Cube.selected) {
+                for (let fkey of UVEditor.getFaces(cube)) {
+                    (cube.faces[fkey] as any).transparent = value;
+                }
+            }
+			Undo.finishEdit('Toggle Transparent');
+        }
+    })
+    Toolbars.uv_editor.add(transparent_toggle);
+	const on_update_transparent = Blockbench.on('update_selection', arg => {
+		if (!Condition(transparent_toggle.condition)) return;
+
+		let value = false;
+		for (let cube of Cube.selected) {
+			for (let fkey of UVEditor.getFaces(cube)) {
+				if ((cube.faces[fkey] as any).transparent) value = true;
+			}
+		}
+		if (value != transparent_toggle.value) {
+			transparent_toggle.value = value;
+			transparent_toggle.updateEnabledState();
+		}
+	})
+	track(transparent_toggle, transparent_property, on_update_transparent);
+
+	// UV Lock
+    const uv_lock_property = new Property(CubeFace, 'boolean', 'uv_lock', {
+		condition: {formats: FORMAT_IDS},
+        default: false,
+    });
+    const uv_lock_toggle = new Toggle('toggle_hytale_uv_lock', {
+        name: 'Toggle UV Lock',
+        icon: 'sync_lock',
+        category: 'uv',
+		condition: {formats: FORMAT_IDS},
+        onChange(value) {
+			Undo.initEdit({elements: Cube.selected});
+            for (let cube of Cube.selected) {
+                for (let fkey of UVEditor.getFaces(cube)) {
+                    (cube.faces[fkey] as any).uv_lock = value;
+                }
+            }
+			Undo.finishEdit('Toggle UV Lock');
+        }
+    })
+    Toolbars.uv_editor.add(uv_lock_toggle);
+	const on_update = Blockbench.on('update_selection', arg => {
+		if (!Condition(uv_lock_toggle.condition)) return;
+
+		let value = false;
+		for (let cube of Cube.selected) {
+			for (let fkey of UVEditor.getFaces(cube)) {
+				if ((cube.faces[fkey] as any).uv_lock) value = true;
+			}
+		}
+		if (value != uv_lock_toggle.value) {
+			uv_lock_toggle.value = value;
+			uv_lock_toggle.updateEnabledState();
+		}
+	})
+	track(uv_lock_toggle, uv_lock_property, on_update);
+
+
 	let add_quad_action = new Action('hytale_add_quad', {
 		name: 'Add Quad',
 		icon: 'highlighter_size_5',

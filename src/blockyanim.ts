@@ -4,11 +4,11 @@
 import { copyAnimationToGroupsWithSameName } from "./name_overlap";
 import { track } from "./cleanup";
 import { Config } from "./config";
-import { FORMAT_IDS } from "./formats";
+import { FORMAT_IDS, isHytaleFormat } from "./formats";
 
 const FPS = 60;
 // @ts-expect-error
-const Animation = window.Animation as typeof _Animation;
+const Animation = window.Animation as typeof BBAnimation;
 
 type IBlockyAnimJSON = {
 	formatVersion: 1
@@ -48,6 +48,7 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 
 		let ba = new BoneAnimator(uuid, animation, group_name);
 		animation.animators[uuid] = ba;
+		ba.group = group;
 
 		//Channels
 		const anim_channels = [
@@ -55,6 +56,7 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 			{ channel: 'position', keyframes: anim_data.position },
 			{ channel: 'scale', keyframes: anim_data.shapeStretch },
 			{ channel: 'visibility', keyframes: anim_data.shapeVisible },
+			{ channel: 'uv_offset', keyframes: anim_data.shapeUvOffset },
 		]
 		for (let {channel, keyframes} of anim_channels) {
 			if (!keyframes || keyframes.length == 0) continue;
@@ -64,6 +66,12 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 				if (channel == 'visibility') {
 					data_point = {
 						visibility: kf_data.delta as boolean
+					}
+				} else if (channel == 'uv_offset') {
+					let delta = kf_data.delta as {x: number, y: number};
+					data_point = {
+						x: delta.x,
+						y: -delta.y,
 					}
 				} else {
 					let delta = kf_data.delta as {x: number, y: number, z: number, w?: number};
@@ -83,12 +91,15 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 						}
 					}
 				}
-				ba.addKeyframe({
+				let kf = ba.addKeyframe({
 					time: kf_data.time / FPS,
 					channel,
 					interpolation: kf_data.interpolationType == 'smooth' ? 'catmullrom' : 'linear',
 					data_points: [data_point]
 				});
+				if (channel == 'scale') {
+					kf.uniform = data_point.x == data_point.y && data_point.x == data_point.z;
+				}
 			}
 		}
 
@@ -102,11 +113,11 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 	}
 
 }
-function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
+function compileAnimationFile(animation: BBAnimation): IBlockyAnimJSON {
 	const nodeAnimations: Record<string, IAnimationObject> = {};
 	const file: IBlockyAnimJSON = {
 		formatVersion: 1,
-		duration: Math.round(animation.length * FPS),
+		duration: Math.round(animation.length * FPS) || FPS * 2,
 		holdLastKeyframe: animation.loop == 'hold',
 		nodeAnimations,
 	}
@@ -115,10 +126,10 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 		rotation: 'orientation',
 		scale: 'shapeStretch',
 		visibility: 'shapeVisible',
+		uv_offset: 'shapeUvOffset',
 	}
 	for (let uuid in animation.animators) {
 		let animator = animation.animators[uuid];
-		if (!animator.group) continue;
 		let name = animator.name;
 		let node_data: IAnimationObject = {};
 		let has_data = false;
@@ -127,19 +138,22 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 			let timeline: IKeyframe[];
 			let hytale_channel_key = channels[channel];
 			timeline = timeline = node_data[hytale_channel_key] = [];
-			let keyframe_list = (animator[channel].slice() as _Keyframe[]);
+			let keyframe_list = (animator[channel] && Array.isArray(animator[channel]))
+            ? animator[channel].slice()
+            : [];
 			keyframe_list.sort((a, b) => a.time - b.time);
 			for (let kf of keyframe_list) {
 				let data_point = kf.data_points[0];
 				let delta: any;
 				if (channel == 'visibility') {
 					delta = data_point.visibility;
-				} else {
+				} else if (channel == 'uv_offset') {
 					delta = {
-						x: parseFloat(data_point.x),
-						y: parseFloat(data_point.y),
-						z: parseFloat(data_point.z),
+						x: Math.round(parseFloat(data_point.x)),
+						y: -Math.round(parseFloat(data_point.y)),
 					};
+					delta = new oneLiner(delta);
+				} else {
 					if (channel == 'rotation') {
 						let euler = new THREE.Euler(
 							Math.degToRad(kf.calc('x')),
@@ -148,12 +162,17 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 							Format.euler_order,
 						);
 						let quaternion = new THREE.Quaternion().setFromEuler(euler);
-
 						delta = {
 							x: quaternion.x,
 							y: quaternion.y,
 							z: quaternion.z,
 							w: quaternion.w,
+						};
+					} else {
+						delta = {
+							x: kf.calc('x'),
+							y: kf.calc('y'),
+							z: kf.calc('z'),
 						};
 					}
 					delta = new oneLiner(delta);
@@ -163,12 +182,15 @@ function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
 					delta,
 					interpolationType: kf.interpolation == 'catmullrom' ? 'smooth' : 'linear'
 				};
+				if (channel == 'uv_offset') console.log(kf_output)
 				timeline.push(kf_output);
 				has_data = true;
 			}
 		}
 		if (has_data) {
-			node_data.shapeUvOffset = [];
+			if (!node_data.shapeUvOffset) {
+				node_data.shapeUvOffset = [];
+			}
 			nodeAnimations[name] = node_data;
 		}
 	}
@@ -203,8 +225,7 @@ export function setupAnimationCodec() {
 		icon: 'cinematic_blur',
 		condition: {formats: FORMAT_IDS, selected: {animation: true}},
 		click() {
-			let animation: _Animation;
-			// @ts-ignore
+			let animation: BBAnimation;
 			animation = Animation.selected;
 			let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
 			Filesystem.exportFile({
@@ -218,7 +239,7 @@ export function setupAnimationCodec() {
 	})
 	track(export_anim);
 	MenuBar.menus.animation.addAction(export_anim);
-	Panels.animations.toolbars[0].add(export_anim, '4');
+	Panels.animations.toolbars[0].add(export_anim, 4);
 
 	let handler = Filesystem.addDragHandler('blockyanim', {
 		extensions: ['blockyanim'],
@@ -239,9 +260,8 @@ export function setupAnimationCodec() {
 			return original_save.call(this, ...args);
 		}
 
-		let animation: _Animation;
-		// @ts-ignore
-		animation = Animation.selected;
+		let animation: BBAnimation;
+		animation = this;
 		let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
 
 		if (isApp && this.path) {
@@ -271,6 +291,14 @@ export function setupAnimationCodec() {
 			Animation.prototype.save = original_save;
 		}
 	});
+	let save_all_listener = BarItems.save_all_animations.on('use', () => {
+		if (!isHytaleFormat()) return;
+		Animation.all.forEach(animation => {
+			if (!animation.saved) animation.save();
+		});
+		return false;
+	});
+	track(save_all_listener as unknown as Deletable);
 
 	let original_condition = BarItems.export_animation_file.condition;
 	BarItems.export_animation_file.condition = () => {
@@ -281,4 +309,13 @@ export function setupAnimationCodec() {
 			BarItems.export_animation_file.condition = original_condition;
 		}
 	});
+
+	let setting = new Setting('auto_load_hytale_animations', {
+        name: 'Auto-load Hytale Animations',
+        description: 'Automatically load blockyanim files when opening a Hytale model',
+        category: 'edit',
+        type: 'toggle',
+        value: true
+    })
+    track(setting);
 }

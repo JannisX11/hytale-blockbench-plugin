@@ -1,3 +1,6 @@
+//! Copyright (C) 2025 Hypixel Studios Canada inc.
+//! Licensed under the GNU General Public License, see LICENSE.MD
+
 import { track } from './cleanup';
 import PlayerModelJSON from './references/player.json'
 import PlayerTexture from './references/player.png'
@@ -5,9 +8,6 @@ import DefaultScene from './references/default.json'
 import DefaultTexture from './references/default/default.png'
 import { FORMAT_IDS } from './formats';
 
-declare global {
-	const ViewOptionsDialog: Dialog
-}
 
 export function setupPreviewScenes() {
     PreviewScene.menu_categories.hytale = {
@@ -17,7 +17,7 @@ export function setupPreviewScenes() {
     let base_path = 'https://cdn.jsdelivr.net/gh/JannisX11/hytale-blockbench-plugin/src/references/default/';
 	DefaultScene.preview_models.forEach(model => model.texture = DefaultTexture);
     new PreviewScene('hytale_default', {
-		...DefaultScene,
+		...DefaultScene as any,
 		name: 'Hytale',
         category: 'hytale',
         cubemap: [
@@ -33,7 +33,7 @@ export function setupPreviewScenes() {
 
 
     let player_model = new PreviewModel('hytale_player', {
-		...PlayerModelJSON,
+		...PlayerModelJSON as any,
 		texture: PlayerTexture,
     });
 	// track(player_model); // Currently has an unloading bug in Blockbench
@@ -64,7 +64,6 @@ export function setupPreviewScenes() {
 		player_model.model_3d.scale.set(block_size/64, block_size/64, block_size/64);
 		player_model.model_3d.position.x = -block_size;
 		// Scene
-		// @ts-ignore
 		let model = PreviewModel.models.hytale_default as PreviewModel;
 		model.model_3d.scale.set(block_size/16, block_size/16, block_size/16);
 	}

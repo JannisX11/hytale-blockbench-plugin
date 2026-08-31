@@ -5,16 +5,15 @@ import { track } from "./cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
 import { getMainShape } from "./util";
 
-declare global {
-    const DefaultCameraPresets: any[]
-}
 
 export function setupAnimation() {
 
     // Visibility
     function displayVisibility(animator: BoneAnimator) {
         let group = animator.getGroup();
-        let scene_object = group.scene_object;
+        let main_shape = getMainShape(group);
+        if (!main_shape) return;
+        let scene_object = main_shape.scene_object;
         if (animator.muted.visibility) {
             scene_object.visible = group.visibility;
             return;
@@ -22,7 +21,7 @@ export function setupAnimation() {
 
         let previous_keyframe;
         let previous_time = -Infinity;
-        for (let keyframe of (animator.visibility as _Keyframe[])) {
+        for (let keyframe of (animator.visibility as BBKeyframe[])) {
             if (keyframe.time <= Timeline.time && keyframe.time > previous_time) {
                 previous_keyframe = keyframe;
                 previous_time = keyframe.time;
@@ -44,12 +43,94 @@ export function setupAnimation() {
             displayVisibility(animator);
         }
     });
-    let property = new Property(KeyframeDataPoint, 'boolean', 'visibility', {
+    let vis_property = new Property(KeyframeDataPoint, 'boolean', 'visibility', {
         label: 'Visibility',
         condition: (point: KeyframeDataPoint) => point.keyframe.channel == 'visibility',
         default: true
     });
-    track(property);
+    track(vis_property);
+
+    let on_exit_anim_mode = Blockbench.on('unselect_mode', (arg) => {
+        if (isHytaleFormat() && arg.mode?.id == 'animate') {
+            Canvas.updateVisibility();
+        }
+    })
+    track(vis_property, on_exit_anim_mode);
+
+    
+    // UV Offset
+    function displayUVOffset(animator: BoneAnimator) {
+        let group = animator.getGroup();
+        let cube = getMainShape(group);
+        if (!cube) return;
+
+        let updateUV = (offset?: number[]) => {
+            if (offset) {
+                offset = offset.map(v => Math.round(v));
+            }
+
+            // Optimize
+            if (!offset || (!offset[0] && !offset[1])) {
+                if (!cube.mesh.userData.uv_anim_offset) {
+                    return;
+                } else {
+                    cube.mesh.userData.uv_anim_offset = false;
+                }
+            } else {
+                cube.mesh.userData.uv_anim_offset = true;
+            }
+
+            offset = offset ?? [0, 0];
+            let fix_uvs = {};
+            for (let fkey in cube.faces) {
+                fix_uvs[fkey] = cube.faces[fkey].uv.slice();
+                cube.faces[fkey].uv[0] += offset[0];
+                cube.faces[fkey].uv[1] += offset[1];
+                cube.faces[fkey].uv[2] += offset[0];
+                cube.faces[fkey].uv[3] += offset[1];
+            }
+            Cube.preview_controller.updateUV(cube);
+            for (let fkey in cube.faces) {
+                cube.faces[fkey].uv.replace(fix_uvs[fkey]);
+            }
+        }
+
+        if (animator.muted.uv_offset) {
+            updateUV();
+            return;
+        }
+
+        let previous_keyframe: BBKeyframe | undefined;
+        let previous_time = -Infinity;
+        for (let keyframe of (animator.uv_offset as BBKeyframe[])) {
+            if (keyframe.time <= Timeline.time && keyframe.time > previous_time) {
+                previous_keyframe = keyframe;
+                previous_time = keyframe.time;
+            }
+        }
+        if (previous_keyframe) {
+            // Display offset
+            updateUV(previous_keyframe.getArray() as ArrayVector2);
+        } else if (true) {
+            // Reset UV
+            updateUV();
+        }
+    }
+    BoneAnimator.addChannel('uv_offset', {
+        name: 'UV Offset',
+        mutable: true,
+        transform: true,
+        max_data_points: 1,
+        condition: {formats: FORMAT_IDS},
+        displayFrame(animator: BoneAnimator, multiplier: number) {
+            displayUVOffset(animator);
+        }
+    });
+    let original_condition = KeyframeDataPoint.properties.z.condition;
+    KeyframeDataPoint.properties.z.condition = (point) => {
+        if (point.keyframe.channel == 'uv_offset') return false;
+        return Condition(original_condition, point);
+    }
 
     
     // Playback
@@ -107,21 +188,23 @@ export function setupAnimation() {
         
         return original_display_scale.call(this, array, multiplier);
     }
-    BoneAnimator.prototype.displayRotation = function displayRotation(array, multiplier = 1) {
-        if (isHytaleFormat() && array) {
-		    let bone = this.group.scene_object;
-			let euler = Reusable.euler1.set(
-				Math.degToRad(array[0]) * multiplier,
-				Math.degToRad(array[1]) * multiplier,
-				Math.degToRad(array[2]) * multiplier,
-				bone.rotation.order
-			)
-			let q2 = Reusable.quat2.setFromEuler(euler);
-			bone.quaternion.multiply(q2);
-			return this;
+    if (Blockbench.isOlderThan('5.1.0')) {
+        BoneAnimator.prototype.displayRotation = function displayRotation(array, multiplier = 1) {
+            if (isHytaleFormat() && array) {
+                let bone = this.group.scene_object;
+                let euler = Reusable.euler1.set(
+                    Math.degToRad(array[0]) * multiplier,
+                    Math.degToRad(array[1]) * multiplier,
+                    Math.degToRad(array[2]) * multiplier,
+                    bone.rotation.order
+                )
+                let q2 = Reusable.quat2.setFromEuler(euler);
+                bone.quaternion.multiply(q2);
+                return this;
+            }
+            
+            return original_display_rotation.call(this, array, multiplier);
         }
-        
-        return original_display_rotation.call(this, array, multiplier);
     }
     Animator.showDefaultPose = function(reduced_updates, ...args) {
         original_show_default_pose(reduced_updates, ...args);
@@ -134,11 +217,49 @@ export function setupAnimation() {
     track({
         delete() {
             BoneAnimator.prototype.displayScale = original_display_scale;
-            BoneAnimator.prototype.displayRotation = original_display_rotation;
+            if (Blockbench.isOlderThan('5.1.0-beta.4')) {
+                BoneAnimator.prototype.displayRotation = original_display_rotation;
+            }
             Animator.showDefaultPose = original_show_default_pose;
         }
     })
 
+    // Warning if no default shape
+    const per_shape_channels = new Set(['scale', 'visibility', 'uv_offset']);
+    const on_init_edit = Blockbench.on('init_edit', arg => {
+        if (!isHytaleFormat()) return;
+        if (arg.aspects.keyframes?.length == 1 && per_shape_channels.has(arg.aspects.keyframes[0].channel)) {
+            let kf = arg.aspects.keyframes[0];
+            let group = (kf.animator as BoneAnimator).group;
+            if (!group.name) return;
+            let shape = getMainShape(group);
+            if (shape) return;
+            if (document.getElementById('toast_notification_list').children.length) return;
+
+            Blockbench.showToastNotification({
+                id: 'hytale_no_connected_shape_toast',
+                text: `The group "${group.name}" has no connected shape, so the ${kf.channel} animation will not apply. Click to learn more.`,
+                icon: 'fa-cube',
+                expire: 20*1000,
+                click: () => {
+                    Blockbench.showMessageBox({
+                        title: 'No connected shape',
+                        icon: 'info',
+                        width: 500,
+                        message: `Scale, visibility, and UV animations only apply to one cube that's directly connected to the group. No shape is directly connected to this group.`
+                        + '\n\nFor Hytale, the first cube inside a group qualifies as directly connected if it matches the following criteria:'
+                        + '\n* The cube must be directly parented to the group'
+                        + '\n* The rotation value of the cube itself must be 0'
+                    });
+                    return true;
+                }
+            });
+        }
+    });
+    track(on_init_edit);
+
+
+    // Mark: First person camera
     Blockbench.addCSS(`
         #reset_camera_button {
             position: absolute;

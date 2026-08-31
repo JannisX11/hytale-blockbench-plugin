@@ -53,6 +53,8 @@ type IUvFace = {
 	offset: {x: number, y: number}
 	mirror: {x: boolean, y: boolean}
 	angle: IUvRot
+	transparent?: boolean
+	lockUVs?: boolean
 }
 type IVector = {x: number, y: number, z: number}
 type IQuaternion = {x: number, y: number, z: number, w: number}
@@ -227,6 +229,7 @@ export function setupBlockymodelCodec(): Codec {
 			}
 			Settings.updateSettingsInProfiles();
 		},
+		// MARK: Compile
 		compile(options: CompileOptions = {}): string | BlockymodelJSON {
 			let model: BlockymodelJSON = {
 				nodes: [],
@@ -283,7 +286,7 @@ export function setupBlockymodelCodec(): Codec {
 				}
 				node.shape.stretch = formatVector(stretch);
 
-				node.shape.visible = true;
+				node.shape.visible = cube.visibility;
 				node.shape.doubleSided = cube.double_sided == true;
 				node.shape.shadingMode = cube.shading_mode;
 				node.shape.unwrapMode = 'custom';
@@ -370,30 +373,42 @@ export function setupBlockymodelCodec(): Codec {
 					}
 
 					let layout_face: IUvFace = {
-						offset: new oneLiner({x: Math.round(uv_x), y: Math.round(uv_y)}),
-						mirror: new oneLiner({x: mirror_x, y: mirror_y}),
+						offset: new oneLiner({x: Math.round(uv_x), y: Math.round(uv_y)}) as any,
+						mirror: new oneLiner({x: mirror_x, y: mirror_y}) as any,
 						angle: uv_rot,
 					};
+					if ("uv_lock" in face && face.uv_lock) {
+						layout_face.lockUVs = true;
+					}
+					if ("transparent" in face && face.transparent) {
+						layout_face.transparent = true;
+					}
 					node.shape.textureLayout[direction] = layout_face;
 				}
 
 			}
-			function getNodeOffset(group: Group): ArrayVector3 | undefined {
+			function getNodeOffset(group: Group, include_original_offset: boolean = true): ArrayVector3 | undefined {
 				let cube = getMainShape(group);
 				if (cube) {
 					let center_pos = cube.from.slice().V3_add(cube.to).V3_divide(2, 2, 2);
 					center_pos.V3_subtract(group.origin);
 					return center_pos;
+				} else if (include_original_offset) {
+					return group.original_offset;
+				} else {
+					return [0, 0, 0];
 				}
 			}
 
 			function compileNode(element: Group | Cube, name: string = element.name): BlockymodelNode | undefined {
+				// Check the Export toggle immediately
+    			if (!element.export) return undefined;
+
 				// Filter attachment
 				if (!options.attachment) {
 					let collection = Collection.all.find(c => c.contains(element));
-					if (collection) return;
+					if (collection && collection.export_codec == "blockymodel") return;
 				}
-
 				let euler = Reusable.euler1.set(
 					Math.degToRad(element.rotation[0]),
 					Math.degToRad(element.rotation[1]),
@@ -408,12 +423,16 @@ export function setupBlockymodelCodec(): Codec {
 					w: quaternion.w,
 				}) as IQuaternion;
 				let origin = element.origin.slice() as ArrayVector3;
+				let offset: ArrayVector3 = element instanceof Group ? getNodeOffset(element) : [0, 0, 0];
 				if (element.parent instanceof Group) {
 					origin.V3_subtract(element.parent.origin);
-					let offset = getNodeOffset(element.parent);
-					if (offset) {
-						origin.V3_subtract(offset);
+					let parent_offset = getNodeOffset(element.parent, !options.attachment);
+					if (parent_offset) {
+						origin.V3_subtract(parent_offset);
 					}
+				}
+				if (options.attachment && element instanceof Group && element.is_piece && element.original_position?.some((v: number) => v)) {
+					origin = element.original_position;
 				}
 				let node: BlockymodelNode = {
 					id: node_id.toString(),
@@ -422,14 +441,14 @@ export function setupBlockymodelCodec(): Codec {
 					orientation,
 					shape: {
 						type: "none",
-						offset: formatVector([0, 0, 0]),
-						stretch: formatVector([0, 0, 0]),
+						offset: formatVector(offset),
+						stretch: formatVector([1, 1, 1]),
 						settings: {
 							isPiece: (element instanceof Group && (element as GroupHytale).is_piece) || false
 						},
 						textureLayout: {},
 						unwrapMode: "custom",
-						visible: true,
+						visible: element.visibility,
 						doubleSided: false,
 						shadingMode: "flat"
 					},
@@ -442,6 +461,7 @@ export function setupBlockymodelCodec(): Codec {
 					let shape_count = 0;
 					let child_cube_count = 0;
 					for (let child of element.children ?? []) {
+						if (!child.export) continue;
 						let result: BlockymodelNode;
 						if (qualifiesAsMainShape(child) && shape_count == 0) {
 							turnNodeIntoBox(node, child as CubeHytale, element);
@@ -464,7 +484,10 @@ export function setupBlockymodelCodec(): Codec {
 			}
 			let nodes: (Group | Cube)[] = Outliner.root.filter(node => node instanceof Group || node instanceof Cube);
 			if (options.attachment instanceof Collection) {
-				nodes = (options.attachment as Collection).getChildren().filter(g => g instanceof Group);
+				let in_collection = (options.attachment as Collection).getChildren();
+				nodes = in_collection.filter(g => {
+					return g instanceof Group;
+				}) as Group[];
 			}
 			for (let node of nodes) {
 				let compiled = compileNode(node);
@@ -477,6 +500,7 @@ export function setupBlockymodelCodec(): Codec {
 				return compileJSON(model, Config.json_compile_options)
 			}
 		},
+		// MARK: Parse
 		parse(model: BlockymodelJSON, path: string, args: {attachment?: string} = {}) {
 			function parseVector(vec: IVector, fallback: ArrayVector3 = [0, 0, 0]): ArrayVector3 | undefined {
 				if (!vec) return fallback;
@@ -503,8 +527,9 @@ export function setupBlockymodelCodec(): Codec {
 				quaternion.set(node.orientation.x, node.orientation.y, node.orientation.z, node.orientation.w);
 				let rotation_euler = new THREE.Euler().setFromQuaternion(quaternion.normalize(), 'ZYX');
 				let name = node.name;
-				let offset = node.shape?.offset ? parseVector(node.shape?.offset) : [0, 0, 0];
+				let offset: ArrayVector3 = node.shape?.offset ? parseVector(node.shape?.offset) : [0, 0, 0];
 				let origin = parseVector(node.position);
+				let original_position: ArrayVector3 | undefined;
 				let rotation: ArrayVector3 = [
 					Math.roundTo(Math.radToDeg(rotation_euler.x), 3),
 					Math.roundTo(Math.radToDeg(rotation_euler.y), 3),
@@ -512,15 +537,12 @@ export function setupBlockymodelCodec(): Codec {
 				];
 				if (args.attachment && !parent_node && parent_group instanceof Group) {
 					let reference_node = getMainShape(parent_group) ?? parent_group;
+					original_position = origin;
 					origin = reference_node.origin.slice() as ArrayVector3;
-					rotation = reference_node.rotation.slice() as ArrayVector3;
 
-				} else if (parent_group instanceof Group) {
-					let parent_geo_origin = getMainShape(parent_group)?.origin ?? parent_group.origin;
-					if (parent_geo_origin) {
-						origin.V3_add(parent_geo_origin);
-						if (parent_offset) origin.V3_add(parent_offset);
-					}
+				} else if (parent_offset && parent_group instanceof Group) {
+					origin.V3_add(parent_offset);
+					origin.V3_add(parent_group.origin);
 				}
 
 				let group: Group | null = null;
@@ -530,6 +552,7 @@ export function setupBlockymodelCodec(): Codec {
 						autouv: 1,
 						origin,
 						rotation,
+						visibility: node.shape?.visible != false,
 					});
 					
 					new_groups.push(group);
@@ -538,13 +561,17 @@ export function setupBlockymodelCodec(): Codec {
 					if (!parent_node && args.attachment) {
 						group.name = args.attachment + ':' + group.name;
 						group.color = 1;
+						// Long-term this needs to be saved somewhere, as it is used in the model itself, but not if attached
+						group.rotation.V3_set(0, 0, 0);
 					}
 
 					group.init();
-					group.extend({
-						// @ts-ignore
+					let custom_data = {
 						is_piece: node.shape?.settings?.isPiece ?? false,
-					});
+						original_position,
+						original_offset: offset,
+					};
+					group.extend(custom_data as any);
 				} else {
 					name = name.replace(/--C\d+$/, '');
 				}
@@ -568,6 +595,7 @@ export function setupBlockymodelCodec(): Codec {
 						name,
 						autouv: 1,
 						box_uv: false,
+						visibility: node.shape.visible != false,
 						rotation: [0, 0, 0],
 						stretch,
 						from: [
@@ -582,6 +610,7 @@ export function setupBlockymodelCodec(): Codec {
 						]
 					})
 					if (group) {
+						group.color = cube.color;
 						cube.origin.V3_set(
 							Math.lerp(cube.from[0], cube.to[0], 0.5),
 							Math.lerp(cube.from[1], cube.to[1], 0.5),
@@ -732,6 +761,10 @@ export function setupBlockymodelCodec(): Codec {
 							}
 							cube.faces[face_name].rotation = uv_rotation;
 							cube.faces[face_name].uv = result;
+							// @ts-ignore
+							cube.faces[face_name].uv_lock = uv_source.lockUVs == true;
+							// @ts-ignore
+							cube.faces[face_name].transparent = uv_source.transparent == true;
 						}
 					}
 
@@ -739,8 +772,11 @@ export function setupBlockymodelCodec(): Codec {
 				}
 
 				if (node.children?.length && group instanceof Group) {
+					if (args.attachment && node.shape.settings.isPiece) {
+						offset = [0, 0, 0];
+					}
 					for (let child of node.children) {
-						parseNode(child, node, group);
+						parseNode(child, node, group, offset);
 					}
 				}
 			}
@@ -773,7 +809,7 @@ export function setupBlockymodelCodec(): Codec {
 					}, 100);
 				}
 
-				if (!args?.attachment) {
+				if (!args?.attachment && settings.auto_load_hytale_animations.value) {
 					let listener = Blockbench.on('select_mode', ({mode}) => {
 						if (mode.id != 'animate' || project != Project) return;
 						listener.delete();
@@ -801,6 +837,7 @@ export function setupBlockymodelCodec(): Codec {
 			}
 			return {new_groups, new_textures};
 		},
+		// MARK: Other
 		async export(options?: CompileOptions) {
 			if (Object.keys(this.export_options).length) {
 				let result = await this.promptExportOptions();
@@ -819,11 +856,13 @@ export function setupBlockymodelCodec(): Codec {
 		async exportCollection(collection: Collection) {
 			this.context = collection;
 			await this.export({attachment: collection});
+			if ("saved" in collection) collection.saved = true;
 			this.context = null;
 		},
 		async writeCollection(collection: Collection) {
 			this.context = collection;
 			this.write(this.compile({attachment: collection}), collection.export_path);
+			if ("saved" in collection) collection.saved = true;
 			this.context = null;
 		},
 	})

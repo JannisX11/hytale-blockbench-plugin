@@ -1695,90 +1695,6 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
       }
     });
     track(on_init_edit);
-    Blockbench.addCSS(`
-        #reset_camera_button {
-            position: absolute;
-            margin: auto;
-            right: 0;
-            left: 0;
-            bottom: 7px;
-            width: fit-content;
-            z-index: 2;
-        }
-        #hytale_first_person_frame {
-            position: absolute;
-            pointer-events: none;
-            border: 1px solid red;
-            margin: auto;
-            top: 0;
-            bottom: 0;
-            right: -800px;
-            left: -800px;
-            aspect-ratio: 16 / 9;
-            max-height: 100%;
-            box-shadow: 0 0 45px rgba(0, 0, 0, 0.5);
-            border: 2px solid var(--color-grid);
-            border-radius: 3px;
-        }
-        div#hytale_first_person_frame::after {
-            content: "";
-            top: 0;
-            bottom: 0;
-            right: 0;
-            left: 0;
-            margin: auto;
-            width: 6px;
-            height: 6px;
-            background-color: #ffffff;
-            opacity: 0.6;
-            position: absolute;
-            border-radius: 3px;
-            z-index: 2;
-        }
-    `);
-    let resetCamera;
-    let hytale_first_person_camera = new Action("hytale_first_person_camera", {
-      name: "Hytale First Person Camera",
-      icon: "video_camera_front",
-      condition: { formats: FORMAT_IDS },
-      keybind: new Keybind({ key: 96 }),
-      click() {
-        if (resetCamera) resetCamera();
-        let preview = Preview.selected;
-        preview.loadAnglePreset({
-          position: [0, 0, 0],
-          target: [0, 0, -64],
-          projection: "perspective"
-        });
-        preview.setFOV(80);
-        preview.controls.enableRotate = false;
-        preview.controls.enablePan = false;
-        preview.controls.enableZoom = false;
-        let reset_camera_button = Interface.createElement("button", { id: "reset_camera_button" }, "Reset View");
-        let first_person_frame = Interface.createElement("div", { id: "hytale_first_person_frame" });
-        reset_camera_button.addEventListener("click", (event) => resetCamera());
-        Interface.preview.append(reset_camera_button);
-        document.querySelector(".clamped_reference_images")?.append(first_person_frame);
-        resetCamera = () => {
-          resetCamera = void 0;
-          preview.loadAnglePreset(DefaultCameraPresets[0]);
-          preview.controls.enableRotate = true;
-          preview.controls.enablePan = true;
-          preview.controls.enableZoom = true;
-          reset_camera_button.remove();
-          first_person_frame.remove();
-        };
-      }
-    });
-    track(hytale_first_person_camera);
-    MenuBar.menus.view.addAction(hytale_first_person_camera, "#model");
-    let original_setLockedAngle = Preview.prototype.setLockedAngle;
-    Preview.prototype.setLockedAngle = function(angle) {
-      if (resetCamera && angle == void 0) {
-        resetCamera();
-      }
-      return original_setLockedAngle.call(this, angle);
-    };
   }
 
   // src/element.ts
@@ -4748,6 +4664,456 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     });
   }
 
+  // src/references/first_person_player.json
+  var first_person_player_default = {
+    nodes: [
+      {
+        id: "1",
+        name: "R-Arm",
+        position: { x: 0, y: 0, z: -32 },
+        orientation: { x: 0, y: 0, z: 0, w: 1 },
+        shape: {
+          type: "box",
+          offset: { x: -1, y: -8, z: 0 },
+          stretch: { x: 0.98, y: 1, z: 1 },
+          settings: {
+            isPiece: false,
+            size: { x: 8, y: 20, z: 12 }
+          },
+          textureLayout: {
+            back: {
+              offset: { x: 149, y: 12 },
+              mirror: { x: false, y: false },
+              angle: 0
+            },
+            right: {
+              offset: { x: 137, y: 12 },
+              mirror: { x: false, y: false },
+              angle: 0
+            },
+            front: {
+              offset: { x: 129, y: 12 },
+              mirror: { x: false, y: false },
+              angle: 0
+            },
+            left: {
+              offset: { x: 117, y: 12 },
+              mirror: { x: false, y: false },
+              angle: 0
+            },
+            top: {
+              offset: { x: 117, y: 12 },
+              mirror: { x: true, y: true },
+              angle: 90
+            },
+            bottom: {
+              offset: { x: 137, y: 0 },
+              mirror: { x: false, y: false },
+              angle: 0
+            }
+          },
+          unwrapMode: "custom",
+          visible: true,
+          doubleSided: false,
+          shadingMode: "standard"
+        },
+        children: [
+          {
+            id: "2",
+            name: "R-Forearm",
+            position: { x: 0, y: -10, z: -1 },
+            orientation: { x: 0, y: 0, z: 0, w: 1 },
+            shape: {
+              type: "box",
+              offset: { x: 6e-5, y: -8.00025, z: 1.00001 },
+              stretch: { x: 1, y: 1, z: 1 },
+              settings: {
+                isPiece: false,
+                size: { x: 8, y: 16, z: 12 }
+              },
+              textureLayout: {
+                back: {
+                  offset: { x: 149, y: 32 },
+                  mirror: { x: false, y: false },
+                  angle: 0
+                },
+                right: {
+                  offset: { x: 137, y: 32 },
+                  mirror: { x: false, y: false },
+                  angle: 0
+                },
+                front: {
+                  offset: { x: 129, y: 32 },
+                  mirror: { x: false, y: false },
+                  angle: 0
+                },
+                left: {
+                  offset: { x: 117, y: 32 },
+                  mirror: { x: false, y: false },
+                  angle: 0
+                },
+                top: {
+                  offset: { x: 149, y: 20 },
+                  mirror: { x: false, y: false },
+                  angle: 0
+                },
+                bottom: {
+                  offset: { x: 139, y: 18 },
+                  mirror: { x: false, y: false },
+                  angle: 0
+                }
+              },
+              unwrapMode: "custom",
+              visible: true,
+              doubleSided: false,
+              shadingMode: "standard"
+            },
+            children: [
+              {
+                id: "3",
+                name: "R-Hand",
+                position: { x: 0, y: -8, z: 0 },
+                orientation: { x: 0, y: 0, z: 0, w: 1 },
+                shape: {
+                  type: "box",
+                  offset: { x: 0, y: -5, z: 0 },
+                  stretch: { x: 1, y: 1, z: 1 },
+                  settings: {
+                    isPiece: false,
+                    size: { x: 10, y: 12, z: 14 }
+                  },
+                  textureLayout: {
+                    back: {
+                      offset: { x: 165, y: 48 },
+                      mirror: { x: true, y: false },
+                      angle: 0
+                    },
+                    right: {
+                      offset: { x: 141, y: 48 },
+                      mirror: { x: false, y: false },
+                      angle: 0
+                    },
+                    front: {
+                      offset: { x: 131, y: 48 },
+                      mirror: { x: false, y: false },
+                      angle: 0
+                    },
+                    left: {
+                      offset: { x: 117, y: 48 },
+                      mirror: { x: false, y: false },
+                      angle: 0
+                    },
+                    top: {
+                      offset: { x: 118, y: 33 },
+                      mirror: { x: false, y: false },
+                      angle: 0
+                    },
+                    bottom: {
+                      offset: { x: 204, y: 60 },
+                      mirror: { x: true, y: true },
+                      angle: 270
+                    }
+                  },
+                  unwrapMode: "custom",
+                  visible: true,
+                  doubleSided: false,
+                  shadingMode: "standard"
+                },
+                children: [
+                  {
+                    id: "4",
+                    name: "R-Attachment",
+                    position: { x: 0, y: -1, z: 0 },
+                    orientation: { x: 0.70711, y: 0, z: 0, w: 0.70711 },
+                    shape: {
+                      type: "none",
+                      offset: { x: 0, y: 0, z: 0 },
+                      stretch: { x: 1, y: 1, z: 1 },
+                      settings: {
+                        isPiece: false
+                      },
+                      textureLayout: {},
+                      unwrapMode: "custom",
+                      visible: true,
+                      doubleSided: false,
+                      shadingMode: "flat"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        id: "5",
+        name: "L-Arm",
+        position: { x: 0, y: 0, z: -32 },
+        orientation: { x: 0, y: 0, z: 0, w: 1 },
+        shape: {
+          type: "box",
+          offset: { x: 1, y: -8, z: 0 },
+          stretch: { x: -0.98, y: 1, z: 1 },
+          settings: {
+            isPiece: false,
+            size: { x: 8, y: 20, z: 12 }
+          },
+          textureLayout: {
+            back: {
+              offset: { x: 198, y: 12 },
+              mirror: { x: false, y: false },
+              angle: 0
+            },
+            right: {
+              offset: { x: 186, y: 12 },
+              mirror: { x: false, y: false },
+              angle: 0
+            },
+            front: {
+              offset: { x: 178, y: 12 },
+              mirror: { x: false, y: false },
+              angle: 0
+            },
+            left: {
+              offset: { x: 166, y: 12 },
+              mirror: { x: false, y: false },
+              angle: 0
+            },
+            top: {
+              offset: { x: 166, y: 12 },
+              mirror: { x: true, y: true },
+              angle: 90
+            },
+            bottom: {
+              offset: { x: 186, y: 0 },
+              mirror: { x: false, y: false },
+              angle: 0
+            }
+          },
+          unwrapMode: "custom",
+          visible: true,
+          doubleSided: false,
+          shadingMode: "standard"
+        },
+        children: [
+          {
+            id: "6",
+            name: "L-Forearm",
+            position: { x: -1e-5, y: -10, z: -1 },
+            orientation: { x: 0, y: 0, z: 0, w: 1 },
+            shape: {
+              type: "box",
+              offset: { x: 0, y: -8, z: 1 },
+              stretch: { x: -1, y: 1, z: 1 },
+              settings: {
+                isPiece: false,
+                size: { x: 8, y: 16, z: 12 }
+              },
+              textureLayout: {
+                back: {
+                  offset: { x: 198, y: 32 },
+                  mirror: { x: false, y: false },
+                  angle: 0
+                },
+                right: {
+                  offset: { x: 186, y: 32 },
+                  mirror: { x: false, y: false },
+                  angle: 0
+                },
+                front: {
+                  offset: { x: 178, y: 32 },
+                  mirror: { x: false, y: false },
+                  angle: 0
+                },
+                left: {
+                  offset: { x: 166, y: 32 },
+                  mirror: { x: false, y: false },
+                  angle: 0
+                },
+                top: {
+                  offset: { x: 198, y: 27 },
+                  mirror: { x: false, y: false },
+                  angle: 0
+                },
+                bottom: {
+                  offset: { x: 188, y: 18 },
+                  mirror: { x: false, y: false },
+                  angle: 0
+                }
+              },
+              unwrapMode: "custom",
+              visible: true,
+              doubleSided: false,
+              shadingMode: "standard"
+            },
+            children: [
+              {
+                id: "7",
+                name: "L-Hand",
+                position: { x: 0, y: -8.00001, z: 0 },
+                orientation: { x: 0, y: 0, z: 0, w: 1 },
+                shape: {
+                  type: "box",
+                  offset: { x: 0, y: -5, z: 0 },
+                  stretch: { x: -1, y: 1, z: 1 },
+                  settings: {
+                    isPiece: false,
+                    size: { x: 10, y: 12, z: 14 }
+                  },
+                  textureLayout: {
+                    back: {
+                      offset: { x: 214, y: 48 },
+                      mirror: { x: true, y: false },
+                      angle: 0
+                    },
+                    right: {
+                      offset: { x: 190, y: 48 },
+                      mirror: { x: false, y: false },
+                      angle: 0
+                    },
+                    front: {
+                      offset: { x: 180, y: 48 },
+                      mirror: { x: false, y: false },
+                      angle: 0
+                    },
+                    left: {
+                      offset: { x: 166, y: 48 },
+                      mirror: { x: false, y: false },
+                      angle: 0
+                    },
+                    top: {
+                      offset: { x: 167, y: 33 },
+                      mirror: { x: false, y: false },
+                      angle: 0
+                    },
+                    bottom: {
+                      offset: { x: 155, y: 60 },
+                      mirror: { x: true, y: true },
+                      angle: 270
+                    }
+                  },
+                  unwrapMode: "custom",
+                  visible: true,
+                  doubleSided: false,
+                  shadingMode: "standard"
+                },
+                children: [
+                  {
+                    id: "8",
+                    name: "L-Attachment",
+                    position: { x: 0, y: -1, z: 0 },
+                    orientation: { x: 0.70711, y: 0, z: 0, w: 0.70711 },
+                    shape: {
+                      type: "none",
+                      offset: { x: 0, y: 0, z: 0 },
+                      stretch: { x: 1, y: 1, z: 1 },
+                      settings: {
+                        isPiece: false
+                      },
+                      textureLayout: {},
+                      unwrapMode: "custom",
+                      visible: true,
+                      doubleSided: false,
+                      shadingMode: "flat"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        id: "9",
+        name: "fakescreen",
+        position: { x: 0, y: 0, z: 780 },
+        orientation: { x: 0, y: 0, z: 0, w: 1 },
+        shape: {
+          type: "none",
+          offset: { x: 0, y: 0, z: 0 },
+          stretch: { x: 1, y: 1, z: 1 },
+          settings: {
+            isPiece: false
+          },
+          textureLayout: {},
+          unwrapMode: "custom",
+          visible: true,
+          doubleSided: false,
+          shadingMode: "flat"
+        }
+      }
+    ],
+    format: "character",
+    lod: "auto"
+  };
+
+  // src/first_person.ts
+  function setupFirstPerson() {
+    Blockbench.addCSS(`
+        #reset_camera_button {
+            position: absolute;
+            margin: auto;
+            right: 0;
+            left: 0;
+            bottom: 7px;
+            width: fit-content;
+            z-index: 2;
+        }
+    `);
+    let resetCamera;
+    let hytale_first_person_camera = new Action("hytale_first_person_camera", {
+      name: "Hytale First Person Camera",
+      icon: "video_camera_front",
+      condition: { formats: FORMAT_IDS },
+      keybind: new Keybind({ key: 96 }),
+      click() {
+        if (resetCamera) resetCamera();
+        let preview = Preview.selected;
+        preview.loadAnglePreset({
+          position: [0, 0, 0],
+          target: [0, 0, -64],
+          fov: 70,
+          projection: "perspective",
+          aspect_ratio: 16 / 9
+        });
+        preview.setFOV(80);
+        preview.controls.enableRotate = false;
+        preview.controls.enablePan = false;
+        preview.controls.enableZoom = false;
+        let reset_camera_button = Interface.createElement("button", { id: "reset_camera_button" }, "Reset View");
+        reset_camera_button.addEventListener("click", (event) => resetCamera());
+        Interface.preview.append(reset_camera_button);
+        resetCamera = () => {
+          resetCamera = void 0;
+          preview.loadAnglePreset(DefaultCameraPresets[0]);
+          preview.controls.enableRotate = true;
+          preview.controls.enablePan = true;
+          preview.controls.enableZoom = true;
+          reset_camera_button.remove();
+        };
+      }
+    });
+    track(hytale_first_person_camera);
+    MenuBar.menus.view.addAction(hytale_first_person_camera, "#model");
+    let original_setLockedAngle = Preview.prototype.setLockedAngle;
+    Preview.prototype.setLockedAngle = function(angle) {
+      if (resetCamera && angle == void 0) {
+        resetCamera();
+      }
+      return original_setLockedAngle.call(this, angle);
+    };
+    const player_loader = new ModelLoader("hytale_first_person_character", {
+      name: "Hytale First Person Character",
+      description: "Default character rig as reference for first person animations",
+      show_on_start_screen: false,
+      icon: "swords",
+      target: "Hytale",
+      onStart: async function() {
+        Codecs.blockymodel.load(first_person_player_default, { path: "", name: "FirstPersonModel.blockymodel", no_file: true });
+      }
+    });
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -4775,6 +5141,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       setupAnimation();
       setupAnimationCodec();
       setupAttachments();
+      setupFirstPerson();
       setupOutlinerFilter();
       setupChecks();
       setupPhotoshopTools();

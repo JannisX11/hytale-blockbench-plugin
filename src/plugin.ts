@@ -23,6 +23,7 @@ import { setupPivotControl } from "./pivot_control";
 import { setupChangeOrientation } from "./change_orientation";
 import { setupShortcuts } from "./shortcuts";
 import { setupPivotSnap } from "./pivot_snap";
+import { setupFirstPerson } from "./first_person";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -51,6 +52,7 @@ BBPlugin.register('hytale_plugin', {
         setupAnimation();
         setupAnimationCodec();
         setupAttachments();
+        setupFirstPerson();
         setupOutlinerFilter();
         setupChecks();
         setupPhotoshopTools();

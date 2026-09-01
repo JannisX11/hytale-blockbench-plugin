@@ -5049,6 +5049,14 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
 
   // src/first_person.ts
   function setupFirstPerson() {
+    ExperimentalSettings.add(
+      "hytale_first_person_fov",
+      { type: "number", label: "Hytale First Person FOV", min: 1, max: 160, value: 70, step: 1 }
+    );
+    ExperimentalSettings.add(
+      "hytale_first_person_direction",
+      { type: "number", label: "Hytale First Person Direction", value: -64 }
+    );
     Blockbench.addCSS(`
         #reset_camera_button {
             position: absolute;
@@ -5058,6 +5066,20 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
             bottom: 7px;
             width: fit-content;
             z-index: 2;
+        }
+        body.hytale-format div.preview.fixed_ratio::after {
+            content: "";
+            display: block;
+            position: absolute;
+            width: 5px;
+            height: 5px;
+            left: 0;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            margin: auto;
+            border-radius: 50%;
+            background-color: var(--color-text);
         }
     `);
     let resetCamera;
@@ -5071,16 +5093,15 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
         let preview = Preview.selected;
         preview.loadAnglePreset({
           position: [0, 0, 0],
-          target: [0, 0, -64],
-          fov: 70,
+          target: [0, 0, ExperimentalSettings.get("hytale_first_person_direction")],
+          fov: ExperimentalSettings.get("hytale_first_person_fov") ?? 70,
           projection: "perspective",
           aspect_ratio: 16 / 9
         });
-        preview.setFOV(80);
         preview.controls.enableRotate = false;
         preview.controls.enablePan = false;
         preview.controls.enableZoom = false;
-        let reset_camera_button = Interface.createElement("button", { id: "reset_camera_button" }, "Reset View");
+        let reset_camera_button = Interface.createElement("button", { id: "reset_camera_button" }, "Exit View");
         reset_camera_button.addEventListener("click", (event) => resetCamera());
         Interface.preview.append(reset_camera_button);
         resetCamera = () => {
@@ -5123,7 +5144,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     description: "Create models and animations for Hytale",
     tags: ["Hytale"],
     variant: "both",
-    min_version: "5.0.5",
+    min_version: "5.2.0-beta.1",
     await_loading: true,
     has_changelog: true,
     creation_date: "2025-12-22",

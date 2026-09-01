@@ -33,7 +33,7 @@ BBPlugin.register('hytale_plugin', {
     description: 'Create models and animations for Hytale',
     tags: ['Hytale'],
     variant: 'both',
-    min_version: '5.0.5',
+    min_version: '5.2.0-beta.1',
     await_loading: true,
     has_changelog: true,
 	creation_date: "2025-12-22",

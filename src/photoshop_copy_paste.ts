@@ -4,9 +4,7 @@
 import { track } from "./cleanup";
 import { FORMAT_IDS } from "./formats";
 
-declare global {
-	const Clipbench: any
-}
+
 
 export function setupPhotoshopTools() {
 

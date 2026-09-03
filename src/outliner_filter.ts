@@ -4,9 +4,6 @@
 import { track } from "./cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
 
-declare global {
-	const StateMemory: any
-}
 
 /**
  * Outliner filtering system for hiding attachment elements from the outliner panel

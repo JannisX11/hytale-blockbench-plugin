@@ -23,6 +23,7 @@ import { setupPivotControl } from "./pivot_control";
 import { setupChangeOrientation } from "./change_orientation";
 import { setupShortcuts } from "./shortcuts";
 import { setupPivotSnap } from "./pivot_snap";
+import { setupFirstPerson } from "./first_person";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -32,7 +33,7 @@ BBPlugin.register('hytale_plugin', {
     description: 'Create models and animations for Hytale',
     tags: ['Hytale'],
     variant: 'both',
-    min_version: '5.0.5',
+    min_version: '5.2.0-beta.1',
     await_loading: true,
     has_changelog: true,
 	creation_date: "2025-12-22",
@@ -51,6 +52,7 @@ BBPlugin.register('hytale_plugin', {
         setupAnimation();
         setupAnimationCodec();
         setupAttachments();
+        setupFirstPerson();
         setupOutlinerFilter();
         setupChecks();
         setupPhotoshopTools();

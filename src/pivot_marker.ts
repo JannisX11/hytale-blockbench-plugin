@@ -1,9 +1,6 @@
 //! Copyright (C) 2025 Hypixel Studios Canada inc.
 //! Licensed under the GNU General Public License, see LICENSE.MD
 
-declare global {
-	const gizmo_colors: Record<string, THREE.Color>
-}
 
 export const ThickLineAxisHelper = class ThickLineAxisHelper extends THREE.LineSegments {
 	constructor( size: number = 1 ) {
@@ -117,7 +114,6 @@ export class GroupPivotIndicator {
 
 	updateScale() {
 		if (!this.dot.visible) return;
-		// @ts-expect-error
 		let scale = Preview.selected.calculateControlScale(this.dot.position) || 0.8;
 		this.dot.scale.setScalar(scale * 0.7);
 	}

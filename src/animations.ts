@@ -21,7 +21,7 @@ export function setupAnimation() {
 
         let previous_keyframe;
         let previous_time = -Infinity;
-        for (let keyframe of (animator.visibility as _Keyframe[])) {
+        for (let keyframe of (animator.visibility as BBKeyframe[])) {
             if (keyframe.time <= Timeline.time && keyframe.time > previous_time) {
                 previous_keyframe = keyframe;
                 previous_time = keyframe.time;
@@ -100,9 +100,9 @@ export function setupAnimation() {
             return;
         }
 
-        let previous_keyframe: _Keyframe | undefined;
+        let previous_keyframe: BBKeyframe | undefined;
         let previous_time = -Infinity;
-        for (let keyframe of (animator.uv_offset as _Keyframe[])) {
+        for (let keyframe of (animator.uv_offset as BBKeyframe[])) {
             if (keyframe.time <= Timeline.time && keyframe.time > previous_time) {
                 previous_keyframe = keyframe;
                 previous_time = keyframe.time;
@@ -237,7 +237,6 @@ export function setupAnimation() {
             if (document.getElementById('toast_notification_list').children.length) return;
 
             Blockbench.showToastNotification({
-                // @ts-expect-error
                 id: 'hytale_no_connected_shape_toast',
                 text: `The group "${group.name}" has no connected shape, so the ${kf.channel} animation will not apply. Click to learn more.`,
                 icon: 'fa-cube',
@@ -258,4 +257,5 @@ export function setupAnimation() {
         }
     });
     track(on_init_edit);
+
 }

@@ -5055,7 +5055,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     );
     ExperimentalSettings.add(
       "hytale_first_person_direction",
-      { type: "number", label: "Hytale First Person Direction", value: -64 }
+      { type: "number", label: "Hytale First Person Direction", value: 64 }
     );
     Blockbench.addCSS(`
         #reset_camera_button {
@@ -5089,7 +5089,9 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       condition: { formats: FORMAT_IDS },
       keybind: new Keybind({ key: 96 }),
       click() {
-        if (resetCamera) resetCamera();
+        if (resetCamera) {
+          return resetCamera();
+        }
         let preview = Preview.selected;
         preview.loadAnglePreset({
           position: [0, 0, 0],

@@ -10,7 +10,7 @@ export function setupFirstPerson() {
     );
     ExperimentalSettings.add(
         'hytale_first_person_direction',
-        {type: 'number', label: 'Hytale First Person Direction', value: -64}
+        {type: 'number', label: 'Hytale First Person Direction', value: 64}
     );
     
     // MARK: First person camera
@@ -46,7 +46,9 @@ export function setupFirstPerson() {
         condition: {formats: FORMAT_IDS},
         keybind: new Keybind({key: 96}),
         click() {
-            if (resetCamera) resetCamera();
+            if (resetCamera) {
+                return resetCamera();
+            }
 
             let preview = Preview.selected;
             preview.loadAnglePreset({

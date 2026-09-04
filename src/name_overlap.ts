@@ -5,9 +5,9 @@ import { track } from "./cleanup";
 import { isHytaleFormat } from "./formats";
 
 // @ts-expect-error
-const Animation = window.Animation as typeof _Animation;
+const Animation = window.Animation as typeof BBAnimation;
 
-export function copyAnimationToGroupsWithSameName(animation: _Animation, source_group: Group) {
+export function copyAnimationToGroupsWithSameName(animation: BBAnimation, source_group: Group) {
     let source_animator = animation.getBoneAnimator(source_group);
     let other_groups = Group.all.filter(g => g.name == source_group.name && g != source_group);
     for (let group2 of other_groups) {
@@ -47,45 +47,6 @@ export function setupNameOverlap() {
             if (changes) {
                 Animator.preview();
             }
-        }
-    })
-
-    let bone_animator_select_original = BoneAnimator.prototype.select;
-    BoneAnimator.prototype.select = function select(this: BoneAnimator, group_is_selected?: boolean): BoneAnimator {
-		if (!this.getGroup()) {
-			unselectAllElements();
-			return this;
-		}
-		if (this.group.locked) return;
-
-		for (var key in this.animation.animators) {
-			this.animation.animators[key].selected = false;
-		}
-		if (group_is_selected !== true && this.group) {
-			this.group.select();
-		}
-		GeneralAnimator.prototype.select.call(this);
-		
-		if (this[Toolbox.selected.animation_channel] && (Timeline.selected.length == 0 || Timeline.selected[0].animator != this) && !Blockbench.hasFlag('loading_selection_save')) {
-			var nearest;
-			this[Toolbox.selected.animation_channel].forEach(kf => {
-				if (Math.abs(kf.time - Timeline.time) < 0.002) {
-					nearest = kf;
-				}
-			})
-			if (nearest) {
-				nearest.select();
-			}
-		}
-
-		if (this.group && this.group.parent && this.group.parent !== 'root') {
-			this.group.parent.openUp();
-		}
-		return this;
-    }
-    track({
-        delete() {
-            BoneAnimator.prototype.select = bone_animator_select_original;
         }
     })
 

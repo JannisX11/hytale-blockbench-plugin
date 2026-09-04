@@ -477,6 +477,7 @@ export function setupPivotSnap() {
 
 	// --- Snap mode selector ---
 	let snapTo = new BarSelect('snap_to', {
+		name: 'Vertex Snap To',
 		options: {
 			vertex: { name: 'Vertex', icon: 'fiber_manual_record' },
 			edge: { name: 'Edge', icon: 'pen_size_3' },

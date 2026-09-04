@@ -83,7 +83,9 @@ export function setupAltDuplicate() {
         }
 
         // Block Transformer from creating its own undo entry
+        // @ts-expect-error
         Undo.initEdit = () => {};
+        // @ts-expect-error
         Undo.finishEdit = () => {};
 
         if (hasGroups) {

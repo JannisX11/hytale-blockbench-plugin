@@ -25,6 +25,13 @@ body:
     label: What happens instead?
   validations:
     required: true
+- type: input
+  id: version
+  attributes:
+    label: Blockbench & Hytale Plugin version
+    description: Write the version number, not just "Latest". You can find it in Help > About for Blockbench, and in File > Plugins for the plugin.
+  validations:
+    required: true
 - type: dropdown
   id: variant
   attributes:

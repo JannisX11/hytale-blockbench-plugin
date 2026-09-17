@@ -586,7 +586,10 @@ export function setupBlockymodelCodec(): Codec {
 					let attachment_node: Group | undefined;
 					if (args.attachment && node.shape?.settings?.isPiece === true && existing_groups.length) {
 						let node_name = node.name;
-						attachment_node = existing_groups.find(g => g.name == node_name);
+						let isAttachmentGroup = (g: Group) => Collection.all.some(c => c.export_codec === 'blockymodel' && c.contains(g));
+						// Tier 1: a bone on the main model. Tier 2: any group, e.g. inside another attachment.
+						attachment_node = existing_groups.find(g => g.name == node_name && !isAttachmentGroup(g))
+							?? existing_groups.find(g => g.name == node_name);
 					}
 					if (attachment_node) {
 						parent_group = attachment_node;

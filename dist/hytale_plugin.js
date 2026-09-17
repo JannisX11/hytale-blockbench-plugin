@@ -844,7 +844,7 @@
   }
   function setupCollectionFolders() {
     let folderProp = new Property(Collection, "string", "folder", { default: "", condition: { formats: FORMAT_IDS } });
-    let foldersProp = new Property(ModelProject, "array", "collection_folders", { default: [], condition: { formats: FORMAT_IDS } });
+    let foldersProp = new Property(ModelProject, "array", "collection_folders", { default: [], condition: { formats: FORMAT_IDS }, exposed: false });
     track(folderProp, foldersProp);
     let createAction = new Action("create_collection_folder", {
       name: "Create Set",

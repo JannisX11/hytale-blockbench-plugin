@@ -7,6 +7,7 @@ import { isUnloaded, reloadCollection, promptAndUnload, toggleCollectionChildVis
 import { importAttachmentToFolder } from "./import";
 import { unwatchCollection } from "./watcher";
 import { applyCollectionColors } from "./collection_color";
+import { CustomMenuItem } from "blockbench-types/generated/interface/menu";
 
 type FolderCollection = Collection & { folder: string };
 type FolderProject = ModelProject & { collection_folders: CollectionFolderData[] };
@@ -407,7 +408,7 @@ function setupCollectionDrag() {
 
 export function setupCollectionFolders() {
     let folderProp = new Property(Collection, 'string', 'folder', { default: '', condition: { formats: FORMAT_IDS } });
-    let foldersProp = new Property(ModelProject, 'array', 'collection_folders', { default: [], condition: { formats: FORMAT_IDS } });
+    let foldersProp = new Property(ModelProject, 'array', 'collection_folders', { default: [], condition: { formats: FORMAT_IDS }, exposed: false });
     track(folderProp, foldersProp);
 
     let createAction = new Action('create_collection_folder', {

@@ -584,7 +584,8 @@ export function setupBlockymodelCodec(): Codec {
 				if (args.attachment) {
 					// Attach groups marked with isPiece: true to matching bones in main model
 					let attachment_node: Group | undefined;
-					if (args.attachment && node.shape?.settings?.isPiece === true && existing_groups.length) {
+					// Only top-level pieces bind to a bone; nested pieces stay inside the attachment.
+					if (args.attachment && !parent_node && node.shape?.settings?.isPiece === true && existing_groups.length) {
 						let node_name = node.name;
 						let isAttachmentGroup = (g: Group) => Collection.all.some(c => c.export_codec === 'blockymodel' && c.contains(g));
 						// Tier 1: a bone on the main model. Tier 2: any group, e.g. inside another attachment.

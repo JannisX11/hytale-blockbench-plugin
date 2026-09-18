@@ -2033,9 +2033,10 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
         function parseNode(node, parent_node, parent_group = "root", parent_offset) {
           if (args.attachment) {
             let attachment_node;
-            if (args.attachment && node.shape?.settings?.isPiece === true && existing_groups.length) {
+            if (args.attachment && !parent_node && node.shape?.settings?.isPiece === true && existing_groups.length) {
               let node_name = node.name;
-              attachment_node = existing_groups.find((g) => g.name == node_name);
+              let isAttachmentGroup = (g) => Collection.all.some((c) => c.export_codec === "blockymodel" && c.contains(g));
+              attachment_node = existing_groups.find((g) => g.name == node_name && !isAttachmentGroup(g)) ?? existing_groups.find((g) => g.name == node_name);
             }
             if (attachment_node) {
               parent_group = attachment_node;

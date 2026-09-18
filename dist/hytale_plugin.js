@@ -3213,6 +3213,34 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     }
     return false;
   }
+  function pieceCollectionName(group) {
+    let c = Collection.all.find((c2) => c2.export_codec === "blockymodel" && c2.contains(group));
+    return c ? c.name : "";
+  }
+  function allValidatorProblems() {
+    let errors = [];
+    let warnings = [];
+    Validator.checks.forEach((check) => {
+      errors.push(...check.errors);
+      warnings.push(...check.warnings);
+    });
+    return { errors, warnings };
+  }
+  function openValidatorForCollection(collection) {
+    let prefix = `[${collection.name}] `;
+    Validator.errors.replace(allValidatorProblems().errors.filter((e) => typeof e.message === "string" && e.message.startsWith(prefix)));
+    Validator.warnings.empty();
+    Validator.openDialog();
+    let dialog = Validator.dialog;
+    let originalHide = dialog.hide;
+    dialog.hide = function(...args) {
+      dialog.hide = originalHide;
+      let full = allValidatorProblems();
+      Validator.errors.replace(full.errors);
+      Validator.warnings.replace(full.warnings);
+      return originalHide.apply(this, args);
+    };
+  }
   var ERROR_ICON_CLASS = "hytale_piece_error_icon";
   function updateCollectionErrorIcons() {
     if (!isHytaleFormat()) return;
@@ -3227,7 +3255,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       errorBtn.innerHTML = '<i class="material-icons icon" style="color: var(--color-error)">error</i>';
       errorBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        Validator.openDialog();
+        openValidatorForCollection(collection);
       });
       let firstButton = li.querySelector(".in_list_button:not(." + ERROR_ICON_CLASS + ")");
       if (firstButton) {
@@ -3242,13 +3270,18 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     return new Promise((resolve) => {
       Blockbench.showMessageBox({
         title: "Invalid Attachment Structure",
-        message: `The attachment "${collection.name}" has invalid "Attachment Piece" structure. Cubes cannot be direct children of a group marked as "Attachment Piece". This attachment may not work correctly in-game.`,
-        icon: "error",
-        buttons: ["Save Anyway", "Cancel"],
+        message: `The attachment "${collection.name}" has an invalid schema and may not work as expected in-game. Press "Inspect Errors" to review them.`,
+        icon: "warning",
+        buttons: ["Save Anyway", "Inspect Errors"],
         confirm: 0,
         cancel: 1
       }, (button) => {
-        resolve(button === 0);
+        if (button === 0) {
+          resolve(true);
+        } else {
+          resolve(false);
+          openValidatorForCollection(collection);
+        }
       });
     });
   }
@@ -3267,7 +3300,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
           }
           if (cubeCount > 0) {
             this.fail({
-              message: `"${group.name}" has ${cubeCount} cube(s) as direct children. Cubes cannot be direct children of a group marked as "Attachment Piece" : wrap them in a sub-group.`,
+              message: `[${pieceCollectionName(group)}] "${group.name}" has ${cubeCount} cube(s) as direct children. Cubes cannot be direct children of a group marked as "Attachment Piece" : wrap them in a sub-group.`,
               buttons: [{
                 name: "Select Group",
                 icon: "fa-folder",
@@ -3280,7 +3313,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
           }
           if (!hasGroupChild) {
             this.fail({
-              message: `"${group.name}" is marked as "Attachment Piece" but has no group children. Add at least one sub-group for the attachment to work in-game.`,
+              message: `[${pieceCollectionName(group)}] "${group.name}" is marked as "Attachment Piece" but has no group children. Add at least one sub-group for the attachment to work in-game.`,
               buttons: [{
                 name: "Select Group",
                 icon: "fa-folder",
@@ -3319,6 +3352,22 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       delete() {
         codec.exportCollection = originalExportCollection;
         codec.writeCollection = originalWriteCollection;
+      }
+    });
+    let force_save_item = {
+      id: "force_save_hytale_attachment",
+      name: "Force Save",
+      icon: "save",
+      condition: (collection) => isHytaleFormat() && collection instanceof Collection && collection.export_codec === "blockymodel" && !isUnloaded(collection) && collectionHasPieceError(collection),
+      click(collection) {
+        if (collection.export_path) codec.writeCollection(collection);
+        else codec.exportCollection(collection);
+      }
+    };
+    Collection.menu.addAction(force_save_item, 10);
+    track({
+      delete() {
+        Collection.menu.removeAction("force_save_hytale_attachment");
       }
     });
   }

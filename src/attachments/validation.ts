@@ -6,12 +6,11 @@ import { FORMAT_IDS, isHytaleFormat } from "../formats";
 import { isUnloaded } from "./unload";
 
 function isPieceHasError(group: Group): boolean {
-	let hasGroupChild = false;
+	// Only cubes as direct children are invalid; an empty piece is allowed.
 	for (let child of group.children) {
-		if (child instanceof Group) hasGroupChild = true;
-		else if (child instanceof Cube) return true;
+		if (child instanceof Cube) return true;
 	}
-	return !hasGroupChild;
+	return false;
 }
 
 function collectionHasPieceError(collection: Collection): boolean {
@@ -23,10 +22,18 @@ function collectionHasPieceError(collection: Collection): boolean {
 	return false;
 }
 
-/** Name of the attachment a piece belongs to, prefixed on its error message. */
-function pieceCollectionName(group: Group): string {
+/** Bracketed attachment-name prefix for a piece's error, or empty if it isn't in an attachment. */
+function piecePrefix(group: Group): string {
 	let c = Collection.all.find(c => c.export_codec === 'blockymodel' && c.contains(group));
-	return c ? c.name : '';
+	return c ? `[${c.name}] ` : '';
+}
+
+/** An outliner node that causes a piece error: a piece with cube children, or such a cube. */
+function nodeHasPieceError(node: OutlinerNode): boolean {
+	if (node instanceof Group && (node as any).is_piece) {
+		return node.children.some(c => c instanceof Cube);
+	}
+	return node instanceof Cube && node.parent instanceof Group && (node.parent as any).is_piece;
 }
 
 /** Aggregates every check's current errors/warnings (the full, unfiltered lists). */
@@ -119,28 +126,15 @@ export function setupAttachmentValidation() {
 			for (let group of Group.all) {
 				if (!(group as any).is_piece) continue;
 
-				let hasGroupChild = false;
 				let cubeCount = 0;
 
 				for (let child of group.children) {
-					if (child instanceof Group) hasGroupChild = true;
-					else if (child instanceof Cube) cubeCount++;
+					if (child instanceof Cube) cubeCount++;
 				}
 
 				if (cubeCount > 0) {
 					this.fail({
-						message: `[${pieceCollectionName(group)}] "${group.name}" has ${cubeCount} cube(s) as direct children. Cubes cannot be direct children of a group marked as "Attachment Piece" : wrap them in a sub-group.`,
-						buttons: [{
-							name: 'Select Group',
-							icon: 'fa-folder',
-							click() { Validator.dialog.hide(); group.select(); }
-						}]
-					});
-				}
-
-				if (!hasGroupChild) {
-					this.fail({
-						message: `[${pieceCollectionName(group)}] "${group.name}" is marked as "Attachment Piece" but has no group children. Add at least one sub-group for the attachment to work in-game.`,
+						message: `${piecePrefix(group)}"${group.name}" has ${cubeCount} cube(s) as direct children. Cubes cannot be direct children of a group marked as "Attachment Piece" : wrap them in a sub-group.`,
 						buttons: [{
 							name: 'Select Group',
 							icon: 'fa-folder',
@@ -160,6 +154,24 @@ export function setupAttachmentValidation() {
 			document.querySelectorAll('.' + ERROR_ICON_CLASS).forEach(el => el.remove());
 		}
 	});
+
+	// Red mark in the outliner on the pieces/cubes that cause an error (works attached or standalone)
+	let outlinerHook = Blockbench.on('get_outliner_node_classes', ({node, classes}: any) => {
+		if (isHytaleFormat() && nodeHasPieceError(node)) classes.push('hytale_outliner_error');
+	});
+	let outlinerStyle = Blockbench.addCSS(`
+		.outliner_object.hytale_outliner_error .cube_name { color: var(--color-error); }
+		.outliner_object.hytale_outliner_error .outliner_toggle { order: 1; }
+		.outliner_object.hytale_outliner_error::after {
+			content: 'error';
+			font-family: 'Material Icons';
+			color: var(--color-error);
+			font-size: 15px;
+			order: 0;
+			margin: 0 4px;
+		}
+	`);
+	track(outlinerHook, { delete() { outlinerStyle.delete(); } });
 
 	// Warn on save if attachment has piece structure errors
 	let codec = Codecs.blockymodel;

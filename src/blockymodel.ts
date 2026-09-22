@@ -579,13 +579,13 @@ export function setupBlockymodelCodec(): Codec {
 			}
 			const new_groups: Group[] = [];
 			const existing_groups = Group.all.slice();
-			function parseNode(node: BlockymodelNode, parent_node: BlockymodelNode | null, parent_group: Group | 'root' = 'root', parent_offset?: ArrayVector3) {
-				
+			function parseNode(node: BlockymodelNode, parent_node: BlockymodelNode | null, parent_group: Group | 'root' = 'root', parent_offset?: ArrayVector3, inside_piece: boolean = false) {
+
 				if (args.attachment) {
 					// Attach groups marked with isPiece: true to matching bones in main model
 					let attachment_node: Group | undefined;
-					// Only top-level pieces bind to a bone; nested pieces stay inside the attachment.
-					if (args.attachment && !parent_node && node.shape?.settings?.isPiece === true && existing_groups.length) {
+					// A piece binds to a bone unless it's nested inside another piece (non-piece wrappers don't block it).
+					if (args.attachment && !inside_piece && node.shape?.settings?.isPiece === true && existing_groups.length) {
 						let node_name = node.name;
 						let isAttachmentGroup = (g: Group) => Collection.all.some(c => c.export_codec === 'blockymodel' && c.contains(g));
 						// Tier 1: a bone on the main model. Tier 2: any group, e.g. inside another attachment.
@@ -611,16 +611,20 @@ export function setupBlockymodelCodec(): Codec {
 					Math.roundTo(Math.radToDeg(rotation_euler.z), 3),
 				];
 				if (args.attachment && !parent_node && parent_group instanceof Group) {
-					let reference_node = getMainShape(parent_group);
+					// Anchor to the bone's pivot (group origin), not its geometry
 					original_position = origin;
-					if (reference_node) {
-						origin = reference_node.origin.slice() as ArrayVector3;
-					} else {
-						origin = parent_group.origin.slice() as ArrayVector3;
-						if (parent_group.original_offset) {
-							(origin as ArrayVector3).V3_add(parent_group.original_offset);
-						}
-					}
+					origin = parent_group.origin.slice() as ArrayVector3;
+
+					// Previous anchoring (kept in case the pivot approach is wrong): anchor to the bone's main shape geometry
+					// let reference_node = getMainShape(parent_group);
+					// if (reference_node) {
+					// 	origin = reference_node.origin.slice() as ArrayVector3;
+					// } else {
+					// 	origin = parent_group.origin.slice() as ArrayVector3;
+					// 	if (parent_group.original_offset) {
+					// 		(origin as ArrayVector3).V3_add(parent_group.original_offset);
+					// 	}
+					// }
 
 				} else if (parent_offset && parent_group instanceof Group) {
 					origin.V3_add(parent_offset);
@@ -854,7 +858,7 @@ export function setupBlockymodelCodec(): Codec {
 						offset = [0, 0, 0];
 					}
 					for (let child of node.children) {
-						parseNode(child, node, group, offset);
+						parseNode(child, node, group, offset, inside_piece || node.shape?.settings?.isPiece === true);
 					}
 				}
 			}

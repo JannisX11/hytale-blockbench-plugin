@@ -2036,12 +2036,13 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
         }
         const new_groups = [];
         const existing_groups = Group.all.slice();
-        function parseNode(node, parent_node, parent_group = "root", parent_offset) {
+        function parseNode(node, parent_node, parent_group = "root", parent_offset, inside_piece = false) {
           if (args.attachment) {
             let attachment_node;
-            if (args.attachment && node.shape?.settings?.isPiece === true && existing_groups.length) {
+            if (args.attachment && !inside_piece && node.shape?.settings?.isPiece === true && existing_groups.length) {
               let node_name = node.name;
-              attachment_node = existing_groups.find((g) => g.name == node_name);
+              let isAttachmentGroup = (g) => Collection.all.some((c) => c.export_codec === "blockymodel" && c.contains(g));
+              attachment_node = existing_groups.find((g) => g.name == node_name && !isAttachmentGroup(g)) ?? existing_groups.find((g) => g.name == node_name);
             }
             if (attachment_node) {
               parent_group = attachment_node;
@@ -2061,16 +2062,8 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             Math.roundTo(Math.radToDeg(rotation_euler.z), 3)
           ];
           if (args.attachment && !parent_node && parent_group instanceof Group) {
-            let reference_node = getMainShape(parent_group);
             original_position = origin;
-            if (reference_node) {
-              origin = reference_node.origin.slice();
-            } else {
-              origin = parent_group.origin.slice();
-              if (parent_group.original_offset) {
-                origin.V3_add(parent_group.original_offset);
-              }
-            }
+            origin = parent_group.origin.slice();
           } else if (parent_offset && parent_group instanceof Group) {
             origin.V3_add(parent_offset);
             origin.V3_add(parent_group.origin);
@@ -2289,7 +2282,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
               offset = [0, 0, 0];
             }
             for (let child of node.children) {
-              parseNode(child, node, group, offset);
+              parseNode(child, node, group, offset, inside_piece || node.shape?.settings?.isPiece === true);
             }
           }
         }
@@ -3170,12 +3163,10 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
 
   // src/attachments/validation.ts
   function isPieceHasError(group) {
-    let hasGroupChild = false;
     for (let child of group.children) {
-      if (child instanceof Group) hasGroupChild = true;
-      else if (child instanceof Cube) return true;
+      if (child instanceof Cube) return true;
     }
-    return !hasGroupChild;
+    return false;
   }
   function collectionHasPieceError(collection) {
     for (let group of Group.all) {
@@ -3184,6 +3175,40 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       if (isPieceHasError(group)) return true;
     }
     return false;
+  }
+  function piecePrefix(group) {
+    let c = Collection.all.find((c2) => c2.export_codec === "blockymodel" && c2.contains(group));
+    return c ? `[${c.name}] ` : "";
+  }
+  function nodeHasPieceError(node) {
+    if (node instanceof Group && node.is_piece) {
+      return node.children.some((c) => c instanceof Cube);
+    }
+    return node instanceof Cube && node.parent instanceof Group && node.parent.is_piece;
+  }
+  function allValidatorProblems() {
+    let errors = [];
+    let warnings = [];
+    Validator.checks.forEach((check) => {
+      errors.push(...check.errors);
+      warnings.push(...check.warnings);
+    });
+    return { errors, warnings };
+  }
+  function openValidatorForCollection(collection) {
+    let prefix = `[${collection.name}] `;
+    Validator.errors.replace(allValidatorProblems().errors.filter((e) => typeof e.message === "string" && e.message.startsWith(prefix)));
+    Validator.warnings.empty();
+    Validator.openDialog();
+    let dialog = Validator.dialog;
+    let originalHide = dialog.hide;
+    dialog.hide = function(...args) {
+      dialog.hide = originalHide;
+      let full = allValidatorProblems();
+      Validator.errors.replace(full.errors);
+      Validator.warnings.replace(full.warnings);
+      return originalHide.apply(this, args);
+    };
   }
   var ERROR_ICON_CLASS = "hytale_piece_error_icon";
   function updateCollectionErrorIcons() {
@@ -3199,7 +3224,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       errorBtn.innerHTML = '<i class="material-icons icon" style="color: var(--color-error)">error</i>';
       errorBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        Validator.openDialog();
+        openValidatorForCollection(collection);
       });
       let firstButton = li.querySelector(".in_list_button:not(." + ERROR_ICON_CLASS + ")");
       if (firstButton) {
@@ -3214,13 +3239,18 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     return new Promise((resolve) => {
       Blockbench.showMessageBox({
         title: "Invalid Attachment Structure",
-        message: `The attachment "${collection.name}" has invalid "Attachment Piece" structure. Cubes cannot be direct children of a group marked as "Attachment Piece". This attachment may not work correctly in-game.`,
-        icon: "error",
-        buttons: ["Save Anyway", "Cancel"],
+        message: `The attachment "${collection.name}" has an invalid schema and may not work as expected in-game. Press "Inspect Errors" to review them.`,
+        icon: "warning",
+        buttons: ["Save Anyway", "Inspect Errors"],
         confirm: 0,
         cancel: 1
       }, (button) => {
-        resolve(button === 0);
+        if (button === 0) {
+          resolve(true);
+        } else {
+          resolve(false);
+          openValidatorForCollection(collection);
+        }
       });
     });
   }
@@ -3231,28 +3261,13 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       run() {
         for (let group of Group.all) {
           if (!group.is_piece) continue;
-          let hasGroupChild = false;
           let cubeCount = 0;
           for (let child of group.children) {
-            if (child instanceof Group) hasGroupChild = true;
-            else if (child instanceof Cube) cubeCount++;
+            if (child instanceof Cube) cubeCount++;
           }
           if (cubeCount > 0) {
             this.fail({
-              message: `"${group.name}" has ${cubeCount} cube(s) as direct children. Cubes cannot be direct children of a group marked as "Attachment Piece" : wrap them in a sub-group.`,
-              buttons: [{
-                name: "Select Group",
-                icon: "fa-folder",
-                click() {
-                  Validator.dialog.hide();
-                  group.select();
-                }
-              }]
-            });
-          }
-          if (!hasGroupChild) {
-            this.fail({
-              message: `"${group.name}" is marked as "Attachment Piece" but has no group children. Add at least one sub-group for the attachment to work in-game.`,
+              message: `${piecePrefix(group)}"${group.name}" has ${cubeCount} cube(s) as direct children. Cubes cannot be direct children of a group marked as "Attachment Piece" : wrap them in a sub-group.`,
               buttons: [{
                 name: "Select Group",
                 icon: "fa-folder",
@@ -3274,6 +3289,24 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
         document.querySelectorAll("." + ERROR_ICON_CLASS).forEach((el) => el.remove());
       }
     });
+    let outlinerHook = Blockbench.on("get_outliner_node_classes", ({ node, classes }) => {
+      if (isHytaleFormat() && nodeHasPieceError(node)) classes.push("hytale_outliner_error");
+    });
+    let outlinerStyle = Blockbench.addCSS(`
+		.outliner_object.hytale_outliner_error .cube_name { color: var(--color-error); }
+		.outliner_object.hytale_outliner_error .outliner_toggle { order: 1; }
+		.outliner_object.hytale_outliner_error::after {
+			content: 'error';
+			font-family: 'Material Icons';
+			color: var(--color-error);
+			font-size: 15px;
+			order: 0;
+			margin: 0 4px;
+		}
+	`);
+    track(outlinerHook, { delete() {
+      outlinerStyle.delete();
+    } });
     let codec = Codecs.blockymodel;
     let originalExportCollection = codec.exportCollection.bind(codec);
     let originalWriteCollection = codec.writeCollection.bind(codec);
@@ -3291,6 +3324,22 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       delete() {
         codec.exportCollection = originalExportCollection;
         codec.writeCollection = originalWriteCollection;
+      }
+    });
+    let force_save_item = {
+      id: "force_save_hytale_attachment",
+      name: "Force Save",
+      icon: "save",
+      condition: (collection) => isHytaleFormat() && collection instanceof Collection && collection.export_codec === "blockymodel" && !isUnloaded(collection) && collectionHasPieceError(collection),
+      click(collection) {
+        if (collection.export_path) codec.writeCollection(collection);
+        else codec.exportCollection(collection);
+      }
+    };
+    Collection.menu.addAction(force_save_item, 10);
+    track({
+      delete() {
+        Collection.menu.removeAction("force_save_hytale_attachment");
       }
     });
   }

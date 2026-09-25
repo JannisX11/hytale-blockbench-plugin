@@ -2063,7 +2063,15 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
           ];
           if (args.attachment && !parent_node && parent_group instanceof Group) {
             original_position = origin;
-            origin = parent_group.origin.slice();
+            let reference_node = getMainShape(parent_group);
+            if (reference_node) {
+              origin = reference_node.origin.slice();
+            } else {
+              origin = parent_group.origin.slice();
+              if (parent_group.original_offset) {
+                origin.V3_add(parent_group.original_offset);
+              }
+            }
           } else if (parent_offset && parent_group instanceof Group) {
             origin.V3_add(parent_offset);
             origin.V3_add(parent_group.origin);

@@ -21,6 +21,8 @@ import { setupUVCanvasResize } from "./uv_canvas_resize";
 import { setupAltDuplicate } from "./alt_duplicate";
 import { setupPivotControl } from "./pivot_control";
 import { setupChangeOrientation } from "./change_orientation";
+import { setupGroupRotation } from "./group_rotation";
+import { setupRotationGizmo } from "./rotation_gizmo";
 import { setupShortcuts } from "./shortcuts";
 import { setupPivotSnap } from "./pivot_snap";
 
@@ -47,6 +49,8 @@ BBPlugin.register('hytale_plugin', {
 
         setupFormats();
         setupElements();
+        setupGroupRotation();
+        setupRotationGizmo();
         setupPivotControl();
         setupAnimation();
         setupAnimationCodec();

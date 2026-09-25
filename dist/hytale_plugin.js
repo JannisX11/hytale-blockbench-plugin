@@ -6408,17 +6408,19 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
   }
 
   // src/group_rotation.ts
-  var affectChildrenEnabled = true;
+  function isTransformNode(node) {
+    return node instanceof Group || node instanceof OutlinerElement && "origin" in node;
+  }
+  var rotationAffectsChildren = true;
   function setupGroupRotation() {
-    let toggle = new Toggle("hytale_affect_children", {
-      name: "Affect Children",
+    let toggle = new Toggle("hytale_rotation_affects_children", {
+      name: "Rotation Affects Children",
       description: "When enabled, children follow the rotation of the parent group. When disabled, only the group rotates while children stay in place.",
       icon: "link",
       category: "edit",
       condition: {
         formats: FORMAT_IDS,
         modes: ["edit"],
-        tools: ["rotate_tool"],
         method: () => {
           let group = Group.first_selected;
           return !!(group && group.children.length > 0);
@@ -6426,23 +6428,39 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       },
       default: true,
       onChange(value) {
-        affectChildrenEnabled = value;
+        rotationAffectsChildren = value;
         toggle.setIcon(value ? "link" : "link_off");
       }
     });
     let rsItem = BarItems.rotation_space;
     if (rsItem) {
       for (let toolbar of Object.values(Toolbars)) {
-        let children = toolbar.children;
-        if (Array.isArray(children) && children.includes(rsItem)) {
-          let index = children.indexOf(rsItem);
+        let index = toolbar.children.indexOf(rsItem);
+        if (index !== -1) {
           toolbar.add(toggle, index + 1);
           break;
         }
       }
     }
+    Toolbars.element_rotation?.add(toggle);
     let rotateSnapshots = null;
     let cumulativeAngle = 0;
+    function getTopSelectedGroups() {
+      return Group.multi_selected.filter((g) => !(g.parent instanceof Group && g.parent.selected));
+    }
+    function canCounterRotate() {
+      if (!isHytaleFormat() || Modes.id !== "edit" || !Format.bone_rig || rotationAffectsChildren) return false;
+      let group = Group.first_selected;
+      return !!(group && group.children.length > 0);
+    }
+    function quatFromRotation(rotation) {
+      return new THREE.Quaternion().setFromEuler(new THREE.Euler(
+        Math.degToRad(rotation[0]),
+        Math.degToRad(rotation[1]),
+        Math.degToRad(rotation[2]),
+        "ZYX"
+      ));
+    }
     function applyCounterRotation(groups, axisNumber, totalAngle) {
       let elementsToUpdate = [];
       let axis = new THREE.Vector3();
@@ -6465,67 +6483,111 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
         group.rotation[0] = Math.radToDeg(e.x);
         group.rotation[1] = Math.radToDeg(e.y);
         group.rotation[2] = Math.radToDeg(e.z);
-        let dQ = newQuat.clone().invert().multiply(snap.initialQuat);
-        let groupOrigin = new THREE.Vector3(...group.origin);
-        for (let child of group.children) {
-          let cs = snap.children.get(child.uuid);
-          if (!cs) continue;
-          let offset = new THREE.Vector3(...cs.origin).sub(groupOrigin).applyQuaternion(dQ);
-          let newOrigin = groupOrigin.clone().add(offset);
-          child.origin[0] = newOrigin.x;
-          child.origin[1] = newOrigin.y;
-          child.origin[2] = newOrigin.z;
-          if (cs.rotation) {
-            let cq = new THREE.Quaternion().setFromEuler(new THREE.Euler(
-              Math.degToRad(cs.rotation[0]),
-              Math.degToRad(cs.rotation[1]),
-              Math.degToRad(cs.rotation[2]),
-              "ZYX"
-            ));
-            cq.premultiply(dQ);
-            let ce = new THREE.Euler().setFromQuaternion(cq, "ZYX");
-            child.rotation[0] = Math.radToDeg(ce.x);
-            child.rotation[1] = Math.radToDeg(ce.y);
-            child.rotation[2] = Math.radToDeg(ce.z);
-          }
-          let od = [newOrigin.x - cs.origin[0], newOrigin.y - cs.origin[1], newOrigin.z - cs.origin[2]];
-          if (child instanceof Cube && cs.from && cs.to) {
-            for (let i = 0; i < 3; i++) {
-              child.from[i] = cs.from[i] + od[i];
-              child.to[i] = cs.to[i] + od[i];
-            }
-          }
-          if (child instanceof Group) {
-            child.forEachChild((desc) => {
-              let ds = snap.descendants.get(desc.uuid);
-              if (!ds) return;
-              for (let i = 0; i < 3; i++) desc.origin[i] = ds.origin[i] + od[i];
-              if (desc instanceof Cube && ds.from && ds.to) {
-                for (let i = 0; i < 3; i++) {
-                  desc.from[i] = ds.from[i] + od[i];
-                  desc.to[i] = ds.to[i] + od[i];
-                }
-              }
-            });
-          }
-          if (child instanceof OutlinerElement) elementsToUpdate.push(child);
-          if (child instanceof Group) {
-            child.forEachChild((el) => {
-              if (el instanceof OutlinerElement) elementsToUpdate.push(el);
-            }, OutlinerElement);
-          }
-        }
+        counterRotateChildren(group, snap, elementsToUpdate);
       }
       return elementsToUpdate;
     }
+    function counterRotateChildren(group, snap, elementsToUpdate) {
+      let dQ = quatFromRotation(group.rotation).invert().multiply(snap.initialQuat);
+      let groupOrigin = new THREE.Vector3(...group.origin);
+      for (let child of group.children.filter(isTransformNode)) {
+        let cs = snap.children.get(child.uuid);
+        if (!cs) continue;
+        let offset = new THREE.Vector3(...cs.origin).sub(groupOrigin).applyQuaternion(dQ);
+        let newOrigin = groupOrigin.clone().add(offset);
+        child.origin[0] = newOrigin.x;
+        child.origin[1] = newOrigin.y;
+        child.origin[2] = newOrigin.z;
+        if (cs.rotation) {
+          let cq = quatFromRotation(cs.rotation).premultiply(dQ);
+          let ce = new THREE.Euler().setFromQuaternion(cq, "ZYX");
+          child.rotation[0] = Math.radToDeg(ce.x);
+          child.rotation[1] = Math.radToDeg(ce.y);
+          child.rotation[2] = Math.radToDeg(ce.z);
+        }
+        let od = [newOrigin.x - cs.origin[0], newOrigin.y - cs.origin[1], newOrigin.z - cs.origin[2]];
+        if (child instanceof Cube && cs.from && cs.to) {
+          for (let i = 0; i < 3; i++) {
+            child.from[i] = cs.from[i] + od[i];
+            child.to[i] = cs.to[i] + od[i];
+          }
+        }
+        if (child instanceof Group) {
+          child.forEachChild((desc) => {
+            let ds = snap.descendants.get(desc.uuid);
+            if (!ds || !isTransformNode(desc)) return;
+            for (let i = 0; i < 3; i++) desc.origin[i] = ds.origin[i] + od[i];
+            if (desc instanceof Cube && ds.from && ds.to) {
+              for (let i = 0; i < 3; i++) {
+                desc.from[i] = ds.from[i] + od[i];
+                desc.to[i] = ds.to[i] + od[i];
+              }
+            }
+          });
+        }
+        if (child instanceof OutlinerElement) elementsToUpdate.push(child);
+        if (child instanceof Group) {
+          child.forEachChild((el) => {
+            if (el instanceof OutlinerElement) elementsToUpdate.push(el);
+          }, OutlinerElement);
+        }
+      }
+    }
+    function refreshView(elements) {
+      Canvas.updateAllBones();
+      Canvas.updateView({
+        elements,
+        element_aspects: { geometry: true, transform: true }
+      });
+    }
+    function snapshotAndInitEdit(groups, spaceMode) {
+      rotateSnapshots = /* @__PURE__ */ new Map();
+      let elements = [];
+      let allGroups = [...groups];
+      for (let group of groups) {
+        let childSnaps = /* @__PURE__ */ new Map();
+        let descendantSnaps = /* @__PURE__ */ new Map();
+        for (let child of group.children.filter(isTransformNode)) {
+          childSnaps.set(child.uuid, {
+            origin: [...child.origin],
+            rotation: child.rotation ? [...child.rotation] : void 0,
+            from: child instanceof Cube ? [...child.from] : void 0,
+            to: child instanceof Cube ? [...child.to] : void 0
+          });
+          if (child instanceof OutlinerElement) elements.push(child);
+          if (child instanceof Group) {
+            allGroups.push(child);
+            child.forEachChild((el) => {
+              if (!isTransformNode(el)) return;
+              if (el instanceof OutlinerElement) elements.push(el);
+              if (el instanceof Group) allGroups.push(el);
+              descendantSnaps.set(el.uuid, {
+                origin: [...el.origin],
+                from: el instanceof Cube ? [...el.from] : void 0,
+                to: el instanceof Cube ? [...el.to] : void 0
+              });
+            });
+          }
+        }
+        let parentWorldQuat = new THREE.Quaternion();
+        if (group.parent instanceof Group && group.parent.mesh) {
+          parentWorldQuat.setFromRotationMatrix(
+            new THREE.Matrix4().extractRotation(group.parent.mesh.matrixWorld)
+          );
+        }
+        rotateSnapshots.set(group.uuid, {
+          initialQuat: quatFromRotation(group.rotation),
+          parentWorldQuat,
+          spaceMode,
+          children: childSnaps,
+          descendants: descendantSnaps
+        });
+      }
+      Undo.initEdit({ elements, groups: allGroups });
+    }
     let module = new TransformerModule("hytale_group_rotate", {
       priority: 2,
-      condition: () => {
-        if (!isHytaleFormat() || Modes.id !== "edit" || Toolbox.selected?.id !== "rotate_tool") return false;
-        if (!Format.bone_rig || affectChildrenEnabled) return false;
-        let group = Group.first_selected;
-        return !!(group && group.children.length > 0);
-      },
+      condition: () => Toolbox.selected?.id === "rotate_tool" && canCounterRotate(),
       updateGizmo() {
         if (!Transformer.visible) return;
         let group = Group.first_selected;
@@ -6539,7 +6601,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
         let space = getEditTransformSpace();
         if (typeof space === "number" && space >= 2) {
           Transformer.rotation_ref = group.mesh;
-        } else if (space instanceof OutlinerNode && space.getTypeBehavior?.("parent")) {
+        } else if (space instanceof OutlinerNode && isTransformNode(space) && space.getTypeBehavior("parent")) {
           Transformer.rotation_ref = space.mesh;
         } else {
           Transformer.rotation_ref = null;
@@ -6554,59 +6616,13 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       },
       onStart() {
         cumulativeAngle = 0;
-        let groups = Group.multi_selected.filter((g) => !g.parent?.selected);
+        let groups = getTopSelectedGroups();
         let space = getEditTransformSpace();
         let spaceMode;
         if (typeof space === "number" && space >= 2) spaceMode = "local";
         else if (space instanceof OutlinerNode) spaceMode = "bone";
         else spaceMode = "global";
-        rotateSnapshots = /* @__PURE__ */ new Map();
-        let elements = [];
-        let allGroups = [...groups];
-        for (let group of groups) {
-          let childSnaps = /* @__PURE__ */ new Map();
-          let descendantSnaps = /* @__PURE__ */ new Map();
-          for (let child of group.children) {
-            childSnaps.set(child.uuid, {
-              origin: [...child.origin],
-              rotation: child.rotation ? [...child.rotation] : void 0,
-              from: child instanceof Cube ? [...child.from] : void 0,
-              to: child instanceof Cube ? [...child.to] : void 0
-            });
-            if (child instanceof OutlinerElement) elements.push(child);
-            if (child instanceof Group) {
-              allGroups.push(child);
-              child.forEachChild((el) => {
-                if (el instanceof OutlinerElement) elements.push(el);
-                if (el instanceof Group) allGroups.push(el);
-                descendantSnaps.set(el.uuid, {
-                  origin: [...el.origin],
-                  from: el instanceof Cube ? [...el.from] : void 0,
-                  to: el instanceof Cube ? [...el.to] : void 0
-                });
-              });
-            }
-          }
-          let parentWorldQuat = new THREE.Quaternion();
-          if (group.parent instanceof Group && group.parent.mesh) {
-            parentWorldQuat.setFromRotationMatrix(
-              new THREE.Matrix4().extractRotation(group.parent.mesh.matrixWorld)
-            );
-          }
-          rotateSnapshots.set(group.uuid, {
-            initialQuat: new THREE.Quaternion().setFromEuler(new THREE.Euler(
-              Math.degToRad(group.rotation[0]),
-              Math.degToRad(group.rotation[1]),
-              Math.degToRad(group.rotation[2]),
-              "ZYX"
-            )),
-            parentWorldQuat,
-            spaceMode,
-            children: childSnaps,
-            descendants: descendantSnaps
-          });
-        }
-        Undo.initEdit({ elements, groups: allGroups });
+        snapshotAndInitEdit(groups, spaceMode);
       },
       onMove(context) {
         let { axis_number, value } = context;
@@ -6614,30 +6630,223 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
         if (difference > 180) difference -= 360;
         if (difference < -180) difference += 360;
         cumulativeAngle += difference;
-        let groups = Group.multi_selected.filter((g) => !g.parent?.selected);
+        let groups = getTopSelectedGroups();
         let elementsToUpdate = applyCounterRotation(groups, axis_number, cumulativeAngle);
         Blockbench.setCursorTooltip(trimFloatNumber(cumulativeAngle));
-        Canvas.updateAllBones();
-        Canvas.updateView({
-          elements: elementsToUpdate,
-          element_aspects: { geometry: true, transform: true }
-        });
-        Transformer.updateSelection();
+        refreshView(elementsToUpdate);
+        updateSelection();
       },
       onEnd(context) {
         rotateSnapshots = null;
         if (context.has_changed && context.keep_changes) {
           Undo.finishEdit("Rotate group");
         }
+        updateSelection();
       },
       onCancel() {
         rotateSnapshots = null;
         Undo.cancelEdit(true);
       }
     });
+    let sliders = ["slider_rotation_x", "slider_rotation_y", "slider_rotation_z"].map((id) => BarItems[id]);
+    let originals = sliders.map(({ onBefore, change, onAfter }) => ({ onBefore, change, onAfter }));
+    sliders.forEach((slider, i) => {
+      let original = originals[i];
+      slider.onBefore = function() {
+        if (!canCounterRotate()) return original.onBefore?.call(this);
+        snapshotAndInitEdit(getTopSelectedGroups(), "local");
+      };
+      slider.change = function(modify) {
+        original.change.call(this, modify);
+        if (!rotateSnapshots) return;
+        let elementsToUpdate = [];
+        for (let group of getTopSelectedGroups()) {
+          let snap = rotateSnapshots.get(group.uuid);
+          if (snap) counterRotateChildren(group, snap, elementsToUpdate);
+        }
+        refreshView(elementsToUpdate);
+      };
+      slider.onAfter = function(difference) {
+        original.onAfter?.call(this, difference);
+        rotateSnapshots = null;
+      };
+    });
     track(toggle, {
       delete() {
         module.delete();
+        sliders.forEach((slider, i) => Object.assign(slider, originals[i]));
+      }
+    });
+  }
+
+  // src/rotation_gizmo.ts
+  var ARC_STEP = 5;
+  var ARC_MAX_SEGMENTS = 360 / ARC_STEP;
+  var TICK_MIN_INTERVAL = 5;
+  var TICK_RADIUS = [1.06, 1.16];
+  var FILL_OPACITY = 0.25;
+  var RENDER_ORDER = 1e3;
+  function setupRotationGizmo() {
+    let rotateGizmo = Transformer.children.find((child) => {
+      return "handleGizmos" in child && "XYZE" in child.handleGizmos;
+    });
+    if (!rotateGizmo) return;
+    function overlayMaterial(material) {
+      material.depthTest = false;
+      material.depthWrite = false;
+      material.transparent = true;
+      return material;
+    }
+    function circlePoints(radius, segments) {
+      let points = [];
+      for (let i = 0; i < segments; i++) {
+        let a = i / segments * Math.PI * 2;
+        points.push(Math.cos(a) * radius, Math.sin(a) * radius, 0);
+      }
+      return points;
+    }
+    let lineMaterial = overlayMaterial(new THREE.LineBasicMaterial());
+    let fillMaterial = overlayMaterial(new THREE.MeshBasicMaterial({ side: THREE.DoubleSide, opacity: FILL_OPACITY }));
+    let ringGeometry = new THREE.BufferGeometry();
+    ringGeometry.setAttribute("position", new THREE.Float32BufferAttribute(circlePoints(1, 64), 3));
+    let ring = new THREE.LineLoop(ringGeometry, lineMaterial);
+    let arcGeometry = new THREE.BufferGeometry();
+    arcGeometry.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array((ARC_MAX_SEGMENTS + 2) * 3), 3));
+    let arcIndex = [];
+    for (let i = 1; i <= ARC_MAX_SEGMENTS; i++) arcIndex.push(0, i, i + 1);
+    arcGeometry.setIndex(arcIndex);
+    let arc = new THREE.Mesh(arcGeometry, fillMaterial);
+    let diskGeometry = new THREE.BufferGeometry();
+    diskGeometry.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, ...circlePoints(1, 64)], 3));
+    let diskIndex = [];
+    for (let i = 1; i <= 64; i++) diskIndex.push(0, i, i % 64 + 1);
+    diskGeometry.setIndex(diskIndex);
+    let disk = new THREE.Mesh(diskGeometry, fillMaterial);
+    let spokesGeometry = new THREE.BufferGeometry();
+    spokesGeometry.setAttribute("position", new THREE.Float32BufferAttribute([0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0], 3));
+    let spokes = new THREE.LineSegments(spokesGeometry, lineMaterial);
+    let ticksGeometry = new THREE.BufferGeometry();
+    let tickMaterial = overlayMaterial(new THREE.LineBasicMaterial({ color: 16777215 }));
+    let ticks = new THREE.LineSegments(ticksGeometry, tickMaterial);
+    let tickInterval = 0;
+    let overlay = new THREE.Object3D();
+    overlay.add(disk, arc, ring, spokes, ticks);
+    overlay.children.forEach((child) => child.renderOrder = RENDER_ORDER);
+    overlay.visible = false;
+    rotateGizmo.add(overlay);
+    let drag = null;
+    function isActive() {
+      return isHytaleFormat() && Modes.edit && Toolbox.selected.transformerMode === "rotate";
+    }
+    function setTicks(interval) {
+      if (interval === tickInterval) return;
+      tickInterval = interval;
+      let points = [];
+      for (let a = 0; a < 360 - 1e-6; a += interval) {
+        let cos = Math.cos(Math.degToRad(a)), sin = Math.sin(Math.degToRad(a));
+        points.push(cos * TICK_RADIUS[0], sin * TICK_RADIUS[0], 0, cos * TICK_RADIUS[1], sin * TICK_RADIUS[1], 0);
+      }
+      ticksGeometry.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
+    }
+    function setArc(angle) {
+      let turns = Math.floor(Math.abs(angle) / 360);
+      let remainder = Math.sign(angle) * (Math.abs(angle) % 360);
+      let segments = Math.max(1, Math.ceil(Math.abs(remainder) / ARC_STEP));
+      let positions = arcGeometry.getAttribute("position");
+      positions.setXYZ(0, 0, 0, 0);
+      for (let i = 0; i <= segments; i++) {
+        let a = Math.degToRad(remainder * i / segments);
+        positions.setXYZ(i + 1, Math.cos(a), Math.sin(a), 0);
+      }
+      positions.needsUpdate = true;
+      arcGeometry.setDrawRange(0, segments * 3);
+      disk.visible = turns > 0;
+      let spokePositions = spokesGeometry.getAttribute("position");
+      spokePositions.setXYZ(3, Math.cos(Math.degToRad(angle)), Math.sin(Math.degToRad(angle)), 0);
+      spokePositions.needsUpdate = true;
+    }
+    function getBasis(axis, frozenQuat, startAngle) {
+      let a = Math.degToRad(startAngle);
+      let start, normal;
+      if (axis === "E") {
+        let planeQuat = frozenQuat.clone().multiply(rotateGizmo.activePlane.quaternion);
+        start = new THREE.Vector3(Math.cos(a), Math.sin(a), 0).applyQuaternion(planeQuat);
+        normal = new THREE.Vector3(0, 0, 1).applyQuaternion(planeQuat);
+      } else {
+        start = {
+          X: new THREE.Vector3(0, Math.cos(a), Math.sin(a)),
+          Y: new THREE.Vector3(Math.sin(a), 0, Math.cos(a)),
+          Z: new THREE.Vector3(Math.cos(a), Math.sin(a), 0)
+        }[axis].applyQuaternion(frozenQuat);
+        normal = new THREE.Vector3().setComponent("XYZ".indexOf(axis), 1).applyQuaternion(frozenQuat);
+      }
+      let side = normal.clone().cross(start);
+      return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(start, side, normal));
+    }
+    function show(axis) {
+      lineMaterial.color.copy(axis === "E" ? gizmo_colors.outline : gizmo_colors["rgb"[["X", "Y", "Z"].indexOf(axis)]]);
+      fillMaterial.color.copy(lineMaterial.color);
+      overlay.scale.setScalar(axis === "E" ? 1.2 : 1);
+      overlay.visible = true;
+      rotateGizmo.handles.visible = false;
+    }
+    function hide() {
+      drag = null;
+      overlay.visible = false;
+      rotateGizmo.handles.visible = true;
+    }
+    let proto = TransformerModule.prototype;
+    let original = {
+      dispatchPointerDown: proto.dispatchPointerDown,
+      dispatchMove: proto.dispatchMove,
+      dispatchEnd: proto.dispatchEnd,
+      dispatchCancel: proto.dispatchCancel
+    };
+    proto.dispatchPointerDown = function(context) {
+      original.dispatchPointerDown.call(this, context);
+      hide();
+      let axis = Transformer.axis;
+      if (!isActive() || !["X", "Y", "Z", "E"].includes(axis)) return;
+      let frozenQuat = new THREE.Quaternion();
+      if (Transformer.rotation_ref) {
+        frozenQuat.setFromRotationMatrix(new THREE.Matrix4().extractRotation(Transformer.rotation_ref.matrixWorld));
+      }
+      drag = { axis, frozenQuat, basisQuat: null, lastValue: null, total: 0 };
+    };
+    proto.dispatchMove = function(context) {
+      original.dispatchMove.call(this, context);
+      if (!drag || this.previous_value == null || context.angle == null) return;
+      if (!drag.basisQuat) {
+        drag.basisQuat = getBasis(drag.axis, drag.frozenQuat, context.angle);
+        drag.lastValue = this.initial_value;
+        show(drag.axis);
+      }
+      let difference = this.previous_value - drag.lastValue;
+      if (difference > 180) difference -= 360;
+      if (difference < -180) difference += 360;
+      drag.total += difference;
+      drag.lastValue = this.previous_value;
+      rotateGizmo.getWorldQuaternion(overlay.quaternion).invert().multiply(drag.basisQuat);
+      setArc(drag.total);
+      let interval = getRotationInterval(context.event);
+      ticks.visible = interval >= TICK_MIN_INTERVAL;
+      if (ticks.visible) setTicks(interval);
+    };
+    proto.dispatchEnd = function(context) {
+      original.dispatchEnd.call(this, context);
+      hide();
+    };
+    proto.dispatchCancel = function(context) {
+      original.dispatchCancel.call(this, context);
+      hide();
+    };
+    track({
+      delete() {
+        hide();
+        Object.assign(proto, original);
+        rotateGizmo.remove(overlay);
+        [ringGeometry, arcGeometry, diskGeometry, spokesGeometry, ticksGeometry].forEach((g) => g.dispose());
+        [lineMaterial, fillMaterial, tickMaterial].forEach((m) => m.dispose());
       }
     });
   }
@@ -8504,6 +8713,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       setupElements();
       setupPivotControl();
       setupGroupRotation();
+      setupRotationGizmo();
       setupAnimation();
       setupAnimationCodec();
       setupAttachments();

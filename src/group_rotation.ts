@@ -4,59 +4,6 @@
 import { track } from "./cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
 
-// Missing from blockbench-types; mirrors js/modeling/transform/transform_modules.ts
-interface TransformContext {
-	event: Event
-}
-interface TransformContextMove extends TransformContext {
-	point: THREE.Vector3
-	axis: 'x' | 'y' | 'z'
-	axis_number: 0 | 1 | 2
-	rotate_normal: THREE.Vector3
-	direction: 1 | -1
-	angle?: number
-	value?: number
-}
-interface TransformContextEnd extends TransformContext {
-	has_changed: boolean
-	keep_changes: boolean
-}
-interface TransformerModuleOptions {
-	priority: number
-	condition: ConditionResolvable
-	use_condition?: ConditionResolvable
-	updateGizmo: (this: TransformerModule) => void | boolean
-	onPointerDown?: (this: TransformerModule, context: TransformContext) => void
-	calculateOffset: (this: TransformerModule, context: TransformContextMove) => number
-	onStart?: (this: TransformerModule, context: TransformContextMove) => void
-	onMove?: (this: TransformerModule, context: TransformContextMove) => void
-	onEnd?: (this: TransformerModule, context: TransformContextEnd) => void
-	onCancel?: (this: TransformerModule, context: TransformContextEnd) => void
-}
-
-declare global {
-	class TransformerModule {
-		constructor(id: string, options: TransformerModuleOptions)
-		id: string
-		priority: number
-		previous_value: number | null
-		initial_value: number | null
-		has_changed: boolean
-		delete(): void
-		static modules: Record<string, TransformerModule>
-		static readonly active: TransformerModule | undefined
-	}
-	/** Returns 0/1 (global/bone root), 2 (local), 3 (normal), or the parent node for bone space */
-	function getEditTransformSpace(): number | OutlinerNode | undefined
-	interface UndoSystem {
-		cancelEdit(revert_changes?: boolean): void
-	}
-	interface NumSlider {
-		onBefore?(): void
-		onAfter?(difference?: number): void
-	}
-}
-
 /** Outliner nodes that carry a transform */
 type TransformElement = OutlinerElement & { origin: ArrayVector3, rotation?: ArrayVector3 };
 type TransformNode = Group | TransformElement;

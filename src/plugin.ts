@@ -23,6 +23,7 @@ import { setupPivotControl } from "./pivot_control";
 import { setupMirrorFix } from "./mirror_fix";
 import { setupChangeOrientation } from "./change_orientation";
 import { setupGroupRotation } from "./group_rotation";
+import { setupRotationGizmo } from "./rotation_gizmo";
 import { setupShortcuts } from "./shortcuts";
 import { setupPivotSnap } from "./pivot_snap";
 import { setupNondestructiveUVMove } from "./nondestructive_uv_move";
@@ -55,6 +56,7 @@ BBPlugin.register('hytale_plugin', {
         setupElements();
         setupPivotControl();
         setupGroupRotation();
+        setupRotationGizmo();
         setupAnimation();
         setupAnimationCodec();
         setupAttachments();

@@ -611,20 +611,21 @@ export function setupBlockymodelCodec(): Codec {
 					Math.roundTo(Math.radToDeg(rotation_euler.z), 3),
 				];
 				if (args.attachment && !parent_node && parent_group instanceof Group) {
-					// Anchor to the bone's pivot (group origin), not its geometry
 					original_position = origin;
-					origin = parent_group.origin.slice() as ArrayVector3;
 
-					// Previous anchoring (kept in case the pivot approach is wrong): anchor to the bone's main shape geometry
-					// let reference_node = getMainShape(parent_group);
-					// if (reference_node) {
-					// 	origin = reference_node.origin.slice() as ArrayVector3;
-					// } else {
-					// 	origin = parent_group.origin.slice() as ArrayVector3;
-					// 	if (parent_group.original_offset) {
-					// 		(origin as ArrayVector3).V3_add(parent_group.original_offset);
-					// 	}
-					// }
+					// Anchor to the bone's main shape geometry
+					let reference_node = getMainShape(parent_group);
+					if (reference_node) {
+						origin = reference_node.origin.slice() as ArrayVector3;
+					} else {
+						origin = parent_group.origin.slice() as ArrayVector3;
+						if (parent_group.original_offset) {
+							(origin as ArrayVector3).V3_add(parent_group.original_offset);
+						}
+					}
+
+					// New anchoring (kept for comparison): anchor to the bone's pivot (group origin), not its geometry
+					// origin = parent_group.origin.slice() as ArrayVector3;
 
 				} else if (parent_offset && parent_group instanceof Group) {
 					origin.V3_add(parent_offset);

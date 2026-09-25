@@ -3,6 +3,7 @@
 
 import { track } from "./cleanup";
 import { isHytaleFormat } from "./formats";
+import { TransformerModule } from 'blockbench-types/generated/modeling/transform/transform_modules';
 
 type DialAxis = 'X' | 'Y' | 'Z' | 'E';
 type DragState = {

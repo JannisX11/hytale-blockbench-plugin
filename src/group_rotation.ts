@@ -3,6 +3,7 @@
 
 import { track } from "./cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
+import { TransformerModule } from 'blockbench-types/generated/modeling/transform/transform_modules';
 
 /** Outliner nodes that carry a transform */
 type TransformElement = OutlinerElement & { origin: ArrayVector3, rotation?: ArrayVector3 };

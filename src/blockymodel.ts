@@ -53,6 +53,8 @@ type IUvFace = {
 	offset: {x: number, y: number}
 	mirror: {x: boolean, y: boolean}
 	angle: IUvRot
+	transparent?: boolean
+	lockUVs?: boolean
 }
 type IVector = {x: number, y: number, z: number}
 type IQuaternion = {x: number, y: number, z: number, w: number}
@@ -375,6 +377,12 @@ export function setupBlockymodelCodec(): Codec {
 						mirror: new oneLiner({x: mirror_x, y: mirror_y}) as any,
 						angle: uv_rot,
 					};
+					if ("uv_lock" in face && face.uv_lock) {
+						layout_face.lockUVs = true;
+					}
+					if ("transparent" in face && face.transparent) {
+						layout_face.transparent = true;
+					}
 					node.shape.textureLayout[direction] = layout_face;
 				}
 
@@ -399,7 +407,7 @@ export function setupBlockymodelCodec(): Codec {
 				// Filter attachment
 				if (!options.attachment) {
 					let collection = Collection.all.find(c => c.contains(element));
-					if (collection) return;
+					if (collection && collection.export_codec == "blockymodel") return;
 				}
 				let euler = Reusable.euler1.set(
 					Math.degToRad(element.rotation[0]),
@@ -753,6 +761,10 @@ export function setupBlockymodelCodec(): Codec {
 							}
 							cube.faces[face_name].rotation = uv_rotation;
 							cube.faces[face_name].uv = result;
+							// @ts-ignore
+							cube.faces[face_name].uv_lock = uv_source.lockUVs == true;
+							// @ts-ignore
+							cube.faces[face_name].transparent = uv_source.transparent == true;
 						}
 					}
 

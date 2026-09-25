@@ -8,7 +8,7 @@ import { FORMAT_IDS, isHytaleFormat } from "./formats";
 
 const FPS = 60;
 // @ts-expect-error
-const Animation = window.Animation as typeof _Animation;
+const Animation = window.Animation as typeof BBAnimation;
 
 type IBlockyAnimJSON = {
 	formatVersion: 1
@@ -113,7 +113,7 @@ export function parseAnimationFile(file: Filesystem.FileResult, content: IBlocky
 	}
 
 }
-function compileAnimationFile(animation: _Animation): IBlockyAnimJSON {
+function compileAnimationFile(animation: BBAnimation): IBlockyAnimJSON {
 	const nodeAnimations: Record<string, IAnimationObject> = {};
 	const file: IBlockyAnimJSON = {
 		formatVersion: 1,
@@ -225,7 +225,7 @@ export function setupAnimationCodec() {
 		icon: 'cinematic_blur',
 		condition: {formats: FORMAT_IDS, selected: {animation: true}},
 		click() {
-			let animation: _Animation;
+			let animation: BBAnimation;
 			animation = Animation.selected;
 			let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
 			Filesystem.exportFile({
@@ -239,7 +239,7 @@ export function setupAnimationCodec() {
 	})
 	track(export_anim);
 	MenuBar.menus.animation.addAction(export_anim);
-	Panels.animations.toolbars[0].add(export_anim, '4');
+	Panels.animations.toolbars[0].add(export_anim, 4);
 
 	let handler = Filesystem.addDragHandler('blockyanim', {
 		extensions: ['blockyanim'],
@@ -260,7 +260,7 @@ export function setupAnimationCodec() {
 			return original_save.call(this, ...args);
 		}
 
-		let animation: _Animation;
+		let animation: BBAnimation;
 		animation = this;
 		let content = compileJSON(compileAnimationFile(animation), Config.json_compile_options);
 

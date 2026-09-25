@@ -4,23 +4,68 @@
 import { track } from "./cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
 
-declare global {
-	const TransformerModule: {
-		new(id: string, options: any): any;
-		modules: Record<string, any>;
-		active: any;
-	}
-	function getEditTransformSpace(): any
-	function getRotationInterval(event: Event): number
-	function trimFloatNumber(number: number): string
+// Missing from blockbench-types; mirrors js/modeling/transform/transform_modules.ts
+interface TransformContext {
+	event: Event
+}
+interface TransformContextMove extends TransformContext {
+	point: THREE.Vector3
+	axis: 'x' | 'y' | 'z'
+	axis_number: 0 | 1 | 2
+	rotate_normal: THREE.Vector3
+	direction: 1 | -1
+	angle?: number
+	value?: number
+}
+interface TransformContextEnd extends TransformContext {
+	has_changed: boolean
+	keep_changes: boolean
+}
+interface TransformerModuleOptions {
+	priority: number
+	condition: ConditionResolvable
+	use_condition?: ConditionResolvable
+	updateGizmo: (this: TransformerModule) => void | boolean
+	onPointerDown?: (this: TransformerModule, context: TransformContext) => void
+	calculateOffset: (this: TransformerModule, context: TransformContextMove) => number
+	onStart?: (this: TransformerModule, context: TransformContextMove) => void
+	onMove?: (this: TransformerModule, context: TransformContextMove) => void
+	onEnd?: (this: TransformerModule, context: TransformContextEnd) => void
+	onCancel?: (this: TransformerModule, context: TransformContextEnd) => void
 }
 
-let affectChildrenEnabled = true;
+declare global {
+	class TransformerModule {
+		constructor(id: string, options: TransformerModuleOptions)
+		id: string
+		priority: number
+		previous_value: number | null
+		initial_value: number | null
+		has_changed: boolean
+		delete(): void
+		static modules: Record<string, TransformerModule>
+		static readonly active: TransformerModule | undefined
+	}
+	/** Returns 0/1 (global/bone root), 2 (local), 3 (normal), or the parent node for bone space */
+	function getEditTransformSpace(): number | OutlinerNode | undefined
+	interface UndoSystem {
+		cancelEdit(revert_changes?: boolean): void
+	}
+}
+
+/** Outliner nodes that carry a transform */
+type TransformElement = OutlinerElement & { origin: ArrayVector3, rotation?: ArrayVector3 };
+type TransformNode = Group | TransformElement;
+function isTransformNode(node: OutlinerNode): node is TransformNode {
+	return node instanceof Group || (node instanceof OutlinerElement && 'origin' in node);
+}
+
+let rotationAffectsChildren = true;
 
 export function setupGroupRotation() {
 
-	let toggle = new Toggle('hytale_affect_children', {
-		name: 'Affect Children',
+	let toggle = new Toggle('hytale_rotation_affects_children', {
+		name: 'Rotation Affects Children',
 		description: 'When enabled, children follow the rotation of the parent group. When disabled, only the group rotates while children stay in place.',
 		icon: 'link',
 		category: 'edit',
@@ -35,7 +80,7 @@ export function setupGroupRotation() {
 		},
 		default: true,
 		onChange(value: boolean) {
-			affectChildrenEnabled = value;
+			rotationAffectsChildren = value;
 			toggle.setIcon(value ? 'link' : 'link_off');
 		}
 	});
@@ -43,10 +88,9 @@ export function setupGroupRotation() {
 	let rsItem = BarItems.rotation_space;
 	if (rsItem) {
 		for (let toolbar of Object.values(Toolbars)) {
-			let children = (toolbar as any).children;
-			if (Array.isArray(children) && children.includes(rsItem)) {
-				let index = children.indexOf(rsItem);
-				(toolbar as any).add(toggle, index + 1);
+			let index = toolbar.children.indexOf(rsItem);
+			if (index !== -1) {
+				toolbar.add(toggle, index + 1);
 				break;
 			}
 		}
@@ -63,6 +107,11 @@ export function setupGroupRotation() {
 	};
 	let rotateSnapshots: Map<string, GroupSnapshot> | null = null;
 	let cumulativeAngle = 0;
+
+	/** Selected groups whose parent isn't also selected */
+	function getTopSelectedGroups() {
+		return Group.multi_selected.filter(g => !(g.parent instanceof Group && g.parent.selected));
+	}
 
 	function applyCounterRotation(groups: Group[], axisNumber: number, totalAngle: number) {
 		let elementsToUpdate: OutlinerElement[] = [];
@@ -95,7 +144,7 @@ export function setupGroupRotation() {
 			let dQ = newQuat.clone().invert().multiply(snap.initialQuat);
 			let groupOrigin = new THREE.Vector3(...group.origin);
 
-			for (let child of group.children) {
+			for (let child of group.children.filter(isTransformNode)) {
 				let cs = snap.children.get(child.uuid);
 				if (!cs) continue;
 
@@ -129,7 +178,7 @@ export function setupGroupRotation() {
 				if (child instanceof Group) {
 					child.forEachChild((desc: OutlinerNode) => {
 						let ds = snap.descendants.get(desc.uuid);
-						if (!ds) return;
+						if (!ds || !isTransformNode(desc)) return;
 						for (let i = 0; i < 3; i++) desc.origin[i] = ds.origin[i] + od[i];
 						if (desc instanceof Cube && ds.from && ds.to) {
 							for (let i = 0; i < 3; i++) {
@@ -156,7 +205,7 @@ export function setupGroupRotation() {
 		priority: 2,
 		condition: () => {
 			if (!isHytaleFormat() || Modes.id !== 'edit' || Toolbox.selected?.id !== 'rotate_tool') return false;
-			if (!Format.bone_rig || affectChildrenEnabled) return false;
+			if (!Format.bone_rig || rotationAffectsChildren) return false;
 			let group = Group.first_selected;
 			return !!(group && group.children.length > 0);
 		},
@@ -175,14 +224,14 @@ export function setupGroupRotation() {
 			let space = getEditTransformSpace();
 			if (typeof space === 'number' && space >= 2) {
 				Transformer.rotation_ref = group.mesh;
-			} else if (space instanceof OutlinerNode && (space as any).getTypeBehavior?.('parent')) {
-				Transformer.rotation_ref = (space as any).mesh;
+			} else if (space instanceof OutlinerNode && isTransformNode(space) && space.getTypeBehavior('parent')) {
+				Transformer.rotation_ref = space.mesh;
 			} else {
 				Transformer.rotation_ref = null;
 			}
 		},
 
-		calculateOffset(context: any) {
+		calculateOffset(context) {
 			let snap = getRotationInterval(context.event);
 			let angle = context.angle ?? 0;
 			angle = Math.round(angle / snap) * snap;
@@ -192,7 +241,7 @@ export function setupGroupRotation() {
 
 		onStart() {
 			cumulativeAngle = 0;
-			let groups = Group.multi_selected.filter((g: Group) => !g.parent?.selected);
+			let groups = getTopSelectedGroups();
 			let space = getEditTransformSpace();
 
 			let spaceMode: 'local' | 'bone' | 'global';
@@ -208,7 +257,7 @@ export function setupGroupRotation() {
 				let childSnaps = new Map<string, ChildSnapshot>();
 				let descendantSnaps = new Map<string, DescendantSnapshot>();
 
-				for (let child of group.children) {
+				for (let child of group.children.filter(isTransformNode)) {
 					childSnaps.set(child.uuid, {
 						origin: [...child.origin],
 						rotation: child.rotation ? [...child.rotation] : undefined,
@@ -220,8 +269,9 @@ export function setupGroupRotation() {
 					if (child instanceof Group) {
 						allGroups.push(child);
 						child.forEachChild((el: OutlinerNode) => {
+							if (!isTransformNode(el)) return;
 							if (el instanceof OutlinerElement) elements.push(el);
-							if (el instanceof Group) allGroups.push(el as Group);
+							if (el instanceof Group) allGroups.push(el);
 							descendantSnaps.set(el.uuid, {
 								origin: [...el.origin],
 								from: el instanceof Cube ? [...el.from] : undefined,
@@ -255,14 +305,14 @@ export function setupGroupRotation() {
 			Undo.initEdit({elements, groups: allGroups});
 		},
 
-		onMove(context: any) {
+		onMove(context) {
 			let { axis_number, value } = context;
-			let difference = value - ((this as any).previous_value ?? value);
+			let difference = value - (this.previous_value ?? value);
 			if (difference > 180) difference -= 360;
 			if (difference < -180) difference += 360;
 			cumulativeAngle += difference;
 
-			let groups = Group.multi_selected.filter((g: Group) => !g.parent?.selected);
+			let groups = getTopSelectedGroups();
 			let elementsToUpdate = applyCounterRotation(groups, axis_number, cumulativeAngle);
 
 			Blockbench.setCursorTooltip(trimFloatNumber(cumulativeAngle));
@@ -272,14 +322,15 @@ export function setupGroupRotation() {
 				elements: elementsToUpdate,
 				element_aspects: {geometry: true, transform: true},
 			});
-			Transformer.updateSelection();
+			updateSelection();
 		},
 
-		onEnd(context: any) {
+		onEnd(context) {
 			rotateSnapshots = null;
 			if (context.has_changed && context.keep_changes) {
 				Undo.finishEdit('Rotate group');
 			}
+			updateSelection();
 		},
 
 		onCancel() {

@@ -4101,10 +4101,13 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
   }
 
   // src/group_rotation.ts
-  var affectChildrenEnabled = true;
+  function isTransformNode(node) {
+    return node instanceof Group || node instanceof OutlinerElement && "origin" in node;
+  }
+  var rotationAffectsChildren = true;
   function setupGroupRotation() {
-    let toggle = new Toggle("hytale_affect_children", {
-      name: "Affect Children",
+    let toggle = new Toggle("hytale_rotation_affects_children", {
+      name: "Rotation Affects Children",
       description: "When enabled, children follow the rotation of the parent group. When disabled, only the group rotates while children stay in place.",
       icon: "link",
       category: "edit",
@@ -4119,16 +4122,15 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       },
       default: true,
       onChange(value) {
-        affectChildrenEnabled = value;
+        rotationAffectsChildren = value;
         toggle.setIcon(value ? "link" : "link_off");
       }
     });
     let rsItem = BarItems.rotation_space;
     if (rsItem) {
       for (let toolbar of Object.values(Toolbars)) {
-        let children = toolbar.children;
-        if (Array.isArray(children) && children.includes(rsItem)) {
-          let index = children.indexOf(rsItem);
+        let index = toolbar.children.indexOf(rsItem);
+        if (index !== -1) {
           toolbar.add(toggle, index + 1);
           break;
         }
@@ -4136,6 +4138,9 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
     }
     let rotateSnapshots = null;
     let cumulativeAngle = 0;
+    function getTopSelectedGroups() {
+      return Group.multi_selected.filter((g) => !(g.parent instanceof Group && g.parent.selected));
+    }
     function applyCounterRotation(groups, axisNumber, totalAngle) {
       let elementsToUpdate = [];
       let axis = new THREE.Vector3();
@@ -4160,7 +4165,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         group.rotation[2] = Math.radToDeg(e.z);
         let dQ = newQuat.clone().invert().multiply(snap.initialQuat);
         let groupOrigin = new THREE.Vector3(...group.origin);
-        for (let child of group.children) {
+        for (let child of group.children.filter(isTransformNode)) {
           let cs = snap.children.get(child.uuid);
           if (!cs) continue;
           let offset = new THREE.Vector3(...cs.origin).sub(groupOrigin).applyQuaternion(dQ);
@@ -4191,7 +4196,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
           if (child instanceof Group) {
             child.forEachChild((desc) => {
               let ds = snap.descendants.get(desc.uuid);
-              if (!ds) return;
+              if (!ds || !isTransformNode(desc)) return;
               for (let i = 0; i < 3; i++) desc.origin[i] = ds.origin[i] + od[i];
               if (desc instanceof Cube && ds.from && ds.to) {
                 for (let i = 0; i < 3; i++) {
@@ -4215,7 +4220,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       priority: 2,
       condition: () => {
         if (!isHytaleFormat() || Modes.id !== "edit" || Toolbox.selected?.id !== "rotate_tool") return false;
-        if (!Format.bone_rig || affectChildrenEnabled) return false;
+        if (!Format.bone_rig || rotationAffectsChildren) return false;
         let group = Group.first_selected;
         return !!(group && group.children.length > 0);
       },
@@ -4232,7 +4237,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         let space = getEditTransformSpace();
         if (typeof space === "number" && space >= 2) {
           Transformer.rotation_ref = group.mesh;
-        } else if (space instanceof OutlinerNode && space.getTypeBehavior?.("parent")) {
+        } else if (space instanceof OutlinerNode && isTransformNode(space) && space.getTypeBehavior("parent")) {
           Transformer.rotation_ref = space.mesh;
         } else {
           Transformer.rotation_ref = null;
@@ -4247,7 +4252,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
       },
       onStart() {
         cumulativeAngle = 0;
-        let groups = Group.multi_selected.filter((g) => !g.parent?.selected);
+        let groups = getTopSelectedGroups();
         let space = getEditTransformSpace();
         let spaceMode;
         if (typeof space === "number" && space >= 2) spaceMode = "local";
@@ -4259,7 +4264,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         for (let group of groups) {
           let childSnaps = /* @__PURE__ */ new Map();
           let descendantSnaps = /* @__PURE__ */ new Map();
-          for (let child of group.children) {
+          for (let child of group.children.filter(isTransformNode)) {
             childSnaps.set(child.uuid, {
               origin: [...child.origin],
               rotation: child.rotation ? [...child.rotation] : void 0,
@@ -4270,6 +4275,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
             if (child instanceof Group) {
               allGroups.push(child);
               child.forEachChild((el) => {
+                if (!isTransformNode(el)) return;
                 if (el instanceof OutlinerElement) elements.push(el);
                 if (el instanceof Group) allGroups.push(el);
                 descendantSnaps.set(el.uuid, {
@@ -4307,7 +4313,7 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
         if (difference > 180) difference -= 360;
         if (difference < -180) difference += 360;
         cumulativeAngle += difference;
-        let groups = Group.multi_selected.filter((g) => !g.parent?.selected);
+        let groups = getTopSelectedGroups();
         let elementsToUpdate = applyCounterRotation(groups, axis_number, cumulativeAngle);
         Blockbench.setCursorTooltip(trimFloatNumber(cumulativeAngle));
         Canvas.updateAllBones();
@@ -4315,13 +4321,14 @@ body.hytale-uv-outline-only #uv_frame .selection_rectangle {
           elements: elementsToUpdate,
           element_aspects: { geometry: true, transform: true }
         });
-        Transformer.updateSelection();
+        updateSelection();
       },
       onEnd(context) {
         rotateSnapshots = null;
         if (context.has_changed && context.keep_changes) {
           Undo.finishEdit("Rotate group");
         }
+        updateSelection();
       },
       onCancel() {
         rotateSnapshots = null;

@@ -810,7 +810,6 @@
       animation_loop_wrapping: true,
       quaternion_interpolation: true,
       onActivation() {
-        settings.shading.set(false);
         Panels.animations.inside_vue.$data.group_animations_by_file = false;
       }
     };
@@ -854,6 +853,16 @@
       block_size: 32,
       ...common
     });
+    let hytale_profile = SettingsProfile.all.find((p) => p.name == "Hytale Character");
+    if (!hytale_profile) {
+      hytale_profile = new SettingsProfile({
+        name: "Hytale Character",
+        color: 4
+      });
+      Object.assign(hytale_profile.condition, { type: "format", value: "hytale_character" });
+      hytale_profile.settings.shading = false;
+      Settings.saveLocalStorages();
+    }
     let int_setting = new Setting("hytale_integer_size", {
       name: "Hytale Integer Size",
       category: "edit",
@@ -2152,7 +2161,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     author: "JannisX11, Kanno",
     license: "GPL-3.0",
     dependencies: {
-      "blockbench-types": "^5.2.0-beta.1-next.6"
+      "blockbench-types": "^5.2.0-beta.1-next.7"
     },
     devDependencies: {
       esbuild: "^0.25.9"
@@ -3918,8 +3927,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       if (!trackedCubeUuid) return;
       let el = OutlinerNode.uuids[trackedCubeUuid];
       savedUpdatePivotMarker = Canvas.updatePivotMarker;
-      Canvas.updatePivotMarker = () => {
-      };
+      Canvas.updatePivotMarker = () => true;
       if (!pivotFollowEnabled) {
         let worldPos = new THREE.Vector3();
         let worldQuat = new THREE.Quaternion();
@@ -4038,9 +4046,9 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     Toolbox.toggleTransforms = function() {
       let a = dblClickToolA.value;
       let b = dblClickToolB.value;
-      if (Toolbox.selected.id === a) {
+      if (Toolbox.selected.id === a && BarItems[b] instanceof Tool) {
         BarItems[b]?.select();
-      } else if (Toolbox.selected.id === b) {
+      } else if (Toolbox.selected.id === b && BarItems[a] instanceof Tool) {
         BarItems[a]?.select();
       }
     };

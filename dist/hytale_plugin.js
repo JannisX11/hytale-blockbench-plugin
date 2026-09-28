@@ -3234,7 +3234,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     };
     let base_path = "https://cdn.jsdelivr.net/gh/JannisX11/hytale-blockbench-plugin/src/references/default/";
     default_default.preview_models.forEach((model) => model.texture = default_default2);
-    new PreviewScene("hytale_default", {
+    let scene2 = new PreviewScene("hytale_default", {
       ...default_default,
       name: "Hytale",
       category: "hytale",
@@ -3247,29 +3247,14 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
         base_path + "skybox_5.webp"
       ]
     });
+    track(scene2);
+    track(...scene2.preview_models);
     let player_model = new PreviewModel("hytale_player", {
       ...player_default,
+      name: "Hytale Player",
       texture: player_default2
     });
-    ViewOptionsDialog.form_config.hytale_player = {
-      label: "Hytale Player",
-      type: "checkbox",
-      style: "toggle_switch",
-      condition: { formats: FORMAT_IDS }
-    };
-    if (!ViewOptionsDialog.form) {
-      ViewOptionsDialog.build();
-    } else {
-      ViewOptionsDialog.form.buildForm();
-    }
-    ViewOptionsDialog.form.on("change", (arg) => {
-      if (arg.result.hytale_player) {
-        player_model.enable();
-        updateSizes();
-      } else {
-        player_model.disable();
-      }
-    });
+    track(player_model);
     function updateSizes() {
       let block_size = Format?.block_size ?? 64;
       player_model.model_3d.scale.set(block_size / 64, block_size / 64, block_size / 64);

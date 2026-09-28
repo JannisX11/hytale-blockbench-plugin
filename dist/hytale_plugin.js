@@ -4473,10 +4473,10 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       sourceMarker.position.copy(scene.position).multiplyScalar(-1);
     }
     function removeSourceMarker() {
-      Project.model_3d.remove(sourceMarker);
+      Project.model_3d?.remove(sourceMarker);
     }
     function removeGuideLine() {
-      Project.model_3d.remove(guideLine);
+      Project.model_3d?.remove(guideLine);
     }
     function resetSnapVisuals() {
       removeGuideLine();
@@ -5247,7 +5247,6 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     contributors: ["Hedaox", "MelodicAlbuild"],
     onload() {
       setupFormats();
-      setupTempFixes();
       setupElements();
       setupPivotControl();
       setupAnimation();

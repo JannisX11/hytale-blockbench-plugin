@@ -5146,7 +5146,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     description: "Create models and animations for Hytale",
     tags: ["Hytale"],
     variant: "both",
-    min_version: "5.2.0-beta.1",
+    min_version: "5.2.0",
     await_loading: true,
     has_changelog: true,
     creation_date: "2025-12-22",

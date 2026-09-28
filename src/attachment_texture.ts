@@ -73,7 +73,7 @@ export function setupAttachmentTextures() {
     let original_getTextures = TextureGroup.prototype.getTextures;
     TextureGroup.prototype.getTextures = function() {
         if (isHytaleFormat()) {
-			return Texture.all.filter(tex => tex.attachment_texture_groups?.includes(this.uuid));
+			return Texture.all.filter(tex => tex.group == this.uuid || tex.attachment_texture_groups?.includes(this.uuid));
         } else {
             return original_getTextures.call(this)
         }

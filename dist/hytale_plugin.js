@@ -1251,7 +1251,7 @@
     for (let tex of newTextures) {
       tex.group = textureGroup.uuid;
       tex.attachment_texture_groups ??= [];
-      tex.attachment_texture_groups.push(textureGroup.uuid);
+      tex.attachment_texture_groups.safePush(textureGroup.uuid);
       updateUVSize(tex);
     }
     let texture = newTextures.find((t) => t.name.startsWith(attachmentName)) ?? newTextures[0];
@@ -1283,11 +1283,12 @@
         CubeFace.prototype.getTexture = originalGetTexture;
       }
     });
-    new Property(Texture, "array", "attachment_texture_groups");
+    let groups_property = new Property(Texture, "array", "attachment_texture_groups");
+    track(groups_property);
     let original_getTextures = TextureGroup.prototype.getTextures;
     TextureGroup.prototype.getTextures = function() {
       if (isHytaleFormat()) {
-        return Texture.all.filter((tex) => tex.attachment_texture_groups?.includes(this.uuid));
+        return Texture.all.filter((tex) => tex.group == this.uuid || tex.attachment_texture_groups?.includes(this.uuid));
       } else {
         return original_getTextures.call(this);
       }
@@ -1323,7 +1324,6 @@
         Texture.all.forEach((t) => {
           arr.push({
             name: t.name,
-            // @ts-expect-error
             icon: t.img,
             marked: t.uuid == context.texture,
             click() {

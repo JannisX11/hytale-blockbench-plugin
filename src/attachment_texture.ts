@@ -90,11 +90,19 @@ export function setupAttachmentTextures() {
 		icon: 'collections',
 		condition: { formats: FORMAT_IDS },
 		children(context: AttachmentCollection) {
-			function applyTexture(textureValue: string, undoMessage: string) {
-				Undo.initEdit({ collections: Collection.selected });
+			function applyTexture(texture: Texture | null, undoMessage: string) {
+				let texture_group = TextureGroup.all.find(tg => tg.name === context.name);
+				Undo.initEdit({
+					collections: Collection.selected,
+					textures: texture && texture_group ? [texture] : undefined
+				});
 				for (let collection of Collection.selected) {
 					// @ts-expect-error
-					collection.texture = textureValue;
+					collection.texture = texture ? texture.uuid : '';
+				}
+				if (texture && texture_group) {
+					texture.attachment_texture_groups.safePush(texture_group.uuid);
+					texture.group = texture_group.uuid;
 				}
 				Undo.finishEdit(undoMessage);
 				Canvas.updateAllFaces();
@@ -105,7 +113,7 @@ export function setupAttachmentTextures() {
 					icon: 'crop_square',
 					name: Format.single_texture_default ? 'menu.cube.texture.default' : 'menu.cube.texture.blank',
 					click() {
-						applyTexture('', 'Unassign texture from collection');
+						applyTexture(null, 'Unassign texture from collection');
 					}
 				}
 			];
@@ -116,7 +124,7 @@ export function setupAttachmentTextures() {
 					icon: t.img,
 					marked: t.uuid == context.texture,
 					click() {
-						applyTexture(t.uuid, 'Apply texture to collection');
+						applyTexture(t, 'Apply texture to collection');
 					}
 				});
 			});
@@ -130,4 +138,17 @@ export function setupAttachmentTextures() {
 			Collection.menu.removeAction('set_texture');
 		}
 	});
+
+	let on_finish_edit = Blockbench.on('finish_edit', (arg) => {
+		if (!isHytaleFormat()) return;
+		if (!arg.aspects.textures || !Undo.current_save?.textures) return;
+		let pre_textures = Undo.current_save.textures as Record<string, Texture>;
+		for (let texture of arg.aspects.textures) {
+			if (!pre_textures[texture.uuid]) continue;
+			if (!texture.group && pre_textures[texture.uuid].group) {
+				texture.attachment_texture_groups?.empty();
+			}
+		}
+	});
+	track(on_finish_edit);
 }

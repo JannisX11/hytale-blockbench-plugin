@@ -30,7 +30,7 @@ export function processAttachmentTextures(attachmentName: string, newTextures: T
 	for (let tex of newTextures) {
 		tex.group = textureGroup.uuid;
 		tex.attachment_texture_groups ??= [];
-		tex.attachment_texture_groups.push(textureGroup.uuid);
+		tex.attachment_texture_groups.safePush(textureGroup.uuid);
 		updateUVSize(tex);
 	}
 
@@ -67,7 +67,9 @@ export function setupAttachmentTextures() {
 		}
 	});
 
-	new Property(Texture, 'array', 'attachment_texture_groups');
+	let groups_property = new Property(Texture, 'array', 'attachment_texture_groups');
+	track(groups_property);
+
     let original_getTextures = TextureGroup.prototype.getTextures;
     TextureGroup.prototype.getTextures = function() {
         if (isHytaleFormat()) {
@@ -111,7 +113,6 @@ export function setupAttachmentTextures() {
 			Texture.all.forEach(t => {
 				arr.push({
 					name: t.name,
-					// @ts-expect-error
 					icon: t.img,
 					marked: t.uuid == context.texture,
 					click() {

@@ -2682,6 +2682,57 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
         });
       }
     });
+    let compact_view_deletables = [];
+    function enableCompactView() {
+      compact_view_deletables = [];
+      compact_view_deletables.push(Blockbench.addCSS(`
+			.hytale_has_main_shape input.cube_name {
+				margin-left: 29px;
+			}
+			.hytale_main_shape {
+				position: absolute;
+				width: 30px;
+				top: -28px;
+				left: calc(29px + var(--indentation) * var(--indentation-offset));;
+				border-radius: 9px;
+				padding-left: 2px;
+			}
+			.hytale_main_shape.selected {
+			}
+			.hytale_main_shape .outliner_opener_placeholder,
+			.hytale_main_shape .outliner_toggle {
+				display: none;
+			}
+		`));
+      track(...compact_view_deletables);
+    }
+    let hytale_compact_outliner = new Toggle("hytale_compact_outliner", {
+      name: "Compact Outliner View",
+      icon: "account_tree",
+      save_on_restart: true,
+      onChange() {
+        if (this.value) {
+          enableCompactView();
+        } else {
+          compact_view_deletables.forEach((d) => d.delete());
+          compact_view_deletables = [];
+        }
+      }
+    });
+    track(hytale_compact_outliner);
+    Panels.outliner.toolbars[0]?.add(hytale_compact_outliner, -2);
+    if (hytale_compact_outliner.value) {
+      enableCompactView();
+    }
+    compact_view_deletables.push(Blockbench.on("get_outliner_node_classes", (data) => {
+      if (!isHytaleFormat()) return;
+      if (data.node instanceof Cube && data.node.parent instanceof Group && getMainShape(data.node.parent) == data.node) {
+        data.classes.safePush("hytale_main_shape");
+      }
+      if (data.node instanceof Group && data.node.isOpen && getMainShape(data.node) instanceof Cube) {
+        data.classes.safePush("hytale_has_main_shape");
+      }
+    }));
   }
 
   // src/uv_outline.ts

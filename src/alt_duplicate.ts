@@ -5,7 +5,6 @@ import { track } from "./cleanup";
  * Each Alt press creates a combined undo entry (duplication + movement).
  */
 export function setupAltDuplicate() {
-    // @ts-ignore - KeybindItem supports name but types don't reflect it
     const keybindItem = new KeybindItem('hytale_duplicate_drag_modifier', {
         name: 'Duplicate While Dragging',
         description: 'Hold this key while dragging the gizmo to duplicate',
@@ -119,7 +118,7 @@ export function setupAltDuplicate() {
     function onMouseDown(event: MouseEvent) {
         if (isCombinedUndoActive) return; // Ignore re-dispatched event
 
-        const axis = (Transformer as any)?.axis;
+        const axis = Transformer?.axis;
         const hasSelection = Outliner.selected.length > 0 || Group.all.some(g => g.selected);
         const isTransformTool = Toolbox.selected?.id === 'move_tool' || Toolbox.selected?.id === 'rotate_tool';
 

@@ -38,7 +38,6 @@ export function setupFormats() {
         animation_loop_wrapping: true,
         quaternion_interpolation: true,
         onActivation() {
-            settings.shading.set(false);
             Panels.animations.inside_vue.$data.group_animations_by_file = false;
         }
     }
@@ -72,6 +71,18 @@ export function setupFormats() {
         block_size: 32,
         ...common
     });
+
+    // Settings Profile
+    let hytale_profile = SettingsProfile.all.find(p => p.name == 'Hytale Character');
+    if (!hytale_profile) {
+        hytale_profile = new SettingsProfile({
+            name: 'Hytale Character',
+            color: 4
+        });
+        Object.assign(hytale_profile.condition, {type: "format", value: "hytale_character"});
+        hytale_profile.settings.shading = false;
+        Settings.saveLocalStorages();
+    }
 
     // Integer size
     let int_setting = new Setting('hytale_integer_size', {

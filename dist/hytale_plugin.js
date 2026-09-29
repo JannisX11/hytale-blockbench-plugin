@@ -2467,7 +2467,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       animation_loop_wrapping: true,
       quaternion_interpolation: true,
       onActivation() {
-        settings.shading.set(false);
         Panels.animations.inside_vue.$data.group_animations_by_file = false;
       }
     };
@@ -2504,6 +2503,16 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       block_size: 32,
       ...common
     });
+    let hytale_profile = SettingsProfile.all.find((p) => p.name == "Hytale Character");
+    if (!hytale_profile) {
+      hytale_profile = new SettingsProfile({
+        name: "Hytale Character",
+        color: 4
+      });
+      Object.assign(hytale_profile.condition, { type: "format", value: "hytale_character" });
+      hytale_profile.settings.shading = false;
+      Settings.saveLocalStorages();
+    }
     let int_setting = new Setting("hytale_integer_size", {
       name: "Hytale Integer Size",
       category: "edit",
@@ -4239,7 +4248,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     author: "JannisX11, Kanno",
     license: "GPL-3.0",
     dependencies: {
-      "blockbench-types": "^5.2.0-beta.1-next.6"
+      "blockbench-types": "^5.2.0"
     },
     devDependencies: {
       esbuild: "^0.25.9"
@@ -5262,7 +5271,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     };
     let base_path = "https://cdn.jsdelivr.net/gh/JannisX11/hytale-blockbench-plugin/src/references/default/";
     default_default.preview_models.forEach((model) => model.texture = default_default2);
-    new PreviewScene("hytale_default", {
+    let scene2 = new PreviewScene("hytale_default", {
       ...default_default,
       name: "Hytale",
       category: "hytale",
@@ -5275,29 +5284,14 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
         base_path + "skybox_5.webp"
       ]
     });
+    track(scene2);
+    track(...scene2.preview_models);
     let player_model = new PreviewModel("hytale_player", {
       ...player_default,
+      name: "Hytale Player",
       texture: player_default2
     });
-    ViewOptionsDialog.form_config.hytale_player = {
-      label: "Hytale Player",
-      type: "checkbox",
-      style: "toggle_switch",
-      condition: { formats: FORMAT_IDS }
-    };
-    if (!ViewOptionsDialog.form) {
-      ViewOptionsDialog.build();
-    } else {
-      ViewOptionsDialog.form.buildForm();
-    }
-    ViewOptionsDialog.form.on("change", (arg) => {
-      if (arg.result.hytale_player) {
-        player_model.enable();
-        updateSizes();
-      } else {
-        player_model.disable();
-      }
-    });
+    track(player_model);
     function updateSizes() {
       let block_size = Format?.block_size ?? 64;
       player_model.model_3d.scale.set(block_size / 64, block_size / 64, block_size / 64);
@@ -6005,8 +5999,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       if (!trackedCubeUuid) return;
       let el = OutlinerNode.uuids[trackedCubeUuid];
       savedUpdatePivotMarker = Canvas.updatePivotMarker;
-      Canvas.updatePivotMarker = () => {
-      };
+      Canvas.updatePivotMarker = () => true;
       if (!pivotFollowEnabled) {
         let worldPos = new THREE.Vector3();
         let worldQuat = new THREE.Quaternion();
@@ -6125,9 +6118,9 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     Toolbox.toggleTransforms = function() {
       let a = dblClickToolA.value;
       let b = dblClickToolB.value;
-      if (Toolbox.selected.id === a) {
+      if (Toolbox.selected.id === a && BarItems[b] instanceof Tool) {
         BarItems[b]?.select();
-      } else if (Toolbox.selected.id === b) {
+      } else if (Toolbox.selected.id === b && BarItems[a] instanceof Tool) {
         BarItems[a]?.select();
       }
     };
@@ -7099,10 +7092,10 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       sourceMarker.position.copy(scene.position).multiplyScalar(-1);
     }
     function removeSourceMarker() {
-      Project.model_3d.remove(sourceMarker);
+      Project.model_3d?.remove(sourceMarker);
     }
     function removeGuideLine() {
-      Project.model_3d.remove(guideLine);
+      Project.model_3d?.remove(guideLine);
     }
     function resetSnapVisuals() {
       removeGuideLine();
@@ -8215,6 +8208,36 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     return null;
   }
 
+  // src/ui_tweaks.ts
+  function setupUITweaks() {
+    let setting2 = new Setting("hytale_sync_sidebar_width", {
+      name: "Sync Sidebar Width",
+      description: "Sync the width of the sidebars and size of some panels between Edit and Paint mode",
+      category: "interface",
+      type: "toggle",
+      value: false
+    });
+    track(setting2);
+    let previous_mode = null;
+    let previous_data = null;
+    let previous_uv_panel_data = null;
+    track(Blockbench.on("unselect_mode", ({ mode }) => {
+      previous_mode = mode.id;
+      previous_data = Interface.getModeData();
+      previous_uv_panel_data = Panels.uv.position_data;
+    }));
+    track(Blockbench.on("select_mode", ({ mode }) => {
+      if (!setting2.value) return;
+      if (!previous_data) return;
+      if (mode.id == "edit" && previous_mode == "paint" || mode.id == "paint" && previous_mode == "edit") {
+        Object.assign(Interface.getModeData(), previous_data);
+        if (previous_uv_panel_data) {
+          Object.assign(Panels.uv.position_data, previous_uv_panel_data);
+        }
+      }
+    }));
+  }
+
   // src/references/first_person_player.json
   var first_person_player_default = {
     nodes: [
@@ -8697,7 +8720,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     description: "Create models and animations for Hytale",
     tags: ["Hytale"],
     variant: "both",
-    min_version: "5.2.0-beta.1",
+    min_version: "5.2.0",
     await_loading: true,
     has_changelog: true,
     creation_date: "2025-12-22",
@@ -8732,6 +8755,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       setupPreviewScenes();
       setupUVCanvasResize();
       setupShortcuts();
+      setupUITweaks();
       setupPivotSnap();
       setupNondestructiveUVMove();
       setupUVFill();

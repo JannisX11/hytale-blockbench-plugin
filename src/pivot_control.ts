@@ -4,9 +4,6 @@
 import { track } from "./cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "./formats";
 
-declare global {
-	const StateMemory: any
-}
 
 let pivotFollowEnabled = true;
 
@@ -92,7 +89,7 @@ export function setupPivotControl() {
 
 		let el = OutlinerNode.uuids[trackedCubeUuid] as Cube;
 		savedUpdatePivotMarker = Canvas.updatePivotMarker;
-		Canvas.updatePivotMarker = () => {};
+		Canvas.updatePivotMarker = () => true;
 
 		if (!pivotFollowEnabled) {
 			// Freeze marker at current world position
@@ -244,9 +241,9 @@ export function setupPivotControl() {
 	Toolbox.toggleTransforms = function() {
 		let a = dblClickToolA.value as string;
 		let b = dblClickToolB.value as string;
-		if (Toolbox.selected.id === a) {
+		if (Toolbox.selected.id === a && BarItems[b] instanceof Tool) {
 			BarItems[b]?.select();
-		} else if (Toolbox.selected.id === b) {
+		} else if (Toolbox.selected.id === b && BarItems[a] instanceof Tool) {
 			BarItems[a]?.select();
 		}
 	};

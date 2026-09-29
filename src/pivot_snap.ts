@@ -226,11 +226,11 @@ export function setupPivotSnap() {
 	}
 
 	function removeSourceMarker() {
-		Project.model_3d.remove(sourceMarker);
+		Project.model_3d?.remove(sourceMarker);
 	}
 
 	function removeGuideLine() {
-		Project.model_3d.remove(guideLine);
+		Project.model_3d?.remove(guideLine);
 	}
 
 	function resetSnapVisuals() {

@@ -16,7 +16,7 @@ export function setupPreviewScenes() {
     
     let base_path = 'https://cdn.jsdelivr.net/gh/JannisX11/hytale-blockbench-plugin/src/references/default/';
 	DefaultScene.preview_models.forEach(model => model.texture = DefaultTexture);
-    new PreviewScene('hytale_default', {
+    let scene = new PreviewScene('hytale_default', {
 		...DefaultScene as any,
 		name: 'Hytale',
         category: 'hytale',
@@ -29,34 +29,18 @@ export function setupPreviewScenes() {
             base_path + "skybox_5.webp"
         ]
     });
+	track(scene);
+	track(...scene.preview_models);
 	
 
 
     let player_model = new PreviewModel('hytale_player', {
 		...PlayerModelJSON as any,
+		name: 'Hytale Player',
 		texture: PlayerTexture,
     });
-	// track(player_model); // Currently has an unloading bug in Blockbench
+	track(player_model);
 
-	ViewOptionsDialog.form_config.hytale_player = {
-		label: 'Hytale Player',
-		type: 'checkbox',
-		style: 'toggle_switch',
-		condition: {formats: FORMAT_IDS}
-	}
-	if (!ViewOptionsDialog.form) {
-		ViewOptionsDialog.build();
-	} else {
-		ViewOptionsDialog.form.buildForm();
-	}
-	ViewOptionsDialog.form.on('change', (arg) => {
-		if (arg.result.hytale_player) {
-			player_model.enable();
-			updateSizes();
-		} else {
-			player_model.disable();
-		}
-	})
 	
 	function updateSizes() {
 		// Player

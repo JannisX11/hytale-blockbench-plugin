@@ -48,7 +48,6 @@ export function setupAttachments() {
 				groups: remove_groups,
 				elements: remove_elements,
 				outliner: true,
-				// @ts-expect-error
 				texture_groups,
 				textures,
 			});

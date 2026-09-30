@@ -7,6 +7,19 @@ import { FORMAT_IDS, isHytaleFormat } from "./formats";
 
 let pivotFollowEnabled = true;
 
+// Lets alt_duplicate hand an ongoing drag over to freshly duplicated cubes
+let dragHandoff: { commit(): void, resume(): void } | null = null;
+
+/** Applies pivot follow to the cubes being dragged and stops tracking them. */
+export function commitPivotFollow() {
+	dragHandoff?.commit();
+}
+
+/** Starts tracking the current selection in the middle of a drag. */
+export function resumePivotFollow() {
+	dragHandoff?.resume();
+}
+
 /**
  * Pivot control features for Hytale formats.
  * Provides a "Pivot Follow" toggle that controls whether cube origins (pivot points)
@@ -58,9 +71,13 @@ export function setupPivotControl() {
 	// Snapshot state and prepare pivot marker for drag.
 	// ON: marker stays on mesh. OFF: re-parent to scene root (frozen).
 	function onPointerDown() {
+		if (!(Transformer as any)?.axis) return;
+		startTracking();
+	}
+
+	function startTracking() {
 		if (!isHytaleFormat() || !Modes.edit) return;
 		if (Toolbox.selected?.id !== 'move_tool') return;
-		if (!(Transformer as any)?.axis) return;
 
 		// Skip when any group is selected — group moves handle pivots naturally
 		if (Group.selected.length) return;
@@ -88,7 +105,8 @@ export function setupPivotControl() {
 		if (!trackedCubeUuid) return;
 
 		let el = OutlinerNode.uuids[trackedCubeUuid] as Cube;
-		savedUpdatePivotMarker = Canvas.updatePivotMarker;
+		// Alt-duplicate re-dispatches pointerdown while the no-op is still installed
+		if (!savedUpdatePivotMarker) savedUpdatePivotMarker = Canvas.updatePivotMarker;
 		Canvas.updatePivotMarker = () => true;
 
 		if (!pivotFollowEnabled) {
@@ -130,6 +148,10 @@ export function setupPivotControl() {
 
 	// Apply origin adjustment inside finish_edit, before the undo
 	function onFinishEdit() {
+		applyAndStopTracking();
+	}
+
+	function applyAndStopTracking() {
 		if (!snapshots) return;
 		let snapshotsCopy = snapshots;
 		snapshots = null;
@@ -188,6 +210,8 @@ export function setupPivotControl() {
 		let pendingSnapshots = snapshots;
 		setTimeout(() => {
 			if (snapshots !== pendingSnapshots) return;
+			// Edit still open (alt-duplicate defers finishEdit): finish_edit will apply it
+			if (Undo.current_save) return;
 			snapshots = null;
 			trackedCubeUuid = null;
 			if (savedUpdatePivotMarker) {
@@ -204,6 +228,7 @@ export function setupPivotControl() {
 	document.addEventListener('pointerdown', onPointerDown, true);
 	document.addEventListener('pointermove', onPointerMove, false);
 	document.addEventListener('pointerup', onPointerUp, true);
+	dragHandoff = { commit: applyAndStopTracking, resume: startTracking };
 
 	// TODO: Should this be a vanilla Blockbench feature? Replace hardcoded move to resize toggle with two configurable tool selects.
 	// toggle could be made configurable upstream instead of overriding it here.
@@ -254,6 +279,7 @@ export function setupPivotControl() {
 			document.removeEventListener('pointerdown', onPointerDown, true);
 			document.removeEventListener('pointermove', onPointerMove, false);
 			document.removeEventListener('pointerup', onPointerUp, true);
+			dragHandoff = null;
 			if (savedUpdatePivotMarker) {
 				Canvas.updatePivotMarker = savedUpdatePivotMarker;
 				savedUpdatePivotMarker = null;

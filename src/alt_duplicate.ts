@@ -1,4 +1,5 @@
 import { track } from "./cleanup";
+import { commitPivotFollow, resumePivotFollow } from "./pivot_control";
 
 /**
  * Blender-style Alt+drag duplication for the move gizmo.
@@ -158,9 +159,13 @@ export function setupAltDuplicate() {
 
         modifierWasPressed = true;
 
+        // Settle pivots on the cubes being left behind, before they're copied
+        commitPivotFollow();
+
         const shouldInitEdit = isCombinedUndoActive; // Only init on subsequent Alt presses
         if (isCombinedUndoActive) finishCombinedUndo();
         performDuplicationForCombinedUndo(shouldInitEdit);
+        resumePivotFollow();
     }
 
     function onKeyUp(event: KeyboardEvent) {

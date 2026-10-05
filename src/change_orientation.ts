@@ -1,3 +1,4 @@
+import { CustomMenuItem } from "blockbench-types/generated/interface/menu";
 import { track } from "./cleanup";
 
 function canChangeParentGroup(cube: Cube): boolean {
@@ -93,7 +94,7 @@ export function setupChangeOrientation() {
             new Menu('change_cube_orientation', this.children, {}).open(e.target as HTMLElement);
         }
     })
-    for (let item of (action.children as MenuItem[])) {
+    for (let item of (action.children as CustomMenuItem[])) {
         action.addSubKeybind(item.id, item.name, null, item.click);
     }
     MenuBar.menus.transform.addAction(action);

@@ -16,13 +16,16 @@ import { setupOutlinerFilter } from "./outliner_filter";
 import { setupTextureHandling, updateUVSize } from "./texture";
 import { setupNameOverlap } from "./name_overlap";
 import { setupUVOutline } from "./uv_outline";
-import { setupTempFixes } from './temp_fixes'
 import { setupPreviewScenes } from "./preview_scenes";
 import { setupUVCanvasResize } from "./uv_canvas_resize";
 import { setupAltDuplicate } from "./alt_duplicate";
 import { setupMirrorFix } from "./mirror_fix";
+import { setupPivotControl } from "./pivot_control";
 import { setupChangeOrientation } from "./change_orientation";
 import { setupShortcuts } from "./shortcuts";
+import { setupPivotSnap } from "./pivot_snap";
+import { setupUITweaks } from "./ui_tweaks";
+import { setupFirstPerson } from "./first_person";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -32,7 +35,7 @@ BBPlugin.register('hytale_plugin', {
     description: 'Create models and animations for Hytale',
     tags: ['Hytale'],
     variant: 'both',
-    min_version: '5.0.5',
+    min_version: '5.2.0',
     await_loading: true,
     has_changelog: true,
 	creation_date: "2025-12-22",
@@ -47,9 +50,11 @@ BBPlugin.register('hytale_plugin', {
 
         setupFormats();
         setupElements();
+        setupPivotControl();
         setupAnimation();
         setupAnimationCodec();
         setupAttachments();
+        setupFirstPerson();
         setupOutlinerFilter();
         setupChecks();
         setupPhotoshopTools();
@@ -59,11 +64,12 @@ BBPlugin.register('hytale_plugin', {
         setupNameOverlap();
         setupUVOutline();
         setupMirrorFix();
-        setupTempFixes();
         setupChangeOrientation();
         setupPreviewScenes();
         setupUVCanvasResize();
         setupShortcuts();
+        setupUITweaks();
+        setupPivotSnap();
 
         // Collections panel setting
         let panel_setup_listener: Deletable;
@@ -89,9 +95,9 @@ BBPlugin.register('hytale_plugin', {
             panel_setup_listener = Blockbench.on('select_mode', showCollectionPanel);
         }
 
-        let on_finish_edit = Blockbench.on('generate_texture_template', (arg: {texture: Texture, elements: Cube[]}) => {
+        let on_finish_edit = Blockbench.on('generate_texture_template', (arg: {texture: Texture, elements: OutlinerElement[]}) => {
             for (let element of arg.elements) {
-                if (typeof element.autouv != 'number') continue;
+                if (element instanceof Cube == false) continue;
                 element.autouv = 1;
             }
         })

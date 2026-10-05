@@ -124,6 +124,81 @@ export function setupElements() {
 	});
 	track(original_offset_property);
 
+	// Transparency
+    const transparent_property = new Property(CubeFace, 'boolean', 'transparent', {
+		condition: {formats: FORMAT_IDS},
+        default: false,
+    });
+    const transparent_toggle = new Toggle('toggle_hytale_transparent', {
+        name: 'Transparent Face',
+        icon: 'wine_bar',
+        category: 'uv',
+		condition: {formats: FORMAT_IDS},
+        onChange(value) {
+			Undo.initEdit({elements: Cube.selected});
+            for (let cube of Cube.selected) {
+                for (let fkey of UVEditor.getFaces(cube)) {
+                    (cube.faces[fkey] as any).transparent = value;
+                }
+            }
+			Undo.finishEdit('Toggle Transparent');
+        }
+    })
+    Toolbars.uv_editor.add(transparent_toggle);
+	const on_update_transparent = Blockbench.on('update_selection', arg => {
+		if (!Condition(transparent_toggle.condition)) return;
+
+		let value = false;
+		for (let cube of Cube.selected) {
+			for (let fkey of UVEditor.getFaces(cube)) {
+				if ((cube.faces[fkey] as any).transparent) value = true;
+			}
+		}
+		if (value != transparent_toggle.value) {
+			transparent_toggle.value = value;
+			transparent_toggle.updateEnabledState();
+		}
+	})
+	track(transparent_toggle, transparent_property, on_update_transparent);
+
+	// UV Lock
+    const uv_lock_property = new Property(CubeFace, 'boolean', 'uv_lock', {
+		condition: {formats: FORMAT_IDS},
+        default: false,
+    });
+    const uv_lock_toggle = new Toggle('toggle_hytale_uv_lock', {
+        name: 'Toggle UV Lock',
+        icon: 'sync_lock',
+        category: 'uv',
+		condition: {formats: FORMAT_IDS},
+        onChange(value) {
+			Undo.initEdit({elements: Cube.selected});
+            for (let cube of Cube.selected) {
+                for (let fkey of UVEditor.getFaces(cube)) {
+                    (cube.faces[fkey] as any).uv_lock = value;
+                }
+            }
+			Undo.finishEdit('Toggle UV Lock');
+        }
+    })
+    Toolbars.uv_editor.add(uv_lock_toggle);
+	const on_update = Blockbench.on('update_selection', arg => {
+		if (!Condition(uv_lock_toggle.condition)) return;
+
+		let value = false;
+		for (let cube of Cube.selected) {
+			for (let fkey of UVEditor.getFaces(cube)) {
+				if ((cube.faces[fkey] as any).uv_lock) value = true;
+			}
+		}
+		if (value != uv_lock_toggle.value) {
+			uv_lock_toggle.value = value;
+			uv_lock_toggle.updateEnabledState();
+		}
+	})
+	track(uv_lock_toggle, uv_lock_property, on_update);
+
+
 	let add_quad_action = new Action('hytale_add_quad', {
 		name: 'Add Quad',
 		icon: 'highlighter_size_5',
@@ -230,6 +305,67 @@ export function setupElements() {
 	track({
 		delete() {
 			Cube.prototype.setUVMode = set_uv_mode_original;
+		}
+	});
+
+	// Add group: single geometry gets wrapped with its rotation transferred to the new group
+	let original_add_group_click = BarItems.add_group.click;
+	BarItems.add_group.click = function(this: any, ...args: any[]) {
+		if (!isHytaleFormat() || Outliner.selected.length !== 1 || Group.multi_selected.length > 0) {
+			return original_add_group_click.apply(this, args);
+		}
+
+		let element = Outliner.selected[0];
+		if (!(element instanceof Cube)) {
+			return original_add_group_click.apply(this, args);
+		}
+
+		let has_rotation = element.rotation.some((v: number) => v !== 0);
+
+		Undo.initEdit({
+			outliner: true,
+			elements: has_rotation ? [element] : [],
+			groups: []
+		});
+
+		let base_group = new Group({
+			origin: element.origin,
+			rotation: has_rotation ? [...element.rotation] as ArrayVector3 : undefined,
+			name: element.name === 'cube' ? undefined : element.name
+		});
+		base_group.sortInBefore(element);
+		base_group.isOpen = true;
+		base_group.init();
+
+		if (base_group.getTypeBehavior('unique_name')) {
+			base_group.createUniqueName();
+		}
+
+		element.addTo(base_group);
+
+		if (has_rotation) {
+			element.rotation = [0, 0, 0];
+		}
+		element.preview_controller.updateTransform(element);
+
+		base_group.select();
+		Undo.finishEdit('Add group', {
+			outliner: true,
+			elements: has_rotation ? [element] : [],
+			groups: [base_group]
+		});
+		Vue.nextTick(function() {
+			updateSelection();
+			if (settings.create_rename.value) {
+				base_group.rename();
+			}
+			base_group.showInOutliner();
+			Blockbench.dispatchEvent('add_group', {object: base_group});
+		});
+	};
+	track({
+		delete() {
+			BarItems.add_group.click = original_add_group_click;
 		}
 	});
 

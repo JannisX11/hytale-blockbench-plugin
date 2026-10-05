@@ -9,13 +9,11 @@ export function setupShortcuts() {
 
     brush_tool.addSubKeybind('switch_preset', 'Switch Preset', null, (event) => {
         if (Toolbox.selected == brush_tool && !selecting) {
-            // @ts-expect-error
-            let options: CustomMenuItem[] = (brush_tool.side_menu as Menu).structure();
-            options = options.slice(0, -2);
-            let index = options.findIndex(option => option.name == last_brush_preset?.name);
+            let options = [...Painter.default_brush_presets, ...StateMemory.brush_presets];
+            let index = options.indexOf(last_brush_preset);
             let next_index = (index+1) % options.length;
             let next_option = options[next_index];
-            next_option.click(null, event);
+            Painter.loadBrushPreset(next_option);
             Blockbench.showQuickMessage(`Brush ${next_index+1}: ${tl(next_option.name)}`);
         }
     })

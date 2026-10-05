@@ -52,7 +52,7 @@ function createIsPieceWrappers(attachmentName: string, selectedGroups: Group[]):
 				wrapper = new Group({
 					name: attachmentName + ':' + parent.name,
 					autouv: 1,
-					origin: wrapperOrigin,
+					origin: wrapperOrigin as ArrayVector3,
 					rotation: [0, 0, 0],
 					visibility: true,
 				});
@@ -162,7 +162,6 @@ export function setupCreateAttachment() {
 						groups: selectedGroups,
 						outliner: true,
 						textures: [],
-						// @ts-expect-error
 						texture_groups: [],
 					});
 
@@ -206,7 +205,6 @@ export function setupCreateAttachment() {
 						groups: [...selectedGroups, ...newWrapperGroups],
 						outliner: true,
 						textures: newTextures,
-						// @ts-expect-error
 						texture_groups: textureGroup ? [textureGroup] : [],
 					});
 

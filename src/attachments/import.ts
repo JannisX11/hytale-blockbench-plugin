@@ -10,9 +10,9 @@ import { assignCollectionScope, isUnloaded } from "./unload";
 
 export let reload_all_attachments: Action;
 
-type FolderCollection = Collection & { folder: string };
+type FolderCollection = Collection & { texture: string, folder: string };
 
-function importFiles(files: {name: string, path: string, content: string | ArrayBuffer}[], folderUuid?: string) {
+function importFiles(files: Filesystem.FileResult[], folderUuid?: string) {
 	for (let file of files) {
 		if (Collection.all.some(c => c.export_path === file.path)) {
 			Blockbench.showQuickMessage(`Attachment "${file.name}" is already imported`, 2000);

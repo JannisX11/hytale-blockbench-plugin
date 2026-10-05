@@ -1,6 +1,7 @@
 //! Copyright (C) 2025 Hypixel Studios Canada inc.
 //! Licensed under the GNU General Public License, see LICENSE.MD
 
+import { CustomMenuItem } from "blockbench-types/generated/interface/menu";
 import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
 

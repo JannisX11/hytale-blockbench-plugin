@@ -203,7 +203,7 @@ export async function promptAndUnload(collections: Collection[]): Promise<boolea
                 buttons: ['dialog.save', 'dialog.discard', 'dialog.cancel'],
                 confirm: 0,
                 cancel: 2,
-            }, resolve);
+            }, resolve as any);
         });
 
         if (result === 2) return false;

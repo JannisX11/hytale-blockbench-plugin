@@ -51,7 +51,7 @@ function addGroupsToAttachment(attachmentName: string, selectedGroups: Group[], 
 				wrapper = new Group({
 					name: attachmentName + ':' + parent.name,
 					autouv: 1,
-					origin: wrapperOrigin,
+					origin: wrapperOrigin as ArrayVector3,
 					rotation: [0, 0, 0],
 					visibility: true,
 				});

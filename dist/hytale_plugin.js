@@ -218,7 +218,6 @@
         Texture.all.forEach((t) => {
           arr.push({
             name: t.name,
-            // @ts-expect-error
             icon: t.img,
             marked: t.uuid == context.texture,
             click() {
@@ -2899,7 +2898,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
           groups: remove_groups,
           elements: remove_elements,
           outliner: true,
-          // @ts-expect-error
           texture_groups,
           textures
         });
@@ -3045,7 +3043,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
               groups: selectedGroups,
               outliner: true,
               textures: [],
-              // @ts-expect-error
               texture_groups: []
             });
             let collectionRoots = createIsPieceWrappers(name, selectedGroups);
@@ -3076,7 +3073,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
               groups: [...selectedGroups, ...newWrapperGroups],
               outliner: true,
               textures: newTextures,
-              // @ts-expect-error
               texture_groups: textureGroup ? [textureGroup] : []
             });
             Canvas.updateAllFaces();

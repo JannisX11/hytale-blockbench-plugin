@@ -7,6 +7,7 @@ import { isUnloaded, reloadCollection, promptAndUnload, toggleCollectionChildVis
 import { importAttachmentToFolder } from "./import";
 import { unwatchCollection } from "./watcher";
 import { applyCollectionColors } from "./collection_color";
+import { CustomMenuItem } from "blockbench-types/generated/interface/menu";
 
 type FolderCollection = Collection & { folder: string };
 type FolderProject = ModelProject & { collection_folders: CollectionFolderData[] };

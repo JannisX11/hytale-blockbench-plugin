@@ -60,6 +60,24 @@ function setupUnsavedIndicator() {
 	track({ delete() { style.delete(); } });
 }
 
+function setupOutlinerStyles() {
+	let style = Blockbench.addCSS(`
+		.outliner_object.hytale_attachment_piece > .icon.material-icons:not(.outliner_toggle)::before {
+			content: "attachment";
+			display: block;
+			margin-bottom: 10px;
+			margin-right: 10px;
+		}
+		.outliner_object.hytale_attachment_piece > input[type=text] {
+			text-decoration: underline;
+		}
+	`);
+	let outlinerHook = Blockbench.on('get_outliner_node_classes', ({node, classes}: any) => {
+		if (isHytaleFormat() && node.is_piece) classes.push('hytale_attachment_piece');
+	});
+	track(outlinerHook, style);
+}
+
 export function setupAttachments() {
 	setupAttachmentTextures();
 	setupDelete();
@@ -74,4 +92,5 @@ export function setupAttachments() {
 	setupUnload();
 	setupCollectionFolders();
 	setupCollectionColor();
+	setupOutlinerStyles();
 }

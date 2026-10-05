@@ -3502,6 +3502,23 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       style.delete();
     } });
   }
+  function setupOutlinerStyles() {
+    let style = Blockbench.addCSS(`
+		.outliner_object.hytale_attachment_piece > .icon.material-icons:not(.outliner_toggle)::before {
+			content: "attachment";
+			display: block;
+			margin-bottom: 10px;
+			margin-right: 10px;
+		}
+		.outliner_object.hytale_attachment_piece > input[type=text] {
+			text-decoration: underline;
+		}
+	`);
+    let outlinerHook = Blockbench.on("get_outliner_node_classes", ({ node, classes }) => {
+      if (isHytaleFormat() && node.is_piece) classes.push("hytale_attachment_piece");
+    });
+    track(outlinerHook, style);
+  }
   function setupAttachments() {
     setupAttachmentTextures();
     setupDelete();
@@ -3516,6 +3533,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     setupUnload();
     setupCollectionFolders();
     setupCollectionColor();
+    setupOutlinerStyles();
   }
 
   // src/animations.ts

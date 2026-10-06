@@ -309,8 +309,8 @@ export function setupElements() {
 	});
 
 	// Add group: single geometry gets wrapped with its rotation transferred to the new group
-	let original_add_group_click = BarItems.add_group.click;
-	BarItems.add_group.click = function(this: any, ...args: any[]) {
+	let original_add_group_click = BarItems.group_elements.click;
+	BarItems.group_elements.click = function(this: any, ...args: any[]) {
 		if (!isHytaleFormat() || Outliner.selected.length !== 1 || Group.multi_selected.length > 0) {
 			return original_add_group_click.apply(this, args);
 		}
@@ -365,7 +365,7 @@ export function setupElements() {
 	};
 	track({
 		delete() {
-			BarItems.add_group.click = original_add_group_click;
+			BarItems.group_elements.click = original_add_group_click;
 		}
 	});
 
@@ -408,3 +408,8 @@ export function setupElements() {
 		}
 	});
 };
+declare global {
+	interface BarItemRegistry {
+		group_elements: Action
+	}
+}

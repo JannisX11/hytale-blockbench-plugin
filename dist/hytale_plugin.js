@@ -1925,8 +1925,8 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
         Cube.prototype.setUVMode = set_uv_mode_original;
       }
     });
-    let original_add_group_click = BarItems.add_group.click;
-    BarItems.add_group.click = function(...args) {
+    let original_add_group_click = BarItems.group_elements.click;
+    BarItems.group_elements.click = function(...args) {
       if (!isHytaleFormat() || Outliner.selected.length !== 1 || Group.multi_selected.length > 0) {
         return original_add_group_click.apply(this, args);
       }
@@ -1973,7 +1973,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     };
     track({
       delete() {
-        BarItems.add_group.click = original_add_group_click;
+        BarItems.group_elements.click = original_add_group_click;
       }
     });
     let inflate_condition_original = BarItems.slider_inflate.condition;

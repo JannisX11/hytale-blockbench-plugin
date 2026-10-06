@@ -36,4 +36,46 @@ export function setupShortcuts() {
             Painter.loadBrushPreset = originalApplyBrushPreset;
         }
     })
+
+    let last_preview_id: string | undefined;
+    let last_preview_rotation_y: number | undefined;
+    let action = new Action('snap_view_to_side_view', {
+        icon: 'recenter',
+        name: 'Snap View to Side View',
+        category: 'view',
+        keybind: new Keybind({key: 18, alt: null, shift: null, ctrl: null}),
+        condition: () => Preview.selected instanceof Preview,
+        click() {
+            let preview = Preview.selected;
+			preview.setProjectionMode(true, true);
+
+            let center = preview.controls.target;
+            let delta = preview.camera.position.clone().sub(center);
+            let distance = delta.length();
+
+            preview.camera.position.copy(center);
+
+            if (Math.abs(delta.x) > Math.abs(delta.y) && Math.abs(delta.x) > Math.abs(delta.z)) {
+                preview.camera.position.x += distance * Math.sign(delta.x);
+            } else if (Math.abs(delta.y) > Math.abs(delta.z)) {
+                preview.camera.position.y += distance * Math.sign(delta.y);
+            } else {
+                preview.camera.position.z += distance * Math.sign(delta.z);
+            }
+            preview.controls.stopMovement();
+
+            setTimeout(() => {
+                last_preview_id = preview.id;
+                last_preview_rotation_y = preview.camera.rotation.y;
+            }, 100);
+        }
+    });
+    let on_rotate = Blockbench.on('update_camera_position', ({preview}) => {
+        if (preview.id == last_preview_id && preview.camera.rotation.y != last_preview_rotation_y && preview.isOrtho) {
+			preview.setProjectionMode(false, true);
+            last_preview_id = undefined;
+            last_preview_rotation_y = undefined;
+        }
+    })
+    track(action, on_rotate);
 }

@@ -235,18 +235,23 @@ export function setupOutlinerFilter() {
 	});
 	track(hytale_compact_outliner);
 	Panels.outliner.toolbars[0]?.add(hytale_compact_outliner, -2);
-	if (hytale_compact_outliner.value) {
-		enableCompactView();
-	}
-	compact_view_deletables.push(Blockbench.on('get_outliner_node_classes', (data) => {
-		if (!isHytaleFormat()) return;
+
+	let classes_listener = Blockbench.on('get_outliner_node_classes', (data) => {
+		if (data.node.name == "Pelvis") console.log(data.node)
+		if (!isHytaleFormat() || Modes.animate) return;
 		if (data.node instanceof Cube && data.node.parent instanceof Group && getMainShape(data.node.parent) == data.node) {
 			data.classes.safePush('hytale_main_shape');
 		}
 		if (data.node instanceof Group && data.node.isOpen && getMainShape(data.node) instanceof Cube) {
 			data.classes.safePush('hytale_has_main_shape');
 		}
-	}));
+		if (data.node.name == "Pelvis") console.log(data)
+	});
+	track(classes_listener);
+
+	if (hytale_compact_outliner.value) {
+		enableCompactView();
+	}
 	/*
 	TODO
 	Update outliner when mainShape conditions change (like rotation)

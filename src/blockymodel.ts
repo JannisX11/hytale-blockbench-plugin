@@ -6,11 +6,32 @@ import { track } from "./cleanup"
 import { Config } from "./config"
 import { FORMAT_IDS } from "./formats"
 import { cubeIsQuad, getMainShape, qualifiesAsMainShape } from "./util"
+import { markSelfWrite } from "./attachments/watcher"
+import { CollectionFolder } from "./attachments/collection_folder"
+import { isUnloaded, assignCollectionScope } from "./attachments/unload"
+import { AttachmentCollection, resolveTexturePath } from "./attachments/texture"
 
 type BlockymodelJSON = {
 	nodes: BlockymodelNode[]
 	format?: string
 	lod?: 'auto'
+	attachments?: BlockymodelAttachment[]
+	attachmentFolders?: BlockymodelFolder[]
+}
+type BlockymodelAttachment = {
+	name: string
+	path: string
+	textures: string[]
+	primaryTexture: string
+	folder?: string
+	color?: number
+	unloaded?: boolean
+}
+type BlockymodelFolder = {
+	uuid: string
+	name: string
+	folded: boolean
+	order: number
 }
 type QuadNormal = '+X' | '+Y' | '+Z' | '-X' | '-Y' | '-Z';
 type BlockymodelNode = {
@@ -286,7 +307,7 @@ export function setupBlockymodelCodec(): Codec {
 				}
 				node.shape.stretch = formatVector(stretch);
 
-				node.shape.visible = cube.visibility;
+				node.shape.visible = options.attachment ? true : cube.visibility;
 				node.shape.doubleSided = cube.double_sided == true;
 				node.shape.shadingMode = cube.shading_mode;
 				node.shape.unwrapMode = 'custom';
@@ -387,16 +408,14 @@ export function setupBlockymodelCodec(): Codec {
 				}
 
 			}
-			function getNodeOffset(group: Group, include_original_offset: boolean = true): ArrayVector3 | undefined {
+			function getNodeOffset(group: Group): ArrayVector3 | undefined {
 				let cube = getMainShape(group);
 				if (cube) {
 					let center_pos = cube.from.slice().V3_add(cube.to).V3_divide(2, 2, 2);
 					center_pos.V3_subtract(group.origin);
 					return center_pos;
-				} else if (include_original_offset) {
-					return group.original_offset;
 				} else {
-					return [0, 0, 0];
+					return group.original_offset;
 				}
 			}
 
@@ -426,8 +445,9 @@ export function setupBlockymodelCodec(): Codec {
 				let offset: ArrayVector3 = element instanceof Group ? getNodeOffset(element) : [0, 0, 0];
 				if (element.parent instanceof Group) {
 					origin.V3_subtract(element.parent.origin);
-					let parent_offset = getNodeOffset(element.parent, !options.attachment);
-					if (parent_offset) {
+					let parent_offset = getNodeOffset(element.parent);
+					let parent_is_piece = options.attachment && (element.parent as any).is_piece;
+					if (parent_offset && !parent_is_piece) {
 						origin.V3_subtract(parent_offset);
 					}
 				}
@@ -448,7 +468,7 @@ export function setupBlockymodelCodec(): Codec {
 						},
 						textureLayout: {},
 						unwrapMode: "custom",
-						visible: element.visibility,
+						visible: options.attachment ? true : element.visibility,
 						doubleSided: false,
 						shadingMode: "flat"
 					},
@@ -494,6 +514,65 @@ export function setupBlockymodelCodec(): Codec {
 				if (compiled) model.nodes.push(compiled);
 			}
 
+			if (!options.attachment && Project.export_path) {
+				let modelDir = PathModule.dirname(Project.export_path);
+				let attachments: BlockymodelAttachment[] = [];
+				for (let c of Collection.all) {
+					if (c.export_codec !== 'blockymodel' || !c.export_path) continue;
+					let relPath = PathModule.relative(modelDir, c.export_path).replace(/\\/g, '/');
+					let texPaths: string[] = [];
+					let primaryTex = '';
+
+					type UnloadedCol = Collection & { unloaded_texture_paths: string; unloaded_primary_path: string };
+					if (isUnloaded(c)) {
+						let uc = c as UnloadedCol;
+						if (uc.unloaded_texture_paths) {
+							try {
+								let absPaths: string[] = JSON.parse(uc.unloaded_texture_paths);
+								texPaths = absPaths.map(p => PathModule.relative(modelDir, p).replace(/\\/g, '/')).filter(Boolean);
+							} catch {}
+						}
+						if (uc.unloaded_primary_path) {
+							primaryTex = PathModule.relative(modelDir, uc.unloaded_primary_path).replace(/\\/g, '/');
+						}
+					} else {
+						let tg = TextureGroup.all.find(t => t.name === c.name);
+						if (tg) {
+							texPaths = Texture.all.filter(t => t.group === tg!.uuid)
+								.map(t => {
+									let p = resolveTexturePath(t);
+									return p ? PathModule.relative(modelDir, p).replace(/\\/g, '/') : '';
+								})
+								.filter(Boolean);
+						}
+						let ac = c as AttachmentCollection;
+						if (ac.texture) {
+							let tex = Texture.all.find(t => t.uuid === ac.texture);
+							if (tex) {
+								let p = resolveTexturePath(tex);
+								if (p) primaryTex = PathModule.relative(modelDir, p).replace(/\\/g, '/');
+							}
+						}
+					}
+					type FolderCollection = Collection & { folder: string };
+					type ColorCollection = Collection & { color: number };
+					let colorIndex = (c as ColorCollection).color;
+					attachments.push({
+						name: c.name,
+						path: relPath,
+						textures: texPaths,
+						primaryTexture: primaryTex,
+						folder: (c as FolderCollection).folder || undefined,
+						color: (colorIndex != null && colorIndex >= 0) ? colorIndex : undefined,
+						unloaded: isUnloaded(c) || undefined,
+					});
+				}
+				if (attachments.length) model.attachments = attachments;
+
+				let folderData = CollectionFolder.all.map(f => f.getSaveCopy()) as BlockymodelFolder[];
+				if (folderData.length) model.attachmentFolders = folderData;
+			}
+
 			if (options.raw) {
 				return model;
 			} else {
@@ -508,14 +587,18 @@ export function setupBlockymodelCodec(): Codec {
 			}
 			const new_groups: Group[] = [];
 			const existing_groups = Group.all.slice();
-			function parseNode(node: BlockymodelNode, parent_node: BlockymodelNode | null, parent_group: Group | 'root' = 'root', parent_offset?: ArrayVector3) {
-				
+			function parseNode(node: BlockymodelNode, parent_node: BlockymodelNode | null, parent_group: Group | 'root' = 'root', parent_offset?: ArrayVector3, inside_piece: boolean = false) {
+
 				if (args.attachment) {
 					// Attach groups marked with isPiece: true to matching bones in main model
 					let attachment_node: Group | undefined;
-					if (args.attachment && node.shape?.settings?.isPiece === true && existing_groups.length) {
+					// A piece binds to a bone unless it's nested inside another piece (non-piece wrappers don't block it).
+					if (args.attachment && !inside_piece && node.shape?.settings?.isPiece === true && existing_groups.length) {
 						let node_name = node.name;
-						attachment_node = existing_groups.find(g => g.name == node_name);
+						let isAttachmentGroup = (g: Group) => Collection.all.some(c => c.export_codec === 'blockymodel' && c.contains(g));
+						// Tier 1: a bone on the main model. Tier 2: any group, e.g. inside another attachment.
+						attachment_node = existing_groups.find(g => g.name == node_name && !isAttachmentGroup(g))
+							?? existing_groups.find(g => g.name == node_name);
 					}
 					if (attachment_node) {
 						parent_group = attachment_node;
@@ -536,9 +619,21 @@ export function setupBlockymodelCodec(): Codec {
 					Math.roundTo(Math.radToDeg(rotation_euler.z), 3),
 				];
 				if (args.attachment && !parent_node && parent_group instanceof Group) {
-					let reference_node = getMainShape(parent_group) ?? parent_group;
 					original_position = origin;
-					origin = reference_node.origin.slice() as ArrayVector3;
+
+					// Anchor to the bone's main shape geometry
+					let reference_node = getMainShape(parent_group);
+					if (reference_node) {
+						origin = reference_node.origin.slice() as ArrayVector3;
+					} else {
+						origin = parent_group.origin.slice() as ArrayVector3;
+						if (parent_group.original_offset) {
+							(origin as ArrayVector3).V3_add(parent_group.original_offset);
+						}
+					}
+
+					// New anchoring (kept for comparison): anchor to the bone's pivot (group origin), not its geometry
+					// origin = parent_group.origin.slice() as ArrayVector3;
 
 				} else if (parent_offset && parent_group instanceof Group) {
 					origin.V3_add(parent_offset);
@@ -776,7 +871,7 @@ export function setupBlockymodelCodec(): Codec {
 						offset = [0, 0, 0];
 					}
 					for (let child of node.children) {
-						parseNode(child, node, group, offset);
+						parseNode(child, node, group, offset, inside_piece || node.shape?.settings?.isPiece === true);
 					}
 				}
 			}
@@ -798,7 +893,8 @@ export function setupBlockymodelCodec(): Codec {
 				if (texture_paths.length > 0 && !args.attachment) {
 					new_textures = loadTexturesFromPaths(texture_paths, Project.name);
 				} else if (texture_paths.length > 0) {
-					new_textures = loadTexturesFromPaths(texture_paths);
+					let new_paths = texture_paths.filter(p => !Texture.all.find(t => t.path == p));
+					new_textures = loadTexturesFromPaths(new_paths);
 				}
 
 				// If no textures found automatically, prompt user to import
@@ -835,6 +931,48 @@ export function setupBlockymodelCodec(): Codec {
 					});
 				}
 			}
+			if (!args.attachment && model.attachments && isApp && path) {
+				let modelDir = PathModule.dirname(path);
+
+
+				if (model.attachmentFolders) {
+					for (let fd of model.attachmentFolders) {
+						fd.folded = true;
+						new CollectionFolder(fd).add();
+					}
+				}
+
+				type UnloadedCol = AttachmentCollection & { unloaded: boolean; unloaded_texture_paths: string; unloaded_primary_path: string; folder: string };
+				for (let att of model.attachments) {
+					if (Collection.all.some(c => c.name === att.name)) continue;
+					let absPath = PathModule.resolve(modelDir, att.path.replace(/\//g, PathModule.sep));
+					let fs = requireNativeModule('fs');
+
+					let collection = new Collection({
+						name: att.name,
+						children: [],
+						export_codec: 'blockymodel',
+						visibility: true,
+					}).add() as UnloadedCol;
+					collection.export_path = absPath;
+					collection.unloaded = true;
+					assignCollectionScope(collection);
+
+					if (att.folder) collection.folder = att.folder;
+					if (att.color != null && att.color >= 0) (collection as any).color = att.color;
+
+					let texPaths = att.textures.map(rel => PathModule.resolve(modelDir, rel.replace(/\//g, PathModule.sep)));
+					collection.unloaded_texture_paths = JSON.stringify(texPaths);
+					if (att.primaryTexture) {
+						collection.unloaded_primary_path = PathModule.resolve(modelDir, att.primaryTexture.replace(/\//g, PathModule.sep));
+					}
+
+					if (!fs.existsSync(absPath)) {
+						Blockbench.showQuickMessage(`Attachment "${att.name}" not found at ${att.path}`, 3000);
+					}
+				}
+			}
+
 			return {new_groups, new_textures};
 		},
 		// MARK: Other
@@ -854,13 +992,17 @@ export function setupBlockymodelCodec(): Codec {
 			}, path => this.afterDownload(path))
 		},
 		async exportCollection(collection: Collection) {
+			if (isUnloaded(collection)) return;
 			this.context = collection;
+			if (collection.export_path) markSelfWrite(collection.export_path);
 			await this.export({attachment: collection});
 			if ("saved" in collection) collection.saved = true;
 			this.context = null;
 		},
 		async writeCollection(collection: Collection) {
+			if (isUnloaded(collection)) return;
 			this.context = collection;
+			if (collection.export_path) markSelfWrite(collection.export_path);
 			this.write(this.compile({attachment: collection}), collection.export_path);
 			if ("saved" in collection) collection.saved = true;
 			this.context = null;
@@ -883,8 +1025,10 @@ export function setupBlockymodelCodec(): Codec {
 	
 	let hook = Blockbench.on('quick_save_model', () => {
 		if (FORMAT_IDS.includes(Format.id) == false) return;
+		if (Project.export_path) markSelfWrite(Project.export_path);
 		for (let collection of Collection.all) {
 			if (collection.export_codec != codec.id) continue;
+			if (isUnloaded(collection)) continue;
 			codec.writeCollection(collection);
 		}
 	});

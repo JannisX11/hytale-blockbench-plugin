@@ -4,6 +4,14 @@
   function track(...items) {
     list.push(...items);
   }
+  function trackTimeout(interval_code) {
+    list.push({
+      delete() {
+        clearTimeout(interval_code);
+      }
+    });
+    return interval_code;
+  }
   function cleanup() {
     for (let deletable of list) {
       try {
@@ -2200,7 +2208,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.10.0",
+    version: "0.11.0",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
@@ -2211,7 +2219,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     author: "JannisX11, Kanno",
     license: "GPL-3.0",
     dependencies: {
-      "blockbench-types": "^5.2.0"
+      "blockbench-types": "^5.2.1"
     },
     devDependencies: {
       esbuild: "^0.25.9"
@@ -4243,13 +4251,15 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     });
     let last_preview_id;
     let last_preview_rotation_y;
+    let is_navigating_timer = 0;
     let action = new Action("snap_view_to_side_view", {
       icon: "recenter",
       name: "Snap View to Side View",
-      category: "view",
+      category: "navigate",
       keybind: new Keybind({ key: 18, alt: null, shift: null, ctrl: null }),
       condition: () => Preview.selected instanceof Preview,
-      click() {
+      click(event) {
+        if (is_navigating_timer == 0 && event.keyCode <= 18) return;
         let preview = Preview.selected;
         preview.setProjectionMode(true, true);
         let center = preview.controls.target;
@@ -4271,12 +4281,20 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       }
     });
     let on_rotate = Blockbench.on("update_camera_position", ({ preview }) => {
+      is_navigating_timer = 2;
       if (preview.id == last_preview_id && preview.camera.rotation.y != last_preview_rotation_y && preview.isOrtho) {
         preview.setProjectionMode(false, true);
         last_preview_id = void 0;
         last_preview_rotation_y = void 0;
       }
     });
+    document.addEventListener("pointerup", () => {
+      is_navigating_timer = 0;
+    }, { passive: true });
+    let interval = setInterval(() => {
+      if (is_navigating_timer > 0) is_navigating_timer--;
+    }, 250);
+    trackTimeout(interval);
     track(action, on_rotate);
   }
 

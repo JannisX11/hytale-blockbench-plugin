@@ -1,4 +1,4 @@
-import { track } from "./cleanup";
+import { track, trackTimeout } from "./cleanup";
 
 export function setupShortcuts() {
 
@@ -39,13 +39,17 @@ export function setupShortcuts() {
 
     let last_preview_id: string | undefined;
     let last_preview_rotation_y: number | undefined;
+    let is_navigating_timer = 0;
     let action = new Action('snap_view_to_side_view', {
         icon: 'recenter',
         name: 'Snap View to Side View',
-        category: 'view',
+        category: 'navigate',
         keybind: new Keybind({key: 18, alt: null, shift: null, ctrl: null}),
         condition: () => Preview.selected instanceof Preview,
-        click() {
+        click(event) {
+            // ensure this only runs while navigating (if its bound to a modifier key)
+            if (is_navigating_timer == 0 && (event as KeyboardEvent).keyCode <= 18) return;
+
             let preview = Preview.selected;
 			preview.setProjectionMode(true, true);
 
@@ -71,11 +75,20 @@ export function setupShortcuts() {
         }
     });
     let on_rotate = Blockbench.on('update_camera_position', ({preview}) => {
+        is_navigating_timer = 2;
         if (preview.id == last_preview_id && preview.camera.rotation.y != last_preview_rotation_y && preview.isOrtho) {
 			preview.setProjectionMode(false, true);
             last_preview_id = undefined;
             last_preview_rotation_y = undefined;
         }
     })
+
+    document.addEventListener('pointerup', () => {is_navigating_timer = 0}, {passive: true});
+    let interval = setInterval(() => {
+        if (is_navigating_timer > 0) is_navigating_timer--;
+    }, 250);
+
+    trackTimeout(interval);
     track(action, on_rotate);
+    
 }

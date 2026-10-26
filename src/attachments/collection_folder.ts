@@ -157,14 +157,8 @@ function getUngroupedCollections(): Collection[] {
     });
 }
 
-function injectFolderDOM() {
-    if (!isHytaleFormat()) return;
-    let list = Panels.collections?.node?.querySelector('#collections_list') as HTMLElement;
-    if (!list) return;
-
-    observer?.disconnect();
-
-    // Unwrap any previously grouped collections back into the main list
+// Moves grouped collections back into the main list, where Blockbench's re-render expects them
+function unwrapFolderDOM(list: HTMLElement) {
     list.querySelectorAll(`.${GROUP_CLASS}`).forEach(group => {
         let children = group.querySelectorAll(':scope > .'+LIST_CLASS+' > li.collection');
         children.forEach(el => {
@@ -174,6 +168,15 @@ function injectFolderDOM() {
         });
         group.remove();
     });
+}
+
+function injectFolderDOM() {
+    if (!isHytaleFormat()) return;
+    let list = Panels.collections?.node?.querySelector('#collections_list') as HTMLElement;
+    if (!list) return;
+
+    observer?.disconnect();
+    unwrapFolderDOM(list);
 
     let collectionEls = Array.from(list.querySelectorAll(':scope > li.collection')) as HTMLElement[];
 
@@ -424,6 +427,11 @@ export function setupCollectionFolders() {
         reloadAndUpdate();
     };
     let hookProject = Blockbench.on('select_project', reloadAndUpdate);
+    // Switching projects re-renders the list, which skips collections still inside a set
+    let hookUnselect = Blockbench.on('unselect_project', () => {
+        let list = Panels.collections?.node?.querySelector('#collections_list') as HTMLElement;
+        if (list) unwrapFolderDOM(list);
+    });
     let hookEdit = Blockbench.on('finished_edit', scheduleUpdate);
     let hookSelection = Blockbench.on('update_selection', scheduleUpdate);
     let hookMode = Blockbench.on('select_mode', scheduleUpdate);
@@ -492,7 +500,7 @@ export function setupCollectionFolders() {
     loadFromProject();
     setTimeout(scheduleUpdate, 100);
 
-    track(hookProject, hookEdit, hookSelection, hookMode, hookUndo, hookRedo, style, dragCleanup, {
+    track(hookProject, hookUnselect, hookEdit, hookSelection, hookMode, hookUndo, hookRedo, style, dragCleanup, {
         delete() {
             observer?.disconnect();
             folders.length = 0;

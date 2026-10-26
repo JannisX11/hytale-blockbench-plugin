@@ -979,11 +979,7 @@
       return !f || !folders.find((folder) => folder.uuid === f);
     });
   }
-  function injectFolderDOM() {
-    if (!isHytaleFormat()) return;
-    let list2 = Panels.collections?.node?.querySelector("#collections_list");
-    if (!list2) return;
-    observer?.disconnect();
+  function unwrapFolderDOM(list2) {
     list2.querySelectorAll(`.${GROUP_CLASS}`).forEach((group) => {
       let children = group.querySelectorAll(":scope > ." + LIST_CLASS + " > li.collection");
       children.forEach((el) => {
@@ -993,6 +989,13 @@
       });
       group.remove();
     });
+  }
+  function injectFolderDOM() {
+    if (!isHytaleFormat()) return;
+    let list2 = Panels.collections?.node?.querySelector("#collections_list");
+    if (!list2) return;
+    observer?.disconnect();
+    unwrapFolderDOM(list2);
     let collectionEls = Array.from(list2.querySelectorAll(":scope > li.collection"));
     function findEl(uuid) {
       return collectionEls.find((el) => el.getAttribute("uuid") === uuid) ?? null;
@@ -1231,6 +1234,10 @@
       reloadAndUpdate();
     };
     let hookProject = Blockbench.on("select_project", reloadAndUpdate);
+    let hookUnselect = Blockbench.on("unselect_project", () => {
+      let list2 = Panels.collections?.node?.querySelector("#collections_list");
+      if (list2) unwrapFolderDOM(list2);
+    });
     let hookEdit = Blockbench.on("finished_edit", scheduleUpdate);
     let hookSelection = Blockbench.on("update_selection", scheduleUpdate);
     let hookMode = Blockbench.on("select_mode", scheduleUpdate);
@@ -1295,7 +1302,7 @@
     `);
     loadFromProject();
     setTimeout(scheduleUpdate, 100);
-    track(hookProject, hookEdit, hookSelection, hookMode, hookUndo, hookRedo, style, dragCleanup, {
+    track(hookProject, hookUnselect, hookEdit, hookSelection, hookMode, hookUndo, hookRedo, style, dragCleanup, {
       delete() {
         observer?.disconnect();
         folders.length = 0;

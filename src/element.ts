@@ -124,6 +124,31 @@ export function setupElements() {
 	});
 	track(original_offset_property);
 
+	let original_stretch_property = new Property(Group, 'vector', 'original_stretch', {
+		condition: {formats: FORMAT_IDS},
+		default: [1, 1, 1],
+	});
+	track(original_stretch_property);
+
+	let original_rotation_property = new Property(Group, 'vector', 'original_rotation', {
+		condition: {formats: FORMAT_IDS},
+	});
+	track(original_rotation_property);
+
+	let file_parent_property = new Property(Group, 'string', 'file_parent', {
+		condition: {formats: FORMAT_IDS},
+	});
+	track(file_parent_property);
+
+	let group_file_hidden_property = new Property(Group, 'boolean', 'file_hidden', {
+		condition: {formats: FORMAT_IDS},
+	});
+	track(group_file_hidden_property);
+	let cube_file_hidden_property = new Property(Cube, 'boolean', 'file_hidden', {
+		condition: {formats: FORMAT_IDS},
+	});
+	track(cube_file_hidden_property);
+
 	// Transparency
     const transparent_property = new Property(CubeFace, 'boolean', 'transparent', {
 		condition: {formats: FORMAT_IDS},

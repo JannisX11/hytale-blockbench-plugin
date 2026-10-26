@@ -1,8 +1,10 @@
 //! Copyright (C) 2025 Hypixel Studios Canada inc.
 //! Licensed under the GNU General Public License, see LICENSE.MD
 
+import { CustomMenuItem } from "blockbench-types/generated/interface/menu";
 import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
+import { isHeld } from "./held";
 
 const SCOPE_CLASS = 'hytale_scope_override';
 const COLOR_CLASS = 'hytale_collection_colored';
@@ -79,6 +81,10 @@ export function applyCollectionColors() {
 			let li = collectionsPanel.querySelector(`[uuid="${collection.uuid}"]`) as HTMLElement | null;
 			if (li) {
 				li.classList.add(SCOPE_CLASS);
+				let type_icon = li.querySelector(':scope > i.material-icons');
+				let type = isHeld(collection) ? 'pan_tool' : 'checkroom';
+				// Only on change, the collections observer would loop otherwise
+				if (type_icon && type_icon.textContent !== type) type_icon.textContent = type;
 				if (marker) {
 					li.style.setProperty(BORDER_VAR, marker.standard);
 					li.classList.add(COLOR_CLASS);
@@ -184,12 +190,20 @@ export function setupCollectionColor() {
 		outlinerObserver = new MutationObserver(scheduleColorUpdate);
 		outlinerObserver.observe(outlinerList, { childList: true, subtree: true });
 	}
+	// Re-renders reset the attachment type icon
+	let collectionsList = Panels.collections?.node?.querySelector('#collections_list');
+	let collectionsObserver: MutationObserver | null = null;
+	if (collectionsList) {
+		collectionsObserver = new MutationObserver(scheduleColorUpdate);
+		collectionsObserver.observe(collectionsList, { childList: true, subtree: true, characterData: true });
+	}
 
 	setTimeout(applyCollectionColors, 100);
 
 	track(hookFinishedEdit, hookSelectMode, hookSelection, style, {
 		delete() {
 			outlinerObserver?.disconnect();
+			collectionsObserver?.disconnect();
 			Panels.outliner?.node?.querySelectorAll(`.${SCOPE_CLASS}`).forEach(el => {
 				(el as HTMLElement).style.removeProperty(COLOR_VAR);
 				(el as HTMLElement).style.removeProperty(BORDER_VAR);
@@ -202,6 +216,10 @@ export function setupCollectionColor() {
 			Panels.collections?.node?.querySelectorAll('.hytale_collection_icon_colored').forEach(el => {
 				(el as HTMLElement).style.removeProperty('color');
 				el.classList.remove('hytale_collection_icon_colored');
+			});
+			// Blockbench's own collection icon
+			Panels.collections?.node?.querySelectorAll('li.collection > i.material-icons').forEach(el => {
+				el.textContent = 'inventory_2';
 			});
 		}
 	});

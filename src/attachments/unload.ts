@@ -7,6 +7,7 @@ import { discoverTexturePaths } from "../blockymodel";
 import { AttachmentCollection, resolveTexturePath } from "./texture";
 import { unwatchCollection, watchCollection } from "./watcher";
 import { CollectionFolder, scheduleFolderUpdate } from "./collection_folder";
+import { AnimatorStash, parseAttachmentJson, rebuildWithDependents, restoreAnimators, stashAnimators, transferNodeUuids } from "./rebuild";
 
 type UnloadedCollection = Collection & {
     unloaded: boolean;
@@ -16,6 +17,7 @@ type UnloadedCollection = Collection & {
 
 interface UnloadedState {
     json: any;
+    animators: AnimatorStash;
     texturePaths: string[];
     primaryTexturePath: string;
 }
@@ -39,19 +41,8 @@ export function assignCollectionScope(collection: Collection) {
     for (let c of Collection.all) usedScopes.add(c.scope);
     let scope = 1;
     while (usedScopes.has(scope)) scope++;
-    // Collect children via UUID lookup before setting scope on the collection,
-    // because getAllChildren() switches to scope-based filtering when scope > 0
-    let children: OutlinerNode[] = collection.children
-        .map((uuid: string) => OutlinerNode.uuids[uuid])
-        .filter(Boolean);
-    let allChildren: OutlinerNode[] = [];
-    for (let child of children) {
-        allChildren.push(child);
-        if ('forEachChild' in child && typeof child.forEachChild === 'function') {
-            (child as Group).forEachChild((sub: OutlinerNode) => allChildren.push(sub));
-        }
-    }
-    for (let child of allChildren) {
+    // Attachments own their nodes up to the next nested attachment
+    for (let child of collection.getAllChildren()) {
         child.scope = scope;
     }
     collection.scope = scope;
@@ -67,7 +58,8 @@ export function unloadCollection(collection: Collection) {
 
     let savedState = collection.saved;
 
-    let json = Codecs.blockymodel.compile({ attachment: collection, raw: true });
+    let json = Codecs.blockymodel.compile({ attachment: collection, raw: true, uuids: true });
+    let animators = stashAnimators();
 
     let texturePaths: string[] = [];
     let primaryTexturePath = '';
@@ -84,13 +76,15 @@ export function unloadCollection(collection: Collection) {
         tg.remove();
     }
 
-    for (let child of collection.getAllChildren()) {
-        if (child instanceof Group) child.remove();
-        else (child as OutlinerElement).remove();
-    }
-    collection.extend({ children: [] });
+    rebuildWithDependents(collection, () => {
+        for (let child of collection.getAllChildren()) {
+            if (child instanceof Group) child.remove();
+            else (child as OutlinerElement).remove();
+        }
+        collection.extend({ children: [] });
+    });
 
-    unloadedStates.set(collection.uuid, { json, texturePaths, primaryTexturePath });
+    unloadedStates.set(collection.uuid, { json, animators, texturePaths, primaryTexturePath });
     let uc = collection as UnloadedCollection;
     uc.unloaded = true;
     uc.unloaded_texture_paths = JSON.stringify(texturePaths);
@@ -116,17 +110,15 @@ export function reloadCollection(collection: Collection) {
 
     if (useFile) {
         json = autoParseJSON(fs.readFileSync(path, 'utf-8'));
+        if (state) transferNodeUuids(state.json, json);
     } else if (state) {
         json = state.json;
     } else {
         return;
     }
 
-    let result: any = Codecs.blockymodel.parse(json, path || '', { attachment: collection.name });
-    let new_groups: Group[] = result.new_groups;
-    let root_groups = new_groups.filter(g => !new_groups.includes(g.parent as Group));
-    collection.extend({ children: root_groups.map(g => g.uuid) }).add();
-    assignCollectionScope(collection);
+    rebuildWithDependents(collection, () => parseAttachmentJson(collection, json, path || ''));
+    if (state) restoreAnimators(state.animators);
 
     let uc = collection as UnloadedCollection;
     let texturePaths: string[] = state?.texturePaths ?? [];
@@ -135,7 +127,7 @@ export function reloadCollection(collection: Collection) {
     }
     if (useFile) {
         let dirname = PathModule.dirname(path);
-        for (let tp of discoverTexturePaths(dirname, collection.name)) {
+        for (let tp of discoverTexturePaths(dirname, PathModule.basename(path, PathModule.extname(path)))) {
             if (!texturePaths.includes(tp)) texturePaths.push(tp);
         }
     }
@@ -203,7 +195,7 @@ export async function promptAndUnload(collections: Collection[]): Promise<boolea
                 buttons: ['dialog.save', 'dialog.discard', 'dialog.cancel'],
                 confirm: 0,
                 cancel: 2,
-            }, resolve);
+            }, resolve as any);
         });
 
         if (result === 2) return false;

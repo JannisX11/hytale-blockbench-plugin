@@ -14,6 +14,9 @@ import { setupDetachFromAttachment } from "./detach";
 import { setupCollectionColor } from "./collection_color";
 import { setupCollectionFolders } from "./collection_folder";
 import { setupUnload } from "./unload";
+import { setupAttachTo } from "./attach_to";
+import { setupAttachmentRename } from "./rename";
+import { setupHeld } from "./held";
 
 export { AttachmentCollection } from "./texture";
 export { reload_all_attachments, reloadAttachment } from "./import";
@@ -60,6 +63,24 @@ function setupUnsavedIndicator() {
 	track({ delete() { style.delete(); } });
 }
 
+function setupOutlinerStyles() {
+	let style = Blockbench.addCSS(`
+		.outliner_object.hytale_attachment_piece > .icon.material-icons:not(.outliner_toggle)::before {
+			content: "attachment";
+			display: block;
+			margin-bottom: 10px;
+			margin-right: 10px;
+		}
+		.outliner_object.hytale_attachment_piece > input[type=text] {
+			text-decoration: underline;
+		}
+	`);
+	let outlinerHook = Blockbench.on('get_outliner_node_classes', ({node, classes}: any) => {
+		if (isHytaleFormat() && node.is_piece) classes.push('hytale_attachment_piece');
+	});
+	track(outlinerHook, style);
+}
+
 export function setupAttachments() {
 	setupAttachmentTextures();
 	setupDelete();
@@ -74,4 +95,8 @@ export function setupAttachments() {
 	setupUnload();
 	setupCollectionFolders();
 	setupCollectionColor();
+	setupAttachTo();
+	setupAttachmentRename();
+	setupHeld();
+	setupOutlinerStyles();
 }

@@ -5,38 +5,31 @@ import { parseAnimationFile } from "./blockyanim"
 import { track } from "./cleanup"
 import { Config } from "./config"
 import { FORMAT_IDS } from "./formats"
-import { cubeIsQuad, getMainShape, qualifiesAsMainShape } from "./util"
+import { cubeIsQuad, getBoneAnchor, getMainShape, isGamePiece, isPieceNode, qualifiesAsMainShape } from "./util"
 import { markSelfWrite } from "./attachments/watcher"
-import { CollectionFolder } from "./attachments/collection_folder"
-import { isUnloaded, assignCollectionScope } from "./attachments/unload"
-import { AttachmentCollection, resolveTexturePath } from "./attachments/texture"
+import { isUnloaded } from "./attachments/unload"
+import { getAttachChain, getOwningAttachment } from "./attachments/attach_to"
+import { isHeld } from "./attachments/held"
+import { BlockymodelAttachment, BlockymodelFolder, compileAttachmentList, loadAttachmentList } from "./attachments/attachment_list"
 
-type BlockymodelJSON = {
+export type BlockymodelJSON = {
 	nodes: BlockymodelNode[]
 	format?: string
 	lod?: 'auto'
 	attachments?: BlockymodelAttachment[]
 	attachmentFolders?: BlockymodelFolder[]
 }
-type BlockymodelAttachment = {
-	name: string
-	path: string
-	textures: string[]
-	primaryTexture: string
-	folder?: string
-	color?: number
-	unloaded?: boolean
-}
-type BlockymodelFolder = {
-	uuid: string
-	name: string
-	folded: boolean
-	order: number
-}
 type QuadNormal = '+X' | '+Y' | '+Z' | '-X' | '-Y' | '-Z';
-type BlockymodelNode = {
+export type BlockymodelNode = {
 	id: string
 	name: string
+	/** In-memory snapshots only: keeps outliner uuids and view state across rebuilds */
+	uuid?: string
+	shapeUuid?: string
+	/** File visibility of the node's shape, or of the group if it has none */
+	fileHidden?: boolean
+	/** A group shares shape.visible with its main shape, so its own eye state is kept separately */
+	groupVisible?: boolean
 	position: IVector
 	orientation: IQuaternion
 	shape?: {
@@ -88,10 +81,21 @@ export type CubeHytale = Cube & {
 type GroupHytale = Group & {
 	is_piece: boolean
 }
+// A piece bound to a bone keeps its place in the file, since the game discards its transform
+type AttachedPiece = Group & {
+	file_parent: string
+	original_position: ArrayVector3
+	original_rotation: ArrayVector3
+}
+// Attachment visibility toggles are view-only, the file keeps its own state
+type HiddenInFile = OutlinerNode & {
+	file_hidden?: boolean
+}
 
 interface CompileOptions {
 	attachment?: Collection,
 	raw?: boolean
+	uuids?: boolean
 }
 
 /**
@@ -271,6 +275,8 @@ export function setupBlockymodelCodec(): Codec {
 				if no cube, set to shape:none
 				if child cube
 			*/
+			// Attachment eye toggles are view-only, so attachment files keep their own state
+			let fileVisible = (node: OutlinerNode) => options.uuids || !options.attachment ? !!node.visibility : !(node as HiddenInFile).file_hidden;
 
 			function turnNodeIntoBox(node: BlockymodelNode, cube: CubeHytale, original_element: CubeHytale | Group) {
 				let size = cube.size();
@@ -307,13 +313,16 @@ export function setupBlockymodelCodec(): Codec {
 				}
 				node.shape.stretch = formatVector(stretch);
 
-				node.shape.visible = options.attachment ? true : cube.visibility;
+				node.shape.visible = fileVisible(cube);
 				node.shape.doubleSided = cube.double_sided == true;
 				node.shape.shadingMode = cube.shading_mode;
 				node.shape.unwrapMode = 'custom';
 
 				if (cube == original_element) {
 					node.shape.settings.isStaticBox = true;
+				} else if (options.uuids) {
+					node.shapeUuid = cube.uuid;
+					node.fileHidden = (cube as HiddenInFile).file_hidden;
 				}
 
 				// UV
@@ -419,19 +428,41 @@ export function setupBlockymodelCodec(): Codec {
 				}
 			}
 
+			function isAttachedPiece(group: Group): group is AttachedPiece {
+				return !!options.attachment && !isHeld(options.attachment) && isGamePiece(group) && group.parent instanceof Group && !options.attachment.contains(group.parent);
+			}
+			// A held root shows its in-hand placement, the file keeps its own transform
+			function isHeldRoot(group: Group): group is AttachedPiece {
+				return !!options.attachment && isHeld(options.attachment) && options.attachment.children.includes(group.uuid);
+			}
+			// Pieces bound elsewhere are written back under their parent in the file, if that parent still gets written
+			function getFileParent(group: Group): Group | undefined {
+				let parent = OutlinerNode.uuids[(group as AttachedPiece).file_parent];
+				if (!options.attachment || !(parent instanceof Group) || parent === group.parent) return;
+				if (getOwningAttachment(parent) !== options.attachment) return;
+				for (let node: OutlinerNode | 'root' = parent; node instanceof Group; node = node.parent) {
+					if (!node.export || node === group) return;
+				}
+				return parent;
+			}
+			function getPiecesFiledUnder(group: Group): Group[] {
+				return Group.all.filter(g => getFileParent(g) === group);
+			}
+
 			function compileNode(element: Group | Cube, name: string = element.name): BlockymodelNode | undefined {
 				// Check the Export toggle immediately
     			if (!element.export) return undefined;
-
-				// Filter attachment
-				if (!options.attachment) {
-					let collection = Collection.all.find(c => c.contains(element));
-					if (collection && collection.export_codec == "blockymodel") return;
-				}
+				// Attachment nodes belong to their own file, also when nested in another attachment
+				if (getOwningAttachment(element) !== options.attachment) return undefined;
+				let attached_piece = element instanceof Group && isAttachedPiece(element);
+				let filed_piece = element instanceof Group && !!getFileParent(element);
+				// The game cancels a held root's own transform, so edits to it can't be saved
+				let held_root = element instanceof Group && isHeldRoot(element);
+				let rotation = (attached_piece || filed_piece || held_root) ? (element as AttachedPiece).original_rotation ?? element.rotation : element.rotation;
 				let euler = Reusable.euler1.set(
-					Math.degToRad(element.rotation[0]),
-					Math.degToRad(element.rotation[1]),
-					Math.degToRad(element.rotation[2]),
+					Math.degToRad(rotation[0]),
+					Math.degToRad(rotation[1]),
+					Math.degToRad(rotation[2]),
 					element.scene_object.rotation.order
 				);
 				let quaternion = Reusable.quat1.setFromEuler(euler);
@@ -446,13 +477,14 @@ export function setupBlockymodelCodec(): Codec {
 				if (element.parent instanceof Group) {
 					origin.V3_subtract(element.parent.origin);
 					let parent_offset = getNodeOffset(element.parent);
-					let parent_is_piece = options.attachment && (element.parent as any).is_piece;
-					if (parent_offset && !parent_is_piece) {
+					// Children of a piece bound to a bone sit in the bone's frame, so the piece offset doesn't apply
+					if (parent_offset && !isAttachedPiece(element.parent)) {
 						origin.V3_subtract(parent_offset);
 					}
 				}
-				if (options.attachment && element instanceof Group && element.is_piece && element.original_position?.some((v: number) => v)) {
-					origin = element.original_position;
+				let original_position = (element as AttachedPiece).original_position;
+				if (original_position && (filed_piece || held_root || (attached_piece && original_position.some(v => v)))) {
+					origin = original_position.slice() as ArrayVector3;
 				}
 				let node: BlockymodelNode = {
 					id: node_id.toString(),
@@ -462,18 +494,23 @@ export function setupBlockymodelCodec(): Codec {
 					shape: {
 						type: "none",
 						offset: formatVector(offset),
-						stretch: formatVector([1, 1, 1]),
+						stretch: formatVector((element as Group & {original_stretch?: ArrayVector3}).original_stretch ?? [1, 1, 1]),
 						settings: {
 							isPiece: (element instanceof Group && (element as GroupHytale).is_piece) || false
 						},
 						textureLayout: {},
 						unwrapMode: "custom",
-						visible: options.attachment ? true : element.visibility,
+						visible: fileVisible(element),
 						doubleSided: false,
 						shadingMode: "flat"
 					},
 				}
 				node_id++;
+				if (options.uuids) {
+					node.uuid = element.uuid;
+					node.fileHidden = (element as HiddenInFile).file_hidden;
+					if (element instanceof Group) node.groupVisible = element.visibility;
+				}
 
 				if (element instanceof Cube) {
 					turnNodeIntoBox(node, element as CubeHytale, element as CubeHytale);
@@ -498,16 +535,21 @@ export function setupBlockymodelCodec(): Codec {
 							node.children.push(result);
 						}
 					}
+					for (let piece of getPiecesFiledUnder(element)) {
+						let result = compileNode(piece);
+						if (!result) continue;
+						if (!node.children) node.children = [];
+						node.children.push(result);
+					}
 				}
 
 				return node;
 			}
 			let nodes: (Group | Cube)[] = Outliner.root.filter(node => node instanceof Group || node instanceof Cube);
 			if (options.attachment instanceof Collection) {
-				let in_collection = (options.attachment as Collection).getChildren();
-				nodes = in_collection.filter(g => {
-					return g instanceof Group;
-				}) as Group[];
+				let collection = options.attachment as Collection;
+				let in_collection = collection.getChildren();
+				nodes = in_collection.filter(g => g instanceof Group && !getFileParent(g)) as Group[];
 			}
 			for (let node of nodes) {
 				let compiled = compileNode(node);
@@ -515,62 +557,7 @@ export function setupBlockymodelCodec(): Codec {
 			}
 
 			if (!options.attachment && Project.export_path) {
-				let modelDir = PathModule.dirname(Project.export_path);
-				let attachments: BlockymodelAttachment[] = [];
-				for (let c of Collection.all) {
-					if (c.export_codec !== 'blockymodel' || !c.export_path) continue;
-					let relPath = PathModule.relative(modelDir, c.export_path).replace(/\\/g, '/');
-					let texPaths: string[] = [];
-					let primaryTex = '';
-
-					type UnloadedCol = Collection & { unloaded_texture_paths: string; unloaded_primary_path: string };
-					if (isUnloaded(c)) {
-						let uc = c as UnloadedCol;
-						if (uc.unloaded_texture_paths) {
-							try {
-								let absPaths: string[] = JSON.parse(uc.unloaded_texture_paths);
-								texPaths = absPaths.map(p => PathModule.relative(modelDir, p).replace(/\\/g, '/')).filter(Boolean);
-							} catch {}
-						}
-						if (uc.unloaded_primary_path) {
-							primaryTex = PathModule.relative(modelDir, uc.unloaded_primary_path).replace(/\\/g, '/');
-						}
-					} else {
-						let tg = TextureGroup.all.find(t => t.name === c.name);
-						if (tg) {
-							texPaths = Texture.all.filter(t => t.group === tg!.uuid)
-								.map(t => {
-									let p = resolveTexturePath(t);
-									return p ? PathModule.relative(modelDir, p).replace(/\\/g, '/') : '';
-								})
-								.filter(Boolean);
-						}
-						let ac = c as AttachmentCollection;
-						if (ac.texture) {
-							let tex = Texture.all.find(t => t.uuid === ac.texture);
-							if (tex) {
-								let p = resolveTexturePath(tex);
-								if (p) primaryTex = PathModule.relative(modelDir, p).replace(/\\/g, '/');
-							}
-						}
-					}
-					type FolderCollection = Collection & { folder: string };
-					type ColorCollection = Collection & { color: number };
-					let colorIndex = (c as ColorCollection).color;
-					attachments.push({
-						name: c.name,
-						path: relPath,
-						textures: texPaths,
-						primaryTexture: primaryTex,
-						folder: (c as FolderCollection).folder || undefined,
-						color: (colorIndex != null && colorIndex >= 0) ? colorIndex : undefined,
-						unloaded: isUnloaded(c) || undefined,
-					});
-				}
-				if (attachments.length) model.attachments = attachments;
-
-				let folderData = CollectionFolder.all.map(f => f.getSaveCopy()) as BlockymodelFolder[];
-				if (folderData.length) model.attachmentFolders = folderData;
+				compileAttachmentList(model, PathModule.dirname(Project.export_path));
 			}
 
 			if (options.raw) {
@@ -580,30 +567,63 @@ export function setupBlockymodelCodec(): Codec {
 			}
 		},
 		// MARK: Parse
-		parse(model: BlockymodelJSON, path: string, args: {attachment?: string} = {}) {
+		parse(model: BlockymodelJSON, path: string, args: {attachment?: string, held?: boolean} = {}) {
 			function parseVector(vec: IVector, fallback: ArrayVector3 = [0, 0, 0]): ArrayVector3 | undefined {
 				if (!vec) return fallback;
 				return Object.values(vec).slice(0, 3) as ArrayVector3;
 			}
 			const new_groups: Group[] = [];
 			const existing_groups = Group.all.slice();
-			function parseNode(node: BlockymodelNode, parent_node: BlockymodelNode | null, parent_group: Group | 'root' = 'root', parent_offset?: ArrayVector3, inside_piece: boolean = false) {
 
-				if (args.attachment) {
-					// Attach groups marked with isPiece: true to matching bones in main model
-					let attachment_node: Group | undefined;
-					// A piece binds to a bone unless it's nested inside another piece (non-piece wrappers don't block it).
-					if (args.attachment && !inside_piece && node.shape?.settings?.isPiece === true && existing_groups.length) {
-						let node_name = node.name;
-						let isAttachmentGroup = (g: Group) => Collection.all.some(c => c.export_codec === 'blockymodel' && c.contains(g));
-						// Tier 1: a bone on the main model. Tier 2: any group, e.g. inside another attachment.
-						attachment_node = existing_groups.find(g => g.name == node_name && !isAttachmentGroup(g))
-							?? existing_groups.find(g => g.name == node_name);
+			// Bind to the main model, then down the attachment's parent chain. Same rule as in-game: non-piece nodes take over a name, pieces only claim free names
+			const attach_targets = new Map<string, Group>();
+			if (args.attachment) {
+				let register = (group: Group, name: string) => {
+					if (!isGamePiece(group) || !attach_targets.has(name)) attach_targets.set(name, group);
+				};
+				let own_collection = Collection.all.find(c => c.export_codec == 'blockymodel' && c.name == args.attachment);
+				for (let group of existing_groups) {
+					if (!getOwningAttachment(group)) register(group, group.name);
+				}
+				for (let collection of getAttachChain(own_collection)) {
+					for (let group of existing_groups) {
+						if (!collection.contains(group)) continue;
+						// Pieces bound to a bone are merged into it
+						if (isGamePiece(group) && group.parent instanceof Group && !collection.contains(group.parent)) continue;
+						register(group, group.name.replace(/^.+:/, ''));
 					}
-					if (attachment_node) {
-						parent_group = attachment_node;
-						parent_node = null;
-					}
+				}
+			}
+
+			// Reuse snapshot uuids so undo history and animations keep their references
+			const takeUuid = (uuid?: string) => uuid && !OutlinerNode.uuids[uuid] ? uuid : undefined;
+
+			// Held items aren't merged: the whole model hangs off one bone, with the first root's transform cancelled
+			let held: {bone?: Group, inverse: THREE.Quaternion, position: THREE.Vector3} | undefined;
+			let first_root = model.nodes[0];
+			if (args.attachment && args.held && first_root) {
+				let o = first_root.orientation;
+				held = {
+					bone: attach_targets.get(isPieceNode(first_root) ? first_root.name : 'R-Attachment')
+						// Like in-game, fall back to the model root
+						?? existing_groups.find(g => g.parent == 'root' && !getOwningAttachment(g)),
+					inverse: new THREE.Quaternion(o.x, o.y, o.z, o.w).normalize().invert(),
+					position: new THREE.Vector3(...parseVector(first_root.position)),
+				};
+			}
+
+			function parseNode(node: BlockymodelNode, parent_node: BlockymodelNode | null, parent_group: Group | 'root' = 'root', parent_offset?: ArrayVector3) {
+				let held_root = !!held && !parent_node;
+
+				// Attach shapeless groups marked with isPiece: true to matching bones, at any depth
+				let file_parent = parent_group;
+				let attachment_node: Group | undefined;
+				if (args.attachment && !held && isPieceNode(node)) {
+					attachment_node = attach_targets.get(node.name);
+				}
+				if (attachment_node) {
+					parent_group = attachment_node;
+					parent_node = null;
 				}
 
 				let quaternion = new THREE.Quaternion();
@@ -618,22 +638,25 @@ export function setupBlockymodelCodec(): Codec {
 					Math.roundTo(Math.radToDeg(rotation_euler.y), 3),
 					Math.roundTo(Math.radToDeg(rotation_euler.z), 3),
 				];
-				if (args.attachment && !parent_node && parent_group instanceof Group) {
+				let original_rotation: ArrayVector3 | undefined;
+				if (attachment_node) {
+					// The game discards an attached piece's own transform
 					original_position = origin;
+					original_rotation = rotation;
+					origin = getBoneAnchor(attachment_node);
+					rotation = [0, 0, 0];
 
-					// Anchor to the bone's main shape geometry
-					let reference_node = getMainShape(parent_group);
-					if (reference_node) {
-						origin = reference_node.origin.slice() as ArrayVector3;
-					} else {
-						origin = parent_group.origin.slice() as ArrayVector3;
-						if (parent_group.original_offset) {
-							(origin as ArrayVector3).V3_add(parent_group.original_offset);
-						}
+				} else if (held_root && held) {
+					// In-game: x = bone * (inverse(R0) * x_item - P0)
+					original_position = origin;
+					original_rotation = rotation;
+					let euler = new THREE.Euler().setFromQuaternion(held.inverse.clone().multiply(quaternion), 'ZYX');
+					rotation = [euler.x, euler.y, euler.z].map(v => Math.roundTo(Math.radToDeg(v), 3)) as ArrayVector3;
+					origin = new THREE.Vector3(...origin).applyQuaternion(held.inverse).sub(held.position).toArray() as ArrayVector3;
+					if (held.bone) {
+						origin.V3_add(getBoneAnchor(held.bone));
+						parent_group = held.bone;
 					}
-
-					// New anchoring (kept for comparison): anchor to the bone's pivot (group origin), not its geometry
-					// origin = parent_group.origin.slice() as ArrayVector3;
 
 				} else if (parent_offset && parent_group instanceof Group) {
 					origin.V3_add(parent_offset);
@@ -647,8 +670,9 @@ export function setupBlockymodelCodec(): Codec {
 						autouv: 1,
 						origin,
 						rotation,
-						visibility: node.shape?.visible != false,
-					});
+						// In-game a hidden node only hides its own shape, so attachments keep its children visible
+						visibility: node.groupVisible ?? (!!args.attachment || node.shape?.visible != false),
+					}, takeUuid(node.uuid));
 					
 					new_groups.push(group);
 					group.addTo(parent_group);
@@ -656,15 +680,17 @@ export function setupBlockymodelCodec(): Codec {
 					if (!parent_node && args.attachment) {
 						group.name = args.attachment + ':' + group.name;
 						group.color = 1;
-						// Long-term this needs to be saved somewhere, as it is used in the model itself, but not if attached
-						group.rotation.V3_set(0, 0, 0);
 					}
-
 					group.init();
 					let custom_data = {
 						is_piece: node.shape?.settings?.isPiece ?? false,
+						file_hidden: node.fileHidden ?? node.shape?.visible == false,
 						original_position,
 						original_offset: offset,
+						// Unused in-game on shapeless nodes, but kept so files round-trip
+						original_stretch: node.shape?.type == 'none' ? parseVector(node.shape.stretch, [1, 1, 1]) : undefined,
+						original_rotation,
+						file_parent: attachment_node && file_parent instanceof Group ? file_parent.uuid : '',
 					};
 					group.extend(custom_data as any);
 				} else {
@@ -703,7 +729,8 @@ export function setupBlockymodelCodec(): Codec {
 							size[1]/2 + origin[1] + offset[1],
 							size[2]/2 + origin[2] + offset[2],
 						]
-					})
+					}, takeUuid(group ? node.shapeUuid : node.uuid));
+					cube.extend({file_hidden: node.fileHidden ?? node.shape.visible == false} as Partial<HiddenInFile>);
 					if (group) {
 						group.color = cube.color;
 						cube.origin.V3_set(
@@ -867,11 +894,11 @@ export function setupBlockymodelCodec(): Codec {
 				}
 
 				if (node.children?.length && group instanceof Group) {
-					if (args.attachment && node.shape.settings.isPiece) {
+					if (attachment_node) {
 						offset = [0, 0, 0];
 					}
 					for (let child of node.children) {
-						parseNode(child, node, group, offset, inside_piece || node.shape?.settings?.isPiece === true);
+						parseNode(child, node, group, offset);
 					}
 				}
 			}
@@ -932,45 +959,7 @@ export function setupBlockymodelCodec(): Codec {
 				}
 			}
 			if (!args.attachment && model.attachments && isApp && path) {
-				let modelDir = PathModule.dirname(path);
-
-
-				if (model.attachmentFolders) {
-					for (let fd of model.attachmentFolders) {
-						fd.folded = true;
-						new CollectionFolder(fd).add();
-					}
-				}
-
-				type UnloadedCol = AttachmentCollection & { unloaded: boolean; unloaded_texture_paths: string; unloaded_primary_path: string; folder: string };
-				for (let att of model.attachments) {
-					if (Collection.all.some(c => c.name === att.name)) continue;
-					let absPath = PathModule.resolve(modelDir, att.path.replace(/\//g, PathModule.sep));
-					let fs = requireNativeModule('fs');
-
-					let collection = new Collection({
-						name: att.name,
-						children: [],
-						export_codec: 'blockymodel',
-						visibility: true,
-					}).add() as UnloadedCol;
-					collection.export_path = absPath;
-					collection.unloaded = true;
-					assignCollectionScope(collection);
-
-					if (att.folder) collection.folder = att.folder;
-					if (att.color != null && att.color >= 0) (collection as any).color = att.color;
-
-					let texPaths = att.textures.map(rel => PathModule.resolve(modelDir, rel.replace(/\//g, PathModule.sep)));
-					collection.unloaded_texture_paths = JSON.stringify(texPaths);
-					if (att.primaryTexture) {
-						collection.unloaded_primary_path = PathModule.resolve(modelDir, att.primaryTexture.replace(/\//g, PathModule.sep));
-					}
-
-					if (!fs.existsSync(absPath)) {
-						Blockbench.showQuickMessage(`Attachment "${att.name}" not found at ${att.path}`, 3000);
-					}
-				}
+				loadAttachmentList(model, PathModule.dirname(path));
 			}
 
 			return {new_groups, new_textures};

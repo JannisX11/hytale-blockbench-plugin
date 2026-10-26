@@ -5,12 +5,14 @@ import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
 import { isUnloaded, reloadCollection, promptAndUnload, toggleCollectionChildVisibility, syncUnloadButtons } from "./unload";
 import { importAttachmentToFolder } from "./import";
-import { unwatchCollection } from "./watcher";
 import { applyCollectionColors } from "./collection_color";
 import { CustomMenuItem } from "blockbench-types/generated/interface/menu";
+import { removeAttachments } from "./delete";
 
 type FolderCollection = Collection & { folder: string };
 type FolderProject = ModelProject & { collection_folders: CollectionFolderData[] };
+// Sets aren't part of Blockbench's undo saves, so set edits keep snapshots of them on their undo entry
+type FolderUndoEntry = UndoEntry & { folders_before?: CollectionFolderData[], folders_after?: CollectionFolderData[] };
 
 interface CollectionFolderData {
     uuid?: string;
@@ -53,10 +55,19 @@ function loadFromProject() {
     folders.sort((a, b) => a.order - b.order);
 }
 
-function setFolder(collections: Collection[], folderUuid: string, undoLabel: string) {
+function recordFolders(entry: FolderUndoEntry | undefined, before: CollectionFolderData[]) {
+    if (!entry) return;
+    entry.folders_before = before;
+    entry.folders_after = folders.map(f => f.getSaveCopy());
+}
+
+function setFolder(collections: Collection[], folderUuid: string, undoLabel: string, changeFolders?: () => void) {
+    let before = folders.map(f => f.getSaveCopy());
     Undo.initEdit({ collections });
+    changeFolders?.();
     for (let c of collections) fc(c).folder = folderUuid;
-    Undo.finishEdit(undoLabel);
+    syncToProject();
+    recordFolders(Undo.finishEdit(undoLabel), before);
     scheduleUpdate();
 }
 
@@ -98,52 +109,16 @@ export class CollectionFolder {
     }
 
     remove() {
-        setFolder(this.getCollections(), '', 'Remove collection folder');
-        folders.remove(this);
-        syncToProject();
+        setFolder(this.getCollections(), '', 'Remove collection folder', () => folders.remove(this));
     }
 
     removeWithAttachments() {
-        let collections = this.getCollections();
-        let remove_elements: OutlinerElement[] = [];
-        let remove_groups: Group[] = [];
-        let textures: Texture[] = [];
-        let texture_groups: TextureGroup[] = [];
-
-        for (let c of collections) {
-            for (let child of c.getAllChildren()) {
-                (child instanceof Group ? remove_groups : remove_elements).safePush(child as any);
-            }
-            let tg = TextureGroup.all.find(t => t.name === c.name);
-            if (tg) {
-                textures.safePush(...Texture.all.filter(t => t.group === tg!.uuid));
-                texture_groups.push(tg);
-            }
-        }
-
-        Undo.initEdit({
-            collections,
-            groups: remove_groups,
-            elements: remove_elements,
-            outliner: true,
-            texture_groups: texture_groups as any,
-            textures,
-        });
-
-        collections.forEach(c => {
-            unwatchCollection(c);
-            Collection.all.remove(c);
-        });
-        textures.forEach(t => t.remove(true));
-        texture_groups.forEach(t => t.remove());
-        remove_groups.forEach(g => g.remove());
-        remove_elements.forEach(e => e.remove());
-
-        updateSelection();
-        Undo.finishEdit('Delete set and attachments');
+        let before = folders.map(f => f.getSaveCopy());
+        removeAttachments(this.getCollections(), 'Delete set and attachments');
 
         folders.remove(this);
         syncToProject();
+        recordFolders(Undo.history[Undo.history.length - 1], before);
         scheduleUpdate();
     }
 
@@ -415,10 +390,8 @@ export function setupCollectionFolders() {
         name: 'Create Set', icon: 'create_new_folder', category: 'collections',
         condition: { formats: FORMAT_IDS },
         click() {
-            let folder = new CollectionFolder().add();
-            if (Collection.selected.length > 0) {
-                setFolder(Collection.selected.slice(), folder.uuid, 'Create set');
-            }
+            let folder = new CollectionFolder();
+            setFolder(Collection.selected.slice(), folder.uuid, 'Create set', () => folder.add());
         }
     });
     track(createAction);
@@ -446,12 +419,16 @@ export function setupCollectionFolders() {
     track({ delete() { Collection.menu.removeAction('move_to_folder'); } });
 
     let reloadAndUpdate = () => { loadFromProject(); scheduleUpdate(); };
+    let restoreFolders = (data?: CollectionFolderData[]) => {
+        if (data) fp().collection_folders = data.map(folder => ({ ...folder }));
+        reloadAndUpdate();
+    };
     let hookProject = Blockbench.on('select_project', reloadAndUpdate);
     let hookEdit = Blockbench.on('finished_edit', scheduleUpdate);
     let hookSelection = Blockbench.on('update_selection', scheduleUpdate);
     let hookMode = Blockbench.on('select_mode', scheduleUpdate);
-    let hookUndo = Blockbench.on('undo', reloadAndUpdate);
-    let hookRedo = Blockbench.on('redo', reloadAndUpdate);
+    let hookUndo = Blockbench.on('undo', ({ entry }: { entry: FolderUndoEntry }) => restoreFolders(entry?.folders_before));
+    let hookRedo = Blockbench.on('redo', ({ entry }: { entry: FolderUndoEntry }) => restoreFolders(entry?.folders_after));
 
     let listEl = Panels.collections?.node?.querySelector('#collections_list');
     if (listEl) {

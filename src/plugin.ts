@@ -2,7 +2,7 @@
 //! Licensed under the GNU General Public License, see LICENSE.MD
 
 import { setupAnimationCodec } from "./blockyanim";
-import { setupAttachments } from "./attachments/index";
+import { setupAttachments } from "./attachments";
 import { setupAnimation } from "./animations";
 import { cleanup, track } from "./cleanup";
 import { setupElements } from "./element";

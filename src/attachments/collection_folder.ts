@@ -5,9 +5,9 @@ import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
 import { isUnloaded, reloadCollection, promptAndUnload, toggleCollectionChildVisibility, syncUnloadButtons } from "./unload";
 import { importAttachmentToFolder } from "./import";
-import { unwatchCollection } from "./watcher";
 import { applyCollectionColors } from "./collection_color";
 import { CustomMenuItem } from "blockbench-types/generated/interface/menu";
+import { removeAttachments } from "./delete";
 
 type FolderCollection = Collection & { folder: string };
 type FolderProject = ModelProject & { collection_folders: CollectionFolderData[] };
@@ -104,43 +104,7 @@ export class CollectionFolder {
     }
 
     removeWithAttachments() {
-        let collections = this.getCollections();
-        let remove_elements: OutlinerElement[] = [];
-        let remove_groups: Group[] = [];
-        let textures: Texture[] = [];
-        let texture_groups: TextureGroup[] = [];
-
-        for (let c of collections) {
-            for (let child of c.getAllChildren()) {
-                (child instanceof Group ? remove_groups : remove_elements).safePush(child as any);
-            }
-            let tg = TextureGroup.all.find(t => t.name === c.name);
-            if (tg) {
-                textures.safePush(...Texture.all.filter(t => t.group === tg!.uuid));
-                texture_groups.push(tg);
-            }
-        }
-
-        Undo.initEdit({
-            collections,
-            groups: remove_groups,
-            elements: remove_elements,
-            outliner: true,
-            texture_groups: texture_groups as any,
-            textures,
-        });
-
-        collections.forEach(c => {
-            unwatchCollection(c);
-            Collection.all.remove(c);
-        });
-        textures.forEach(t => t.remove(true));
-        texture_groups.forEach(t => t.remove());
-        remove_groups.forEach(g => g.remove());
-        remove_elements.forEach(e => e.remove());
-
-        updateSelection();
-        Undo.finishEdit('Delete set and attachments');
+        removeAttachments(this.getCollections(), 'Delete set and attachments');
 
         folders.remove(this);
         syncToProject();

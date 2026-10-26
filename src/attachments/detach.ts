@@ -87,6 +87,7 @@ export function setupDetachFromAttachment() {
 					if (wrapper.children.length === 0) {
 						collection.children.remove(wrapper.uuid);
 						wrapper.remove(false);
+						allGroups.remove(wrapper);
 					}
 				} else if (wrapper === group) {
 					// The selected group IS the is_piece wrapper — resolve it
@@ -99,6 +100,7 @@ export function setupDetachFromAttachment() {
 						child.addTo(parent, insertIndex);
 					}
 					group.remove(false);
+					allGroups.remove(group);
 				} else {
 					// Root-level collection member (no wrapper) — just remove from collection
 					collection.children.remove(group.uuid);
@@ -110,12 +112,18 @@ export function setupDetachFromAttachment() {
 					group.color = 0;
 				}
 
+				// Detached nodes belong to the main model now
+				group.scope = 0;
+				group.forEachChild((node: OutlinerNode) => { node.scope = 0; });
+
 				// If collection has no children left, remove it
 				if (collection.children.length === 0) {
 					Collection.all.remove(collection);
+					affectedCollections.remove(collection);
 				}
 			}
 
+			// Removed wrappers and collections must be missing from the "after" save so undo recreates them
 			Canvas.updateAllPositions();
 			Undo.finishEdit('Detach from attachment');
 			updateSelection();

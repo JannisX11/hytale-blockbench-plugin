@@ -3,86 +3,11 @@
 
 import { track } from "../cleanup";
 import { isHytaleFormat } from "../formats";
-import { getMainShape } from "../util";
+import { createIsPieceWrappers, getSelectedRootGroups } from "./create";
 
 /** Returns selected attachment collections (blockymodel export codec). */
 function getSelectedAttachmentCollections(): Collection[] {
 	return Collection.selected.filter(c => c.export_codec === 'blockymodel');
-}
-
-/**
- * Returns selected groups valid for adding to an attachment:
- * not already in a blockymodel collection, deduplicated so only parents are kept.
- */
-function getSelectedRootGroups(): Group[] {
-	let selected = Group.all.filter(g => g.selected);
-
-	selected = selected.filter(g => !Collection.all.some(c => c.export_codec === 'blockymodel' && c.contains(g)));
-
-	return selected.filter(group => {
-		let parent = group.parent;
-		while (parent instanceof Group) {
-			if (selected.includes(parent)) return false;
-			parent = parent.parent;
-		}
-		return true;
-	});
-}
-
-/**
- * Creates is_piece wrapper groups and adds them to the given collection.
- * Same logic as create.ts's createIsPieceWrappers but for an existing attachment.
- */
-function addGroupsToAttachment(attachmentName: string, selectedGroups: Group[], collection: Collection) {
-	let wrappersByParent = new Map<Group, Group>();
-	let newRoots: Group[] = [];
-
-	for (let group of selectedGroups) {
-		let parent = group.parent;
-
-		if (parent instanceof Group) {
-			let wrapper = wrappersByParent.get(parent);
-			if (!wrapper) {
-				let referenceNode = getMainShape(parent);
-				let wrapperOrigin = referenceNode
-					? referenceNode.origin.slice()
-					: parent.origin.slice().V3_add(parent.original_offset ?? [0, 0, 0]);
-
-				wrapper = new Group({
-					name: attachmentName + ':' + parent.name,
-					autouv: 1,
-					origin: wrapperOrigin as ArrayVector3,
-					rotation: [0, 0, 0],
-					visibility: true,
-				});
-				wrapper.addTo(parent);
-				wrapper.init();
-				wrapper.extend({
-					is_piece: true,
-					original_position: [0, 0, 0],
-					original_offset: [0, 0, 0],
-				} as any);
-				wrapper.color = 1;
-
-				wrappersByParent.set(parent, wrapper);
-				newRoots.push(wrapper);
-			}
-
-			group.addTo(wrapper);
-		} else {
-			// Root-level group: prefix name and add directly
-			group.name = attachmentName + ':' + group.name;
-			group.color = 1;
-			newRoots.push(group);
-		}
-	}
-
-	// Add new roots to the collection
-	for (let root of newRoots) {
-		collection.children.push(root.uuid);
-	}
-
-	return newRoots;
 }
 
 export function setupAddToAttachment() {
@@ -104,7 +29,8 @@ export function setupAddToAttachment() {
 
 			let allNewWrappers: Group[] = [];
 			for (let collection of collections) {
-				let newRoots = addGroupsToAttachment(collection.name, selectedGroups, collection);
+				let newRoots = createIsPieceWrappers(collection.name, selectedGroups, collection);
+				collection.children.push(...newRoots.map(root => root.uuid));
 				let newWrapperGroups = newRoots.filter(g => !selectedGroups.includes(g));
 				allNewWrappers.push(...newWrapperGroups);
 			}

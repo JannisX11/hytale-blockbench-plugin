@@ -14,6 +14,9 @@ import { setupDetachFromAttachment } from "./detach";
 import { setupCollectionColor } from "./collection_color";
 import { setupCollectionFolders } from "./collection_folder";
 import { setupUnload } from "./unload";
+import { setupAttachTo } from "./attach_to";
+import { setupAttachmentRename } from "./rename";
+import { setupHeld } from "./held";
 
 export { AttachmentCollection } from "./texture";
 export { reload_all_attachments, reloadAttachment } from "./import";
@@ -92,5 +95,8 @@ export function setupAttachments() {
 	setupUnload();
 	setupCollectionFolders();
 	setupCollectionColor();
+	setupAttachTo();
+	setupAttachmentRename();
+	setupHeld();
 	setupOutlinerStyles();
 }

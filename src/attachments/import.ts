@@ -7,6 +7,9 @@ import { discoverTexturePaths } from "../blockymodel";
 import { AttachmentCollection, processAttachmentTextures } from "./texture";
 import { pushReloadUndo, watchCollection } from "./watcher";
 import { assignCollectionScope, isUnloaded } from "./unload";
+import { reparseAttachment, transferNodeUuids } from "./rebuild";
+import { getUniqueAttachmentName } from "./rename";
+import { detectHeld, setHeld } from "./held";
 
 export let reload_all_attachments: Action;
 
@@ -20,8 +23,9 @@ function importFiles(files: Filesystem.FileResult[], folderUuid?: string) {
 		}
 		let json = autoParseJSON(file.content as string);
 		let attachment_name = file.name.replace(/\.\w+$/, '');
-		let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: attachment_name});
-		let name = attachment_name
+		let name = getUniqueAttachmentName(attachment_name, file.path);
+		let held = detectHeld(json, file.path);
+		let content: any = Codecs.blockymodel.parse(json, file.path, {attachment: name, held});
 
 		let new_groups = content.new_groups as Group[];
 		let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));
@@ -33,6 +37,7 @@ function importFiles(files: Filesystem.FileResult[], folderUuid?: string) {
 			visibility: true,
 		}).add() as AttachmentCollection;
 		collection.export_path = file.path;
+		setHeld(collection, held);
 		assignCollectionScope(collection);
 
 		if (folderUuid) (collection as FolderCollection).folder = folderUuid;
@@ -48,7 +53,7 @@ function importFiles(files: Filesystem.FileResult[], folderUuid?: string) {
 			}
 		}
 
-		let textureUuid = processAttachmentTextures(attachment_name, texturesToProcess);
+		let textureUuid = processAttachmentTextures(name, texturesToProcess, attachment_name);
 		if (textureUuid) {
 			collection.texture = textureUuid;
 		}
@@ -75,30 +80,23 @@ export function reloadAttachment(collection: Collection) {
 	let fs = requireNativeModule('fs');
 	if (!fs.existsSync(path)) return;
 
-	let beforeJson = Codecs.blockymodel.compile({attachment: collection, raw: true});
+	let beforeJson = Codecs.blockymodel.compile({attachment: collection, raw: true, uuids: true});
 
-	for (let child of collection.getChildren()) child.remove();
-	let afterJson = autoParseJSON(fs.readFileSync(path, 'utf-8'));
-	parseAttachmentJson(collection, afterJson, path);
+	let fileJson = autoParseJSON(fs.readFileSync(path, 'utf-8'));
+	transferNodeUuids(beforeJson, fileJson);
+	// Undo entries can outlive this Collection object, so look it up again
+	let uuid = collection.uuid;
+	let restore = (json: any) => {
+		let target = Collection.all.find(c => c.uuid === uuid);
+		if (target) reparseAttachment(target, undefined, json);
+	};
+	restore(fileJson);
+	// New nodes got fresh uuids, so redo must recreate them with the same ones
+	let afterJson = Codecs.blockymodel.compile({attachment: collection, raw: true, uuids: true});
 
-	pushReloadUndo(
-		beforeJson, afterJson, 'Reload attachment',
-		(json) => {
-			for (let child of collection.getChildren()) child.remove();
-			parseAttachmentJson(collection, json, path);
-			Canvas.updateAllFaces();
-		}
-	);
+	pushReloadUndo(beforeJson, afterJson, 'Reload attachment', restore);
 
 	Canvas.updateAllFaces();
-}
-
-function parseAttachmentJson(collection: Collection, json: any, path: string) {
-	let result: any = Codecs.blockymodel.parse(json, path, {attachment: collection.name});
-	let new_groups = result.new_groups as Group[];
-	let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));
-	collection.extend({ children: root_groups.map(g => g.uuid) }).add();
-	assignCollectionScope(collection);
 }
 
 export function setupImport() {

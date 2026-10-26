@@ -40,7 +40,7 @@ export function getCollection(cube: Cube): AttachmentCollection | undefined {
 }
 
 // Clone textures that already belong to another group so each attachment gets its own copy
-export function processAttachmentTextures(attachmentName: string, newTextures: Texture[]): string {
+export function processAttachmentTextures(attachmentName: string, newTextures: Texture[], fileName: string = attachmentName): string {
 	let textureGroup = new TextureGroup({ name: attachmentName });
 	textureGroup.folded = true;
 	textureGroup.add();
@@ -59,7 +59,7 @@ export function processAttachmentTextures(attachmentName: string, newTextures: T
 		updateUVSize(tex);
 	}
 
-	let texture = newTextures.find(t => t.name.startsWith(attachmentName)) ?? newTextures[0];
+	let texture = newTextures.find(t => t.name.startsWith(fileName)) ?? newTextures[0];
 	return texture.uuid;
 }
 

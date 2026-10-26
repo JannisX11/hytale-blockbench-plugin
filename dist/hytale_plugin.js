@@ -890,10 +890,18 @@
     for (let entry of data) folders.push(new CollectionFolder(entry));
     folders.sort((a, b) => a.order - b.order);
   }
-  function setFolder(collections, folderUuid, undoLabel) {
+  function recordFolders(entry, before) {
+    if (!entry) return;
+    entry.folders_before = before;
+    entry.folders_after = folders.map((f) => f.getSaveCopy());
+  }
+  function setFolder(collections, folderUuid, undoLabel, changeFolders) {
+    let before = folders.map((f) => f.getSaveCopy());
     Undo.initEdit({ collections });
+    changeFolders?.();
     for (let c of collections) fc(c).folder = folderUuid;
-    Undo.finishEdit(undoLabel);
+    syncToProject();
+    recordFolders(Undo.finishEdit(undoLabel), before);
     scheduleUpdate();
   }
   function scheduleUpdate() {
@@ -928,14 +936,14 @@
       return this;
     }
     remove() {
-      setFolder(this.getCollections(), "", "Remove collection folder");
-      folders.remove(this);
-      syncToProject();
+      setFolder(this.getCollections(), "", "Remove collection folder", () => folders.remove(this));
     }
     removeWithAttachments() {
+      let before = folders.map((f) => f.getSaveCopy());
       removeAttachments(this.getCollections(), "Delete set and attachments");
       folders.remove(this);
       syncToProject();
+      recordFolders(Undo.history[Undo.history.length - 1], before);
       scheduleUpdate();
     }
     rename() {
@@ -1178,10 +1186,8 @@
       category: "collections",
       condition: { formats: FORMAT_IDS },
       click() {
-        let folder = new CollectionFolder().add();
-        if (Collection.selected.length > 0) {
-          setFolder(Collection.selected.slice(), folder.uuid, "Create set");
-        }
+        let folder = new CollectionFolder();
+        setFolder(Collection.selected.slice(), folder.uuid, "Create set", () => folder.add());
       }
     });
     track(createAction);
@@ -1220,12 +1226,16 @@
       loadFromProject();
       scheduleUpdate();
     };
+    let restoreFolders = (data) => {
+      if (data) fp().collection_folders = data.map((folder) => ({ ...folder }));
+      reloadAndUpdate();
+    };
     let hookProject = Blockbench.on("select_project", reloadAndUpdate);
     let hookEdit = Blockbench.on("finished_edit", scheduleUpdate);
     let hookSelection = Blockbench.on("update_selection", scheduleUpdate);
     let hookMode = Blockbench.on("select_mode", scheduleUpdate);
-    let hookUndo = Blockbench.on("undo", reloadAndUpdate);
-    let hookRedo = Blockbench.on("redo", reloadAndUpdate);
+    let hookUndo = Blockbench.on("undo", ({ entry }) => restoreFolders(entry?.folders_before));
+    let hookRedo = Blockbench.on("redo", ({ entry }) => restoreFolders(entry?.folders_after));
     let listEl = Panels.collections?.node?.querySelector("#collections_list");
     if (listEl) {
       observer = new MutationObserver(scheduleUpdate);
@@ -1619,7 +1629,11 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       let save = Undo.current_save;
       if (save) {
         save.aspects.groups = [...save.aspects.groups ?? [], ...stale];
-        save.groups = [...save.groups ?? [], ...stale.map((group) => group.getChildlessCopy(true))];
+        save.groups = [...save.groups ?? [], ...stale.map((group) => {
+          let copy = group.getChildlessCopy();
+          copy.uuid = group.uuid;
+          return copy;
+        })];
         if (texture_group) {
           save.aspects.texture_groups = [...save.aspects.texture_groups ?? [], texture_group];
           save.texture_groups = { ...save.texture_groups ?? {}, [texture_group.uuid]: texture_group.getUndoCopy() };

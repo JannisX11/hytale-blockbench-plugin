@@ -32,7 +32,11 @@ export function setupAttachmentRename() {
 		let save = Undo.current_save as (UndoSave & { texture_groups?: Record<string, object> }) | undefined;
 		if (save) {
 			save.aspects.groups = [...(save.aspects.groups ?? []), ...stale];
-			save.groups = [...(save.groups ?? []), ...stale.map(group => group.getChildlessCopy(true))];
+			save.groups = [...(save.groups ?? []), ...stale.map(group => {
+				let copy = group.getChildlessCopy();
+				copy.uuid = group.uuid;
+				return copy;
+			})];
 			if (texture_group) {
 				save.aspects.texture_groups = [...(save.aspects.texture_groups ?? []), texture_group];
 				save.texture_groups = {...(save.texture_groups ?? {}), [texture_group.uuid]: texture_group.getUndoCopy()};

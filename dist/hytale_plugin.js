@@ -36,6 +36,17 @@
   function getMainShape(group) {
     return group.children.find(qualifiesAsMainShape);
   }
+  function isGamePiece(group) {
+    return group.is_piece === true && !getMainShape(group);
+  }
+  function isPieceNode(node) {
+    return node.shape?.type == "none" && node.shape?.settings?.isPiece === true;
+  }
+  function getBoneAnchor(bone) {
+    let shape = getMainShape(bone);
+    if (shape) return shape.from.slice().V3_add(shape.to).V3_divide(2, 2, 2);
+    return bone.origin.slice().V3_add(bone.original_offset ?? [0, 0, 0]);
+  }
 
   // src/texture.ts
   function updateUVSize(texture) {
@@ -101,7 +112,7 @@
   function getCollection(cube) {
     return Collection.all.find((c) => c.contains(cube));
   }
-  function processAttachmentTextures(attachmentName, newTextures) {
+  function processAttachmentTextures(attachmentName, newTextures, fileName = attachmentName) {
     let textureGroup = new TextureGroup({ name: attachmentName });
     textureGroup.folded = true;
     textureGroup.add();
@@ -117,7 +128,7 @@
       tex.group = textureGroup.uuid;
       updateUVSize(tex);
     }
-    let texture = newTextures.find((t) => t.name.startsWith(attachmentName)) ?? newTextures[0];
+    let texture = newTextures.find((t) => t.name.startsWith(fileName)) ?? newTextures[0];
     return texture.uuid;
   }
   function setupAttachmentTextures() {
@@ -218,7 +229,6 @@
         Texture.all.forEach((t) => {
           arr.push({
             name: t.name,
-            // @ts-expect-error
             icon: t.img,
             marked: t.uuid == context.texture,
             click() {
@@ -315,6 +325,273 @@
     track(finishedEditListener);
   }
 
+  // src/attachments/attach_to.ts
+  function getAttachments() {
+    return Collection.all.filter((c) => c.export_codec === "blockymodel");
+  }
+  function getOwningAttachment(node) {
+    let attachments = getAttachments();
+    let current = node;
+    while (current instanceof OutlinerNode) {
+      let uuid = current.uuid;
+      let owner = attachments.find((c) => c.children.includes(uuid));
+      if (owner) return owner;
+      current = current.parent;
+    }
+    if (node.parent !== "root" || !node.scope) return;
+    return attachments.find((c) => c.scope == node.scope);
+  }
+  function getAttachParent(collection) {
+    let uuid = collection.attach_to;
+    return uuid ? Collection.all.find((c) => c.uuid === uuid) : void 0;
+  }
+  function getAttachChain(collection) {
+    let chain = [];
+    let parent = collection && getAttachParent(collection);
+    while (parent && parent !== collection && !chain.includes(parent)) {
+      chain.unshift(parent);
+      parent = getAttachParent(parent);
+    }
+    return chain;
+  }
+  function getAttachDependents(collection) {
+    let dependents = [];
+    let queue = [collection];
+    while (queue.length) {
+      let current = queue.shift();
+      for (let child of Collection.all) {
+        if (child === collection || dependents.includes(child) || getAttachParent(child) !== current) continue;
+        dependents.push(child);
+        queue.push(child);
+      }
+    }
+    return dependents;
+  }
+  function applyAttachParents(records) {
+    for (let [uuid, parent_uuid] of records) {
+      let collection = Collection.all.find((c) => c.uuid === uuid);
+      if (!collection || collection.attach_to === parent_uuid) continue;
+      reparseAttachment(collection, () => {
+        collection.attach_to = parent_uuid;
+      });
+    }
+  }
+  function setAttachParents(changes, message = "Change attachment parent") {
+    changes = changes.filter(([collection, parent]) => getAttachParent(collection) !== parent);
+    if (!changes.length) return;
+    let before = changes.map(([collection]) => [collection.uuid, collection.attach_to ?? ""]);
+    let after = changes.map(([collection, parent]) => [collection.uuid, parent?.uuid ?? ""]);
+    applyAttachParents(after);
+    pushReloadUndo(before, after, message, applyAttachParents);
+  }
+  function releaseDependents(removed) {
+    let changes = [];
+    for (let collection of Collection.all) {
+      if (removed.includes(collection)) continue;
+      let parent = getAttachParent(collection);
+      if (!parent || !removed.includes(parent)) continue;
+      while (parent && removed.includes(parent)) parent = getAttachParent(parent);
+      changes.push([collection, parent]);
+    }
+    setAttachParents(changes, "Release attached attachments");
+  }
+  function setupAttachTo() {
+    let attach_to_property = new Property(Collection, "string", "attach_to", {
+      default: "",
+      condition: { formats: FORMAT_IDS }
+    });
+    track(attach_to_property);
+    let original_contains = Collection.prototype.contains;
+    let original_get_children = Collection.prototype.getChildren;
+    let original_get_all_children = Collection.prototype.getAllChildren;
+    let isAttachment = (collection) => isHytaleFormat() && collection.export_codec === "blockymodel";
+    Collection.prototype.contains = function(node) {
+      if (!isAttachment(this)) return original_contains.call(this, node);
+      return getOwningAttachment(node) === this;
+    };
+    Collection.prototype.getChildren = function() {
+      if (!isAttachment(this)) return original_get_children.call(this);
+      return this.children.map((uuid) => OutlinerNode.uuids[uuid]).filter(Boolean);
+    };
+    Collection.prototype.getAllChildren = function() {
+      if (!isAttachment(this)) return original_get_all_children.call(this);
+      return Outliner.nodes.filter((node) => getOwningAttachment(node) === this);
+    };
+    track({
+      delete() {
+        Collection.prototype.contains = original_contains;
+        Collection.prototype.getChildren = original_get_children;
+        Collection.prototype.getAllChildren = original_get_all_children;
+      }
+    });
+    let attach_to_menu = {
+      id: "hytale_attach_to",
+      name: "Attach To",
+      icon: "link",
+      condition: () => Collection.selected.length == 1 && Collection.selected[0].export_codec === "blockymodel" && !isUnloaded(Collection.selected[0]),
+      children() {
+        let collection = Collection.selected[0];
+        let current = getAttachParent(collection);
+        let excluded = [collection, ...getAttachDependents(collection)];
+        let entry = (name, target) => ({
+          name,
+          icon: current === target ? "radio_button_checked" : "radio_button_unchecked",
+          click: () => setAttachParents([[collection, target]])
+        });
+        let items = [entry("Main Model", void 0)];
+        for (let candidate of getAttachments()) {
+          if (excluded.includes(candidate)) continue;
+          items.push(entry(candidate.name, candidate));
+        }
+        return items;
+      }
+    };
+    Collection.menu.addAction(attach_to_menu, "#settings");
+    track({
+      delete() {
+        Collection.menu.removeAction("hytale_attach_to");
+      }
+    });
+  }
+
+  // src/attachments/rebuild.ts
+  function parseAttachmentJson(collection, json, path) {
+    let result = Codecs.blockymodel.parse(json, path, { attachment: collection.name, held: isHeld(collection) });
+    let new_groups = result.new_groups;
+    let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
+    collection.extend({ children: root_groups.map((g) => g.uuid) }).add();
+    assignCollectionScope(collection);
+  }
+  function transferNodeUuids(from, to) {
+    let by_path = /* @__PURE__ */ new Map();
+    let by_name = /* @__PURE__ */ new Map();
+    let baseName = (node) => node.name.replace(/--C\d+$/, "");
+    let collect = (nodes, path) => {
+      for (let node of nodes ?? []) {
+        let key = path + "/" + baseName(node);
+        by_path.set(key, [...by_path.get(key) ?? [], node]);
+        by_name.set(baseName(node), [...by_name.get(baseName(node)) ?? [], node]);
+        collect(node.children, key);
+      }
+    };
+    collect(from.nodes, "");
+    let used = /* @__PURE__ */ new Set();
+    let sameKind = (a, b) => !!a.shape?.settings?.isStaticBox == !!b.shape?.settings?.isStaticBox;
+    let copy = (source, node) => {
+      used.add(source);
+      node.uuid = source.uuid;
+      node.shapeUuid = source.shapeUuid;
+      if (!node.shape) return;
+      node.fileHidden = node.shape.visible == false;
+      node.groupVisible = source.groupVisible ?? true;
+      let shape_visible = source.shape?.visible != false;
+      if (shape_visible == !!source.fileHidden) node.shape.visible = shape_visible;
+    };
+    let unmatched = [];
+    let assign = (nodes, path) => {
+      for (let node of nodes ?? []) {
+        let key = path + "/" + baseName(node);
+        let source = by_path.get(key)?.find((c) => !used.has(c) && sameKind(c, node));
+        if (source) copy(source, node);
+        else unmatched.push(node);
+        assign(node.children, key);
+      }
+    };
+    assign(to.nodes, "");
+    for (let node of unmatched) {
+      let candidates = by_name.get(baseName(node))?.filter((c) => !used.has(c) && sameKind(c, node));
+      if (candidates?.length === 1) copy(candidates[0], node);
+    }
+  }
+  function stashAnimators() {
+    let stash = [];
+    for (let animation of Animator.animations) {
+      for (let uuid in animation.animators) stash.push([animation, uuid, animation.animators[uuid]]);
+    }
+    return stash;
+  }
+  function restoreAnimators(stash) {
+    for (let [animation, uuid, animator] of stash) {
+      if (!animation.animators[uuid] && OutlinerNode.uuids[uuid]) animation.animators[uuid] = animator;
+    }
+  }
+  function rebuildWithDependents(collection, rebuild) {
+    let animators = stashAnimators();
+    let dependents = getAttachDependents(collection).filter((c) => !isUnloaded(c));
+    let snapshots = dependents.map((c) => Codecs.blockymodel.compile({ attachment: c, raw: true, uuids: true }));
+    for (let dependent of dependents.slice().reverse()) {
+      for (let child of dependent.getChildren()) child.remove();
+    }
+    rebuild();
+    dependents.forEach((dependent, i) => parseAttachmentJson(dependent, snapshots[i], dependent.export_path));
+    restoreAnimators(animators);
+    Canvas.updateAllFaces();
+  }
+  function reparseAttachment(collection, change, json) {
+    if (isUnloaded(collection)) return change?.();
+    rebuildWithDependents(collection, () => {
+      json ??= Codecs.blockymodel.compile({ attachment: collection, raw: true, uuids: true });
+      for (let child of collection.getChildren()) child.remove();
+      change?.();
+      parseAttachmentJson(collection, json, collection.export_path);
+    });
+  }
+
+  // src/attachments/held.ts
+  function isHeld(collection) {
+    return collection.held === true;
+  }
+  function setHeld(collection, held) {
+    collection.held = held;
+  }
+  function detectHeld(json, path) {
+    if (/[\\/](Armors|Cosmetics|Characters|Attachments)[\\/]/i.test(path)) return false;
+    let root = json.nodes?.[0];
+    if (!root) return false;
+    return !isPieceNode(root) || /^[RL]-Attachment$/.test(root.name);
+  }
+  function changeHeld(collection, held) {
+    let uuid = collection.uuid;
+    let apply = (value) => {
+      let target = Collection.all.find((c) => c.uuid === uuid);
+      if (!target || isHeld(target) === value) return;
+      reparseAttachment(target, () => setHeld(target, value));
+      applyCollectionColors();
+    };
+    apply(held);
+    pushReloadUndo(!held, held, held ? "Make attachment held" : "Make attachment worn", apply);
+  }
+  function setupHeld() {
+    let held_property = new Property(Collection, "boolean", "held", {
+      default: false,
+      condition: { formats: FORMAT_IDS }
+    });
+    track(held_property);
+    let isAttachment = () => Collection.selected.length == 1 && Collection.selected[0].export_codec === "blockymodel";
+    let make_held = {
+      id: "hytale_make_held",
+      name: "Make Held Item",
+      icon: "pan_tool",
+      condition: () => isAttachment() && !isHeld(Collection.selected[0]),
+      click: () => changeHeld(Collection.selected[0], true)
+    };
+    let make_worn = {
+      id: "hytale_make_worn",
+      name: "Make Worn Item",
+      icon: "checkroom",
+      condition: () => isAttachment() && isHeld(Collection.selected[0]),
+      click: () => changeHeld(Collection.selected[0], false)
+    };
+    Collection.menu.addAction(make_held, "#settings");
+    Collection.menu.addAction(make_worn, "#settings");
+    track({
+      delete() {
+        Collection.menu.removeAction("hytale_make_held");
+        Collection.menu.removeAction("hytale_make_worn");
+      }
+    });
+  }
+
   // src/attachments/collection_color.ts
   var SCOPE_CLASS = "hytale_scope_override";
   var COLOR_CLASS = "hytale_collection_colored";
@@ -380,6 +657,9 @@
         let li = collectionsPanel.querySelector(`[uuid="${collection.uuid}"]`);
         if (li) {
           li.classList.add(SCOPE_CLASS);
+          let type_icon = li.querySelector(":scope > i.material-icons");
+          let type = isHeld(collection) ? "pan_tool" : "checkroom";
+          if (type_icon && type_icon.textContent !== type) type_icon.textContent = type;
           if (marker) {
             li.style.setProperty(BORDER_VAR, marker.standard);
             li.classList.add(COLOR_CLASS);
@@ -477,10 +757,17 @@
       outlinerObserver = new MutationObserver(scheduleColorUpdate);
       outlinerObserver.observe(outlinerList, { childList: true, subtree: true });
     }
+    let collectionsList = Panels.collections?.node?.querySelector("#collections_list");
+    let collectionsObserver = null;
+    if (collectionsList) {
+      collectionsObserver = new MutationObserver(scheduleColorUpdate);
+      collectionsObserver.observe(collectionsList, { childList: true, subtree: true, characterData: true });
+    }
     setTimeout(applyCollectionColors, 100);
     track(hookFinishedEdit, hookSelectMode, hookSelection, style, {
       delete() {
         outlinerObserver?.disconnect();
+        collectionsObserver?.disconnect();
         Panels.outliner?.node?.querySelectorAll(`.${SCOPE_CLASS}`).forEach((el) => {
           el.style.removeProperty(COLOR_VAR);
           el.style.removeProperty(BORDER_VAR);
@@ -494,8 +781,79 @@
           el.style.removeProperty("color");
           el.classList.remove("hytale_collection_icon_colored");
         });
+        Panels.collections?.node?.querySelectorAll("li.collection > i.material-icons").forEach((el) => {
+          el.textContent = "inventory_2";
+        });
       }
     });
+  }
+
+  // src/attachments/delete.ts
+  function joinUndoSteps(entries, message) {
+    if (entries.length < 2) return;
+    Undo.history.splice(Undo.history.length - entries.length, entries.length);
+    Undo.index = Undo.history.length;
+    pushReloadUndo("undo", "redo", message, (direction) => {
+      if (direction == "undo") {
+        entries.slice().reverse().forEach((entry) => Undo.loadSave(entry.before, entry.post));
+      } else {
+        entries.forEach((entry) => Undo.loadSave(entry.post, entry.before));
+      }
+    });
+  }
+  function removeAttachments(collections, message) {
+    let previous_entries = new Set(Undo.history);
+    releaseDependents(collections);
+    let remove_elements = [];
+    let remove_groups = [];
+    let textures = [];
+    let texture_groups = [];
+    for (let collection of collections) {
+      if (collection.export_codec !== "blockymodel") continue;
+      for (let child of collection.getAllChildren()) {
+        (child instanceof Group ? remove_groups : remove_elements).safePush(child);
+      }
+      let texture_group = TextureGroup.all.find((tg) => tg.name === collection.name);
+      if (texture_group) {
+        textures.safePush(...Texture.all.filter((t) => t.group === texture_group.uuid));
+        texture_groups.push(texture_group);
+      }
+    }
+    Undo.initEdit({
+      collections,
+      groups: remove_groups,
+      elements: remove_elements,
+      outliner: true,
+      texture_groups,
+      textures
+    });
+    collections.forEach((c) => {
+      unwatchCollection(c);
+      Collection.all.remove(c);
+    });
+    collections.empty();
+    textures.forEach((t) => t.remove(true));
+    textures.empty();
+    texture_groups.forEach((t) => t.remove());
+    texture_groups.empty();
+    remove_groups.forEach((group) => group.remove());
+    remove_groups.empty();
+    remove_elements.forEach((element) => element.remove());
+    remove_elements.empty();
+    updateSelection();
+    Undo.finishEdit(message);
+    joinUndoSteps(Undo.history.filter((entry) => !previous_entries.has(entry)), message);
+  }
+  function setupDelete() {
+    let shared_delete = SharedActions.add("delete", {
+      subject: "collection",
+      priority: 1,
+      condition: () => Prop.active_panel == "collections" && isHytaleFormat() && Collection.selected.some((c) => c.export_codec === "blockymodel"),
+      run() {
+        removeAttachments(Collection.selected.slice(), "Remove attachment");
+      }
+    });
+    track(shared_delete);
   }
 
   // src/attachments/collection_folder.ts
@@ -532,10 +890,18 @@
     for (let entry of data) folders.push(new CollectionFolder(entry));
     folders.sort((a, b) => a.order - b.order);
   }
-  function setFolder(collections, folderUuid, undoLabel) {
+  function recordFolders(entry, before) {
+    if (!entry) return;
+    entry.folders_before = before;
+    entry.folders_after = folders.map((f) => f.getSaveCopy());
+  }
+  function setFolder(collections, folderUuid, undoLabel, changeFolders) {
+    let before = folders.map((f) => f.getSaveCopy());
     Undo.initEdit({ collections });
+    changeFolders?.();
     for (let c of collections) fc(c).folder = folderUuid;
-    Undo.finishEdit(undoLabel);
+    syncToProject();
+    recordFolders(Undo.finishEdit(undoLabel), before);
     scheduleUpdate();
   }
   function scheduleUpdate() {
@@ -570,46 +936,14 @@
       return this;
     }
     remove() {
-      setFolder(this.getCollections(), "", "Remove collection folder");
-      folders.remove(this);
-      syncToProject();
+      setFolder(this.getCollections(), "", "Remove collection folder", () => folders.remove(this));
     }
     removeWithAttachments() {
-      let collections = this.getCollections();
-      let remove_elements = [];
-      let remove_groups = [];
-      let textures = [];
-      let texture_groups = [];
-      for (let c of collections) {
-        for (let child of c.getAllChildren()) {
-          (child instanceof Group ? remove_groups : remove_elements).safePush(child);
-        }
-        let tg = TextureGroup.all.find((t) => t.name === c.name);
-        if (tg) {
-          textures.safePush(...Texture.all.filter((t) => t.group === tg.uuid));
-          texture_groups.push(tg);
-        }
-      }
-      Undo.initEdit({
-        collections,
-        groups: remove_groups,
-        elements: remove_elements,
-        outliner: true,
-        texture_groups,
-        textures
-      });
-      collections.forEach((c) => {
-        unwatchCollection(c);
-        Collection.all.remove(c);
-      });
-      textures.forEach((t) => t.remove(true));
-      texture_groups.forEach((t) => t.remove());
-      remove_groups.forEach((g) => g.remove());
-      remove_elements.forEach((e) => e.remove());
-      updateSelection();
-      Undo.finishEdit("Delete set and attachments");
+      let before = folders.map((f) => f.getSaveCopy());
+      removeAttachments(this.getCollections(), "Delete set and attachments");
       folders.remove(this);
       syncToProject();
+      recordFolders(Undo.history[Undo.history.length - 1], before);
       scheduleUpdate();
     }
     rename() {
@@ -852,10 +1186,8 @@
       category: "collections",
       condition: { formats: FORMAT_IDS },
       click() {
-        let folder = new CollectionFolder().add();
-        if (Collection.selected.length > 0) {
-          setFolder(Collection.selected.slice(), folder.uuid, "Create set");
-        }
+        let folder = new CollectionFolder();
+        setFolder(Collection.selected.slice(), folder.uuid, "Create set", () => folder.add());
       }
     });
     track(createAction);
@@ -894,12 +1226,16 @@
       loadFromProject();
       scheduleUpdate();
     };
+    let restoreFolders = (data) => {
+      if (data) fp().collection_folders = data.map((folder) => ({ ...folder }));
+      reloadAndUpdate();
+    };
     let hookProject = Blockbench.on("select_project", reloadAndUpdate);
     let hookEdit = Blockbench.on("finished_edit", scheduleUpdate);
     let hookSelection = Blockbench.on("update_selection", scheduleUpdate);
     let hookMode = Blockbench.on("select_mode", scheduleUpdate);
-    let hookUndo = Blockbench.on("undo", reloadAndUpdate);
-    let hookRedo = Blockbench.on("redo", reloadAndUpdate);
+    let hookUndo = Blockbench.on("undo", ({ entry }) => restoreFolders(entry?.folders_before));
+    let hookRedo = Blockbench.on("redo", ({ entry }) => restoreFolders(entry?.folders_after));
     let listEl = Panels.collections?.node?.querySelector("#collections_list");
     if (listEl) {
       observer = new MutationObserver(scheduleUpdate);
@@ -996,15 +1332,7 @@
     for (let c of Collection.all) usedScopes.add(c.scope);
     let scope = 1;
     while (usedScopes.has(scope)) scope++;
-    let children = collection.children.map((uuid) => OutlinerNode.uuids[uuid]).filter(Boolean);
-    let allChildren = [];
-    for (let child of children) {
-      allChildren.push(child);
-      if ("forEachChild" in child && typeof child.forEachChild === "function") {
-        child.forEachChild((sub) => allChildren.push(sub));
-      }
-    }
-    for (let child of allChildren) {
+    for (let child of collection.getAllChildren()) {
       child.scope = scope;
     }
     collection.scope = scope;
@@ -1016,7 +1344,8 @@
     if (isUnloaded(collection)) return;
     if (collection.export_codec !== "blockymodel") return;
     let savedState = collection.saved;
-    let json = Codecs.blockymodel.compile({ attachment: collection, raw: true });
+    let json = Codecs.blockymodel.compile({ attachment: collection, raw: true, uuids: true });
+    let animators = stashAnimators();
     let texturePaths = [];
     let primaryTexturePath = "";
     let primaryUuid = collection.texture || "";
@@ -1031,12 +1360,14 @@
       textures.forEach((t) => t.remove(true));
       tg.remove();
     }
-    for (let child of collection.getAllChildren()) {
-      if (child instanceof Group) child.remove();
-      else child.remove();
-    }
-    collection.extend({ children: [] });
-    unloadedStates.set(collection.uuid, { json, texturePaths, primaryTexturePath });
+    rebuildWithDependents(collection, () => {
+      for (let child of collection.getAllChildren()) {
+        if (child instanceof Group) child.remove();
+        else child.remove();
+      }
+      collection.extend({ children: [] });
+    });
+    unloadedStates.set(collection.uuid, { json, animators, texturePaths, primaryTexturePath });
     let uc = collection;
     uc.unloaded = true;
     uc.unloaded_texture_paths = JSON.stringify(texturePaths);
@@ -1057,16 +1388,14 @@
     let useFile = path && fs.existsSync(path);
     if (useFile) {
       json = autoParseJSON(fs.readFileSync(path, "utf-8"));
+      if (state) transferNodeUuids(state.json, json);
     } else if (state) {
       json = state.json;
     } else {
       return;
     }
-    let result = Codecs.blockymodel.parse(json, path || "", { attachment: collection.name });
-    let new_groups = result.new_groups;
-    let root_groups = new_groups.filter((g) => !new_groups.includes(g.parent));
-    collection.extend({ children: root_groups.map((g) => g.uuid) }).add();
-    assignCollectionScope(collection);
+    rebuildWithDependents(collection, () => parseAttachmentJson(collection, json, path || ""));
+    if (state) restoreAnimators(state.animators);
     let uc = collection;
     let texturePaths = state?.texturePaths ?? [];
     if (texturePaths.length === 0 && uc.unloaded_texture_paths) {
@@ -1077,7 +1406,7 @@
     }
     if (useFile) {
       let dirname = PathModule.dirname(path);
-      for (let tp of discoverTexturePaths(dirname, collection.name)) {
+      for (let tp of discoverTexturePaths(dirname, PathModule.basename(path, PathModule.extname(path)))) {
         if (!texturePaths.includes(tp)) texturePaths.push(tp);
       }
     }
@@ -1276,6 +1605,48 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     });
   }
 
+  // src/attachments/rename.ts
+  function getUniqueAttachmentName(name, path, self) {
+    let taken = (candidate) => Collection.all.some((c) => c !== self && c.export_codec === "blockymodel" && c.name === candidate);
+    if (!taken(name)) return name;
+    let folder = path ? PathModule.basename(PathModule.dirname(path)) : "";
+    if (folder && !taken(`${folder} ${name}`)) return `${folder} ${name}`;
+    let i = 2;
+    while (taken(`${name} (${i})`)) i++;
+    return `${name} (${i})`;
+  }
+  function setupAttachmentRename() {
+    let listener = Blockbench.on("edit_collection_properties", ({ collection }) => {
+      if (!isHytaleFormat() || collection.export_codec !== "blockymodel") return;
+      collection.name = getUniqueAttachmentName(collection.name, void 0, collection);
+      let prefix = collection.name + ":";
+      let stale = collection.getChildren().filter((node) => {
+        return node instanceof Group && node.name.includes(":") && !node.name.startsWith(prefix);
+      });
+      if (!stale.length) return;
+      let old_name = stale[0].name.replace(/:[^:]*$/, "");
+      let texture_group = TextureGroup.all.find((tg) => tg.name === old_name);
+      let save = Undo.current_save;
+      if (save) {
+        save.aspects.groups = [...save.aspects.groups ?? [], ...stale];
+        save.groups = [...save.groups ?? [], ...stale.map((group) => {
+          let copy = group.getChildlessCopy();
+          copy.uuid = group.uuid;
+          return copy;
+        })];
+        if (texture_group) {
+          save.aspects.texture_groups = [...save.aspects.texture_groups ?? [], texture_group];
+          save.texture_groups = { ...save.texture_groups ?? {}, [texture_group.uuid]: texture_group.getUndoCopy() };
+        }
+      }
+      for (let group of stale) {
+        group.name = prefix + group.name.replace(/^.+:/, "");
+      }
+      if (texture_group) texture_group.name = collection.name;
+    });
+    track(listener);
+  }
+
   // src/attachments/import.ts
   var reload_all_attachments;
   function importFiles(files, folderUuid) {
@@ -1286,8 +1657,9 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       }
       let json = autoParseJSON(file.content);
       let attachment_name = file.name.replace(/\.\w+$/, "");
-      let content = Codecs.blockymodel.parse(json, file.path, { attachment: attachment_name });
-      let name = attachment_name;
+      let name = getUniqueAttachmentName(attachment_name, file.path);
+      let held = detectHeld(json, file.path);
+      let content = Codecs.blockymodel.parse(json, file.path, { attachment: name, held });
       let new_groups = content.new_groups;
       let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
       let collection = new Collection({
@@ -1297,6 +1669,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
         visibility: true
       }).add();
       collection.export_path = file.path;
+      setHeld(collection, held);
       assignCollectionScope(collection);
       if (folderUuid) collection.folder = folderUuid;
       let texturesToProcess = content.new_textures;
@@ -1308,7 +1681,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
           texturesToProcess.push(tex);
         }
       }
-      let textureUuid = processAttachmentTextures(attachment_name, texturesToProcess);
+      let textureUuid = processAttachmentTextures(name, texturesToProcess, attachment_name);
       if (textureUuid) {
         collection.texture = textureUuid;
       }
@@ -1330,28 +1703,18 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     if (!path) return;
     let fs = requireNativeModule("fs");
     if (!fs.existsSync(path)) return;
-    let beforeJson = Codecs.blockymodel.compile({ attachment: collection, raw: true });
-    for (let child of collection.getChildren()) child.remove();
-    let afterJson = autoParseJSON(fs.readFileSync(path, "utf-8"));
-    parseAttachmentJson(collection, afterJson, path);
-    pushReloadUndo(
-      beforeJson,
-      afterJson,
-      "Reload attachment",
-      (json) => {
-        for (let child of collection.getChildren()) child.remove();
-        parseAttachmentJson(collection, json, path);
-        Canvas.updateAllFaces();
-      }
-    );
+    let beforeJson = Codecs.blockymodel.compile({ attachment: collection, raw: true, uuids: true });
+    let fileJson = autoParseJSON(fs.readFileSync(path, "utf-8"));
+    transferNodeUuids(beforeJson, fileJson);
+    let uuid = collection.uuid;
+    let restore = (json) => {
+      let target = Collection.all.find((c) => c.uuid === uuid);
+      if (target) reparseAttachment(target, void 0, json);
+    };
+    restore(fileJson);
+    let afterJson = Codecs.blockymodel.compile({ attachment: collection, raw: true, uuids: true });
+    pushReloadUndo(beforeJson, afterJson, "Reload attachment", restore);
     Canvas.updateAllFaces();
-  }
-  function parseAttachmentJson(collection, json, path) {
-    let result = Codecs.blockymodel.parse(json, path, { attachment: collection.name });
-    let new_groups = result.new_groups;
-    let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
-    collection.extend({ children: root_groups.map((g) => g.uuid) }).add();
-    assignCollectionScope(collection);
   }
   function setupImport() {
     let import_as_attachment = new Action("import_as_hytale_attachment", {
@@ -1595,6 +1958,93 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     });
   }
 
+  // src/attachments/attachment_list.ts
+  function compileAttachmentList(model, modelDir) {
+    let relative = (path) => PathModule.relative(modelDir, path).replace(/\\/g, "/");
+    let attachments = [];
+    for (let c of Collection.all) {
+      if (c.export_codec !== "blockymodel" || !c.export_path) continue;
+      let texPaths = [];
+      let primaryTex = "";
+      if (isUnloaded(c)) {
+        if (c.unloaded_texture_paths) {
+          try {
+            let absPaths = JSON.parse(c.unloaded_texture_paths);
+            texPaths = absPaths.map(relative).filter(Boolean);
+          } catch {
+          }
+        }
+        if (c.unloaded_primary_path) primaryTex = relative(c.unloaded_primary_path);
+      } else {
+        let tg = TextureGroup.all.find((t) => t.name === c.name);
+        if (tg) {
+          texPaths = Texture.all.filter((t) => t.group === tg.uuid).map((t) => {
+            let p2 = resolveTexturePath(t);
+            return p2 ? relative(p2) : "";
+          }).filter(Boolean);
+        }
+        let tex = c.texture && Texture.all.find((t) => t.uuid === c.texture);
+        let p = tex && resolveTexturePath(tex);
+        if (p) primaryTex = relative(p);
+      }
+      let parentPath = getAttachParent(c)?.export_path;
+      attachments.push({
+        name: c.name,
+        path: relative(c.export_path),
+        textures: texPaths,
+        primaryTexture: primaryTex,
+        folder: c.folder || void 0,
+        color: c.color != null && c.color >= 0 ? c.color : void 0,
+        unloaded: isUnloaded(c) || void 0,
+        // By path: names may change and need not be unique in older projects
+        attachTo: parentPath ? relative(parentPath) : void 0,
+        held: isHeld(c)
+      });
+    }
+    if (attachments.length) model.attachments = attachments;
+    let folders2 = CollectionFolder.all.map((f) => f.getSaveCopy());
+    if (folders2.length) model.attachmentFolders = folders2;
+  }
+  function loadAttachmentList(model, modelDir) {
+    let fs = requireNativeModule("fs");
+    let resolve = (path) => PathModule.resolve(modelDir, path);
+    let attachments = model.attachments ?? [];
+    for (let fd of model.attachmentFolders ?? []) {
+      fd.folded = true;
+      new CollectionFolder(fd).add();
+    }
+    for (let att of attachments) {
+      let absPath = resolve(att.path);
+      if (Collection.all.some((c) => c.export_path === absPath)) continue;
+      let collection = new Collection({
+        name: getUniqueAttachmentName(att.name, absPath),
+        children: [],
+        export_codec: "blockymodel",
+        visibility: true
+      }).add();
+      collection.export_path = absPath;
+      collection.unloaded = true;
+      assignCollectionScope(collection);
+      if (att.folder) collection.folder = att.folder;
+      if (att.color != null && att.color >= 0) collection.color = att.color;
+      collection.unloaded_texture_paths = JSON.stringify(att.textures.map(resolve));
+      if (att.primaryTexture) collection.unloaded_primary_path = resolve(att.primaryTexture);
+      if (!fs.existsSync(absPath)) {
+        Blockbench.showQuickMessage(`Attachment "${att.name}" not found at ${att.path}`, 3e3);
+      }
+      try {
+        setHeld(collection, att.held ?? detectHeld(autoParseJSON(fs.readFileSync(absPath, "utf-8"), false), absPath));
+      } catch {
+      }
+    }
+    let findByPath = (rel) => Collection.all.find((c) => c.export_path === resolve(rel));
+    for (let att of attachments) {
+      let parent = att.attachTo && findByPath(att.attachTo);
+      let collection = findByPath(att.path);
+      if (parent && collection) collection.attach_to = parent.uuid;
+    }
+  }
+
   // src/blockymodel.ts
   function discoverTexturePaths(dirname, modelName) {
     let fs = requireNativeModule("fs");
@@ -1733,6 +2183,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             z: input[2]
           });
         };
+        let fileVisible = (node) => options.uuids || !options.attachment ? !!node.visibility : !node.file_hidden;
         function turnNodeIntoBox(node, cube, original_element) {
           let size = cube.size();
           let stretch = cube.stretch.slice();
@@ -1777,12 +2228,15 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             }
           }
           node.shape.stretch = formatVector(stretch);
-          node.shape.visible = options.attachment ? true : cube.visibility;
+          node.shape.visible = fileVisible(cube);
           node.shape.doubleSided = cube.double_sided == true;
           node.shape.shadingMode = cube.shading_mode;
           node.shape.unwrapMode = "custom";
           if (cube == original_element) {
             node.shape.settings.isStaticBox = true;
+          } else if (options.uuids) {
+            node.shapeUuid = cube.uuid;
+            node.fileHidden = cube.file_hidden;
           }
           const BBToHytaleDirection = {
             north: "back",
@@ -1882,16 +2336,35 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             return group.original_offset;
           }
         }
+        function isAttachedPiece(group) {
+          return !!options.attachment && !isHeld(options.attachment) && isGamePiece(group) && group.parent instanceof Group && !options.attachment.contains(group.parent);
+        }
+        function isHeldRoot(group) {
+          return !!options.attachment && isHeld(options.attachment) && options.attachment.children.includes(group.uuid);
+        }
+        function getFileParent(group) {
+          let parent = OutlinerNode.uuids[group.file_parent];
+          if (!options.attachment || !(parent instanceof Group) || parent === group.parent) return;
+          if (getOwningAttachment(parent) !== options.attachment) return;
+          for (let node = parent; node instanceof Group; node = node.parent) {
+            if (!node.export || node === group) return;
+          }
+          return parent;
+        }
+        function getPiecesFiledUnder(group) {
+          return Group.all.filter((g) => getFileParent(g) === group);
+        }
         function compileNode(element, name = element.name) {
           if (!element.export) return void 0;
-          if (!options.attachment) {
-            let collection = Collection.all.find((c) => c.contains(element));
-            if (collection && collection.export_codec == "blockymodel") return;
-          }
+          if (getOwningAttachment(element) !== options.attachment) return void 0;
+          let attached_piece = element instanceof Group && isAttachedPiece(element);
+          let filed_piece = element instanceof Group && !!getFileParent(element);
+          let held_root = element instanceof Group && isHeldRoot(element);
+          let rotation = attached_piece || filed_piece || held_root ? element.original_rotation ?? element.rotation : element.rotation;
           let euler = Reusable.euler1.set(
-            Math.degToRad(element.rotation[0]),
-            Math.degToRad(element.rotation[1]),
-            Math.degToRad(element.rotation[2]),
+            Math.degToRad(rotation[0]),
+            Math.degToRad(rotation[1]),
+            Math.degToRad(rotation[2]),
             element.scene_object.rotation.order
           );
           let quaternion = Reusable.quat1.setFromEuler(euler);
@@ -1906,13 +2379,13 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
           if (element.parent instanceof Group) {
             origin.V3_subtract(element.parent.origin);
             let parent_offset = getNodeOffset(element.parent);
-            let parent_is_piece = options.attachment && element.parent.is_piece;
-            if (parent_offset && !parent_is_piece) {
+            if (parent_offset && !isAttachedPiece(element.parent)) {
               origin.V3_subtract(parent_offset);
             }
           }
-          if (options.attachment && element instanceof Group && element.is_piece && element.original_position?.some((v) => v)) {
-            origin = element.original_position;
+          let original_position = element.original_position;
+          if (original_position && (filed_piece || held_root || attached_piece && original_position.some((v) => v))) {
+            origin = original_position.slice();
           }
           let node = {
             id: node_id.toString(),
@@ -1922,18 +2395,23 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             shape: {
               type: "none",
               offset: formatVector(offset),
-              stretch: formatVector([1, 1, 1]),
+              stretch: formatVector(element.original_stretch ?? [1, 1, 1]),
               settings: {
                 isPiece: element instanceof Group && element.is_piece || false
               },
               textureLayout: {},
               unwrapMode: "custom",
-              visible: options.attachment ? true : element.visibility,
+              visible: fileVisible(element),
               doubleSided: false,
               shadingMode: "flat"
             }
           };
           node_id++;
+          if (options.uuids) {
+            node.uuid = element.uuid;
+            node.fileHidden = element.file_hidden;
+            if (element instanceof Group) node.groupVisible = element.visibility;
+          }
           if (element instanceof Cube) {
             turnNodeIntoBox(node, element, element);
           } else if ("children" in element) {
@@ -1956,71 +2434,27 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
                 node.children.push(result);
               }
             }
+            for (let piece of getPiecesFiledUnder(element)) {
+              let result = compileNode(piece);
+              if (!result) continue;
+              if (!node.children) node.children = [];
+              node.children.push(result);
+            }
           }
           return node;
         }
         let nodes = Outliner.root.filter((node) => node instanceof Group || node instanceof Cube);
         if (options.attachment instanceof Collection) {
-          let in_collection = options.attachment.getChildren();
-          nodes = in_collection.filter((g) => {
-            return g instanceof Group;
-          });
+          let collection = options.attachment;
+          let in_collection = collection.getChildren();
+          nodes = in_collection.filter((g) => g instanceof Group && !getFileParent(g));
         }
         for (let node of nodes) {
           let compiled = compileNode(node);
           if (compiled) model.nodes.push(compiled);
         }
         if (!options.attachment && Project.export_path) {
-          let modelDir = PathModule.dirname(Project.export_path);
-          let attachments = [];
-          for (let c of Collection.all) {
-            if (c.export_codec !== "blockymodel" || !c.export_path) continue;
-            let relPath = PathModule.relative(modelDir, c.export_path).replace(/\\/g, "/");
-            let texPaths = [];
-            let primaryTex = "";
-            if (isUnloaded(c)) {
-              let uc = c;
-              if (uc.unloaded_texture_paths) {
-                try {
-                  let absPaths = JSON.parse(uc.unloaded_texture_paths);
-                  texPaths = absPaths.map((p) => PathModule.relative(modelDir, p).replace(/\\/g, "/")).filter(Boolean);
-                } catch {
-                }
-              }
-              if (uc.unloaded_primary_path) {
-                primaryTex = PathModule.relative(modelDir, uc.unloaded_primary_path).replace(/\\/g, "/");
-              }
-            } else {
-              let tg = TextureGroup.all.find((t) => t.name === c.name);
-              if (tg) {
-                texPaths = Texture.all.filter((t) => t.group === tg.uuid).map((t) => {
-                  let p = resolveTexturePath(t);
-                  return p ? PathModule.relative(modelDir, p).replace(/\\/g, "/") : "";
-                }).filter(Boolean);
-              }
-              let ac = c;
-              if (ac.texture) {
-                let tex = Texture.all.find((t) => t.uuid === ac.texture);
-                if (tex) {
-                  let p = resolveTexturePath(tex);
-                  if (p) primaryTex = PathModule.relative(modelDir, p).replace(/\\/g, "/");
-                }
-              }
-            }
-            let colorIndex = c.color;
-            attachments.push({
-              name: c.name,
-              path: relPath,
-              textures: texPaths,
-              primaryTexture: primaryTex,
-              folder: c.folder || void 0,
-              color: colorIndex != null && colorIndex >= 0 ? colorIndex : void 0,
-              unloaded: isUnloaded(c) || void 0
-            });
-          }
-          if (attachments.length) model.attachments = attachments;
-          let folderData = CollectionFolder.all.map((f) => f.getSaveCopy());
-          if (folderData.length) model.attachmentFolders = folderData;
+          compileAttachmentList(model, PathModule.dirname(Project.export_path));
         }
         if (options.raw) {
           return model;
@@ -2036,18 +2470,44 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
         }
         const new_groups = [];
         const existing_groups = Group.all.slice();
-        function parseNode(node, parent_node, parent_group = "root", parent_offset, inside_piece = false) {
-          if (args.attachment) {
-            let attachment_node;
-            if (args.attachment && !inside_piece && node.shape?.settings?.isPiece === true && existing_groups.length) {
-              let node_name = node.name;
-              let isAttachmentGroup = (g) => Collection.all.some((c) => c.export_codec === "blockymodel" && c.contains(g));
-              attachment_node = existing_groups.find((g) => g.name == node_name && !isAttachmentGroup(g)) ?? existing_groups.find((g) => g.name == node_name);
+        const attach_targets = /* @__PURE__ */ new Map();
+        if (args.attachment) {
+          let register = (group, name) => {
+            if (!isGamePiece(group) || !attach_targets.has(name)) attach_targets.set(name, group);
+          };
+          let own_collection = Collection.all.find((c) => c.export_codec == "blockymodel" && c.name == args.attachment);
+          for (let group of existing_groups) {
+            if (!getOwningAttachment(group)) register(group, group.name);
+          }
+          for (let collection of getAttachChain(own_collection)) {
+            for (let group of existing_groups) {
+              if (!collection.contains(group)) continue;
+              if (isGamePiece(group) && group.parent instanceof Group && !collection.contains(group.parent)) continue;
+              register(group, group.name.replace(/^.+:/, ""));
             }
-            if (attachment_node) {
-              parent_group = attachment_node;
-              parent_node = null;
-            }
+          }
+        }
+        const takeUuid = (uuid) => uuid && !OutlinerNode.uuids[uuid] ? uuid : void 0;
+        let held;
+        let first_root = model.nodes[0];
+        if (args.attachment && args.held && first_root) {
+          let o = first_root.orientation;
+          held = {
+            bone: attach_targets.get(isPieceNode(first_root) ? first_root.name : "R-Attachment") ?? existing_groups.find((g) => g.parent == "root" && !getOwningAttachment(g)),
+            inverse: new THREE.Quaternion(o.x, o.y, o.z, o.w).normalize().invert(),
+            position: new THREE.Vector3(...parseVector(first_root.position))
+          };
+        }
+        function parseNode(node, parent_node, parent_group = "root", parent_offset) {
+          let held_root = !!held && !parent_node;
+          let file_parent = parent_group;
+          let attachment_node;
+          if (args.attachment && !held && isPieceNode(node)) {
+            attachment_node = attach_targets.get(node.name);
+          }
+          if (attachment_node) {
+            parent_group = attachment_node;
+            parent_node = null;
           }
           let quaternion = new THREE.Quaternion();
           quaternion.set(node.orientation.x, node.orientation.y, node.orientation.z, node.orientation.w);
@@ -2061,16 +2521,21 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             Math.roundTo(Math.radToDeg(rotation_euler.y), 3),
             Math.roundTo(Math.radToDeg(rotation_euler.z), 3)
           ];
-          if (args.attachment && !parent_node && parent_group instanceof Group) {
+          let original_rotation;
+          if (attachment_node) {
             original_position = origin;
-            let reference_node = getMainShape(parent_group);
-            if (reference_node) {
-              origin = reference_node.origin.slice();
-            } else {
-              origin = parent_group.origin.slice();
-              if (parent_group.original_offset) {
-                origin.V3_add(parent_group.original_offset);
-              }
+            original_rotation = rotation;
+            origin = getBoneAnchor(attachment_node);
+            rotation = [0, 0, 0];
+          } else if (held_root && held) {
+            original_position = origin;
+            original_rotation = rotation;
+            let euler = new THREE.Euler().setFromQuaternion(held.inverse.clone().multiply(quaternion), "ZYX");
+            rotation = [euler.x, euler.y, euler.z].map((v) => Math.roundTo(Math.radToDeg(v), 3));
+            origin = new THREE.Vector3(...origin).applyQuaternion(held.inverse).sub(held.position).toArray();
+            if (held.bone) {
+              origin.V3_add(getBoneAnchor(held.bone));
+              parent_group = held.bone;
             }
           } else if (parent_offset && parent_group instanceof Group) {
             origin.V3_add(parent_offset);
@@ -2083,20 +2548,25 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
               autouv: 1,
               origin,
               rotation,
-              visibility: node.shape?.visible != false
-            });
+              // In-game a hidden node only hides its own shape, so attachments keep its children visible
+              visibility: node.groupVisible ?? (!!args.attachment || node.shape?.visible != false)
+            }, takeUuid(node.uuid));
             new_groups.push(group);
             group.addTo(parent_group);
             if (!parent_node && args.attachment) {
               group.name = args.attachment + ":" + group.name;
               group.color = 1;
-              group.rotation.V3_set(0, 0, 0);
             }
             group.init();
             let custom_data = {
               is_piece: node.shape?.settings?.isPiece ?? false,
+              file_hidden: node.fileHidden ?? node.shape?.visible == false,
               original_position,
-              original_offset: offset
+              original_offset: offset,
+              // Unused in-game on shapeless nodes, but kept so files round-trip
+              original_stretch: node.shape?.type == "none" ? parseVector(node.shape.stretch, [1, 1, 1]) : void 0,
+              original_rotation,
+              file_parent: attachment_node && file_parent instanceof Group ? file_parent.uuid : ""
             };
             group.extend(custom_data);
           } else {
@@ -2140,7 +2610,8 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
                 size[1] / 2 + origin[1] + offset[1],
                 size[2] / 2 + origin[2] + offset[2]
               ]
-            });
+            }, takeUuid(group ? node.shapeUuid : node.uuid));
+            cube.extend({ file_hidden: node.fileHidden ?? node.shape.visible == false });
             if (group) {
               group.color = cube.color;
               cube.origin.V3_set(
@@ -2286,11 +2757,11 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             cube.addTo(group || parent_group).init();
           }
           if (node.children?.length && group instanceof Group) {
-            if (args.attachment && node.shape.settings.isPiece) {
+            if (attachment_node) {
               offset = [0, 0, 0];
             }
             for (let child of node.children) {
-              parseNode(child, node, group, offset, inside_piece || node.shape?.settings?.isPiece === true);
+              parseNode(child, node, group, offset);
             }
           }
         }
@@ -2343,37 +2814,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
           }
         }
         if (!args.attachment && model.attachments && isApp && path) {
-          let modelDir = PathModule.dirname(path);
-          if (model.attachmentFolders) {
-            for (let fd of model.attachmentFolders) {
-              fd.folded = true;
-              new CollectionFolder(fd).add();
-            }
-          }
-          for (let att of model.attachments) {
-            if (Collection.all.some((c) => c.name === att.name)) continue;
-            let absPath = PathModule.resolve(modelDir, att.path.replace(/\//g, PathModule.sep));
-            let fs = requireNativeModule("fs");
-            let collection = new Collection({
-              name: att.name,
-              children: [],
-              export_codec: "blockymodel",
-              visibility: true
-            }).add();
-            collection.export_path = absPath;
-            collection.unloaded = true;
-            assignCollectionScope(collection);
-            if (att.folder) collection.folder = att.folder;
-            if (att.color != null && att.color >= 0) collection.color = att.color;
-            let texPaths = att.textures.map((rel) => PathModule.resolve(modelDir, rel.replace(/\//g, PathModule.sep)));
-            collection.unloaded_texture_paths = JSON.stringify(texPaths);
-            if (att.primaryTexture) {
-              collection.unloaded_primary_path = PathModule.resolve(modelDir, att.primaryTexture.replace(/\//g, PathModule.sep));
-            }
-            if (!fs.existsSync(absPath)) {
-              Blockbench.showQuickMessage(`Attachment "${att.name}" not found at ${att.path}`, 3e3);
-            }
-          }
+          loadAttachmentList(model, PathModule.dirname(path));
         }
         return { new_groups, new_textures };
       },
@@ -2868,61 +3309,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     track(setting2);
   }
 
-  // src/attachments/delete.ts
-  function setupDelete() {
-    let shared_delete = SharedActions.add("delete", {
-      subject: "collection",
-      priority: 1,
-      condition: () => Prop.active_panel == "collections" && isHytaleFormat() && Collection.selected.some((c) => c.export_codec === "blockymodel"),
-      run() {
-        let collections = Collection.selected.slice();
-        let remove_elements = [];
-        let remove_groups = [];
-        let textures = [];
-        let texture_groups = [];
-        for (let collection of collections) {
-          if (collection.export_codec === "blockymodel") {
-            for (let child of collection.getAllChildren()) {
-              child = child;
-              (child instanceof Group ? remove_groups : remove_elements).safePush(child);
-            }
-            let texture_group = TextureGroup.all.find((tg) => tg.name === collection.name);
-            if (texture_group) {
-              let textures2 = Texture.all.filter((t) => t.group === texture_group.uuid);
-              textures.safePush(...textures2);
-              texture_groups.push(texture_group);
-            }
-          }
-        }
-        Undo.initEdit({
-          collections,
-          groups: remove_groups,
-          elements: remove_elements,
-          outliner: true,
-          // @ts-expect-error
-          texture_groups,
-          textures
-        });
-        collections.forEach((c) => {
-          unwatchCollection(c);
-          Collection.all.remove(c);
-        });
-        collections.empty();
-        textures.forEach((t) => t.remove(true));
-        textures.empty();
-        texture_groups.forEach((t) => t.remove());
-        texture_groups.empty();
-        remove_groups.forEach((group) => group.remove());
-        remove_groups.empty();
-        remove_elements.forEach((element) => element.remove());
-        remove_elements.empty();
-        updateSelection();
-        Undo.finishEdit("Remove attachment");
-      }
-    });
-    track(shared_delete);
-  }
-
   // src/attachments/create.ts
   function getSelectedRootGroups() {
     let selected2 = Group.all.filter((g) => g.selected);
@@ -2936,20 +3322,20 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       return true;
     });
   }
-  function createIsPieceWrappers(attachmentName, selectedGroups) {
+  function createIsPieceWrappers(attachmentName, selectedGroups, collection) {
     let wrappersByParent = /* @__PURE__ */ new Map();
     let collectionRoots = [];
     for (let group of selectedGroups) {
       let parent = group.parent;
       if (parent instanceof Group) {
-        let wrapper = wrappersByParent.get(parent);
+        let wrapper = wrappersByParent.get(parent) ?? parent.children.find((child) => {
+          return child instanceof Group && child.is_piece === true && !!collection?.children.includes(child.uuid);
+        });
         if (!wrapper) {
-          let referenceNode = getMainShape(parent);
-          let wrapperOrigin = referenceNode ? referenceNode.origin.slice() : parent.origin.slice().V3_add(parent.original_offset ?? [0, 0, 0]);
           wrapper = new Group({
             name: attachmentName + ":" + parent.name,
             autouv: 1,
-            origin: wrapperOrigin,
+            origin: getBoneAnchor(parent),
             rotation: [0, 0, 0],
             visibility: true
           });
@@ -3045,7 +3431,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
               groups: selectedGroups,
               outliner: true,
               textures: [],
-              // @ts-expect-error
               texture_groups: []
             });
             let collectionRoots = createIsPieceWrappers(name, selectedGroups);
@@ -3071,16 +3456,18 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             }
             let textureGroup = TextureGroup.all.find((tg) => tg.name === name);
             let newWrapperGroups = collectionRoots.filter((g) => !selectedGroups.includes(g));
-            Undo.finishEdit("Create attachment", {
+            let entry = Undo.finishEdit("Create attachment", {
               collections: [collection],
               groups: [...selectedGroups, ...newWrapperGroups],
               outliner: true,
               textures: newTextures,
-              // @ts-expect-error
               texture_groups: textureGroup ? [textureGroup] : []
             });
             Canvas.updateAllFaces();
-            Codecs.blockymodel.exportCollection(collection);
+            Codecs.blockymodel.exportCollection(collection).then(() => {
+              let saved = entry?.post?.collections?.[collection.uuid];
+              if (saved) saved.export_path = collection.export_path;
+            });
           }
         }).show();
       }
@@ -3093,67 +3480,15 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
   function getSelectedAttachmentCollections() {
     return Collection.selected.filter((c) => c.export_codec === "blockymodel");
   }
-  function getSelectedRootGroups2() {
-    let selected2 = Group.all.filter((g) => g.selected);
-    selected2 = selected2.filter((g) => !Collection.all.some((c) => c.export_codec === "blockymodel" && c.contains(g)));
-    return selected2.filter((group) => {
-      let parent = group.parent;
-      while (parent instanceof Group) {
-        if (selected2.includes(parent)) return false;
-        parent = parent.parent;
-      }
-      return true;
-    });
-  }
-  function addGroupsToAttachment(attachmentName, selectedGroups, collection) {
-    let wrappersByParent = /* @__PURE__ */ new Map();
-    let newRoots = [];
-    for (let group of selectedGroups) {
-      let parent = group.parent;
-      if (parent instanceof Group) {
-        let wrapper = wrappersByParent.get(parent);
-        if (!wrapper) {
-          let referenceNode = getMainShape(parent);
-          let wrapperOrigin = referenceNode ? referenceNode.origin.slice() : parent.origin.slice().V3_add(parent.original_offset ?? [0, 0, 0]);
-          wrapper = new Group({
-            name: attachmentName + ":" + parent.name,
-            autouv: 1,
-            origin: wrapperOrigin,
-            rotation: [0, 0, 0],
-            visibility: true
-          });
-          wrapper.addTo(parent);
-          wrapper.init();
-          wrapper.extend({
-            is_piece: true,
-            original_position: [0, 0, 0],
-            original_offset: [0, 0, 0]
-          });
-          wrapper.color = 1;
-          wrappersByParent.set(parent, wrapper);
-          newRoots.push(wrapper);
-        }
-        group.addTo(wrapper);
-      } else {
-        group.name = attachmentName + ":" + group.name;
-        group.color = 1;
-        newRoots.push(group);
-      }
-    }
-    for (let root of newRoots) {
-      collection.children.push(root.uuid);
-    }
-    return newRoots;
-  }
   function setupAddToAttachment() {
     let add_to_attachment = new Action("add_to_hytale_attachment", {
       name: "Add Selection to Attachment",
       icon: "box_add",
       category: "file",
-      condition: () => Modes.edit && isHytaleFormat() && getSelectedRootGroups2().length > 0 && getSelectedAttachmentCollections().length > 0,
+      condition: () => Modes.edit && isHytaleFormat() && getSelectedRootGroups().length > 0 && getSelectedAttachmentCollections().length > 0,
       click() {
         let collections = getSelectedAttachmentCollections();
-        let selectedGroups = getSelectedRootGroups2();
+        let selectedGroups = getSelectedRootGroups();
         if (selectedGroups.length === 0) return;
         Undo.initEdit({
           collections,
@@ -3162,7 +3497,8 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
         });
         let allNewWrappers = [];
         for (let collection of collections) {
-          let newRoots = addGroupsToAttachment(collection.name, selectedGroups, collection);
+          let newRoots = createIsPieceWrappers(collection.name, selectedGroups, collection);
+          collection.children.push(...newRoots.map((root) => root.uuid));
           let newWrapperGroups = newRoots.filter((g) => !selectedGroups.includes(g));
           allNewWrappers.push(...newWrapperGroups);
         }
@@ -3428,6 +3764,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             if (wrapper.children.length === 0) {
               collection.children.remove(wrapper.uuid);
               wrapper.remove(false);
+              allGroups.remove(wrapper);
             }
           } else if (wrapper === group) {
             collection.children.remove(group.uuid);
@@ -3438,6 +3775,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
               child.addTo(parent, insertIndex);
             }
             group.remove(false);
+            allGroups.remove(group);
           } else {
             collection.children.remove(group.uuid);
             let prefix = collection.name + ":";
@@ -3446,8 +3784,13 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             }
             group.color = 0;
           }
+          group.scope = 0;
+          group.forEachChild((node) => {
+            node.scope = 0;
+          });
           if (collection.children.length === 0) {
             Collection.all.remove(collection);
+            affectedCollections.remove(collection);
           }
         }
         Canvas.updateAllPositions();
@@ -3502,6 +3845,23 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       style.delete();
     } });
   }
+  function setupOutlinerStyles() {
+    let style = Blockbench.addCSS(`
+		.outliner_object.hytale_attachment_piece > .icon.material-icons:not(.outliner_toggle)::before {
+			content: "attachment";
+			display: block;
+			margin-bottom: 10px;
+			margin-right: 10px;
+		}
+		.outliner_object.hytale_attachment_piece > input[type=text] {
+			text-decoration: underline;
+		}
+	`);
+    let outlinerHook = Blockbench.on("get_outliner_node_classes", ({ node, classes }) => {
+      if (isHytaleFormat() && node.is_piece) classes.push("hytale_attachment_piece");
+    });
+    track(outlinerHook, style);
+  }
   function setupAttachments() {
     setupAttachmentTextures();
     setupDelete();
@@ -3516,6 +3876,10 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     setupUnload();
     setupCollectionFolders();
     setupCollectionColor();
+    setupAttachTo();
+    setupAttachmentRename();
+    setupHeld();
+    setupOutlinerStyles();
   }
 
   // src/animations.ts
@@ -3795,6 +4159,27 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
       condition: { formats: FORMAT_IDS }
     });
     track(original_offset_property);
+    let original_stretch_property = new Property(Group, "vector", "original_stretch", {
+      condition: { formats: FORMAT_IDS },
+      default: [1, 1, 1]
+    });
+    track(original_stretch_property);
+    let original_rotation_property = new Property(Group, "vector", "original_rotation", {
+      condition: { formats: FORMAT_IDS }
+    });
+    track(original_rotation_property);
+    let file_parent_property = new Property(Group, "string", "file_parent", {
+      condition: { formats: FORMAT_IDS }
+    });
+    track(file_parent_property);
+    let group_file_hidden_property = new Property(Group, "boolean", "file_hidden", {
+      condition: { formats: FORMAT_IDS }
+    });
+    track(group_file_hidden_property);
+    let cube_file_hidden_property = new Property(Cube, "boolean", "file_hidden", {
+      condition: { formats: FORMAT_IDS }
+    });
+    track(cube_file_hidden_property);
     const transparent_property = new Property(CubeFace, "boolean", "transparent", {
       condition: { formats: FORMAT_IDS },
       default: false

@@ -1,6 +1,7 @@
 //! Copyright (C) 2025 Hypixel Studios Canada inc.
 //! Licensed under the GNU General Public License, see LICENSE.MD
 
+import { CustomMenuItem } from "blockbench-types/generated/interface/menu";
 import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
 import { updateUVSize } from "../texture";
@@ -39,7 +40,7 @@ export function getCollection(cube: Cube): AttachmentCollection | undefined {
 }
 
 // Clone textures that already belong to another group so each attachment gets its own copy
-export function processAttachmentTextures(attachmentName: string, newTextures: Texture[]): string {
+export function processAttachmentTextures(attachmentName: string, newTextures: Texture[], fileName: string = attachmentName): string {
 	let textureGroup = new TextureGroup({ name: attachmentName });
 	textureGroup.folded = true;
 	textureGroup.add();
@@ -58,7 +59,7 @@ export function processAttachmentTextures(attachmentName: string, newTextures: T
 		updateUVSize(tex);
 	}
 
-	let texture = newTextures.find(t => t.name.startsWith(attachmentName)) ?? newTextures[0];
+	let texture = newTextures.find(t => t.name.startsWith(fileName)) ?? newTextures[0];
 	return texture.uuid;
 }
 
@@ -174,7 +175,6 @@ export function setupAttachmentTextures() {
 			Texture.all.forEach(t => {
 				arr.push({
 					name: t.name,
-					// @ts-expect-error
 					icon: t.img,
 					marked: t.uuid == context.texture,
 					click() {

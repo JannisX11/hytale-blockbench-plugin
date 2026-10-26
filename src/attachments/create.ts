@@ -3,7 +3,7 @@
 
 import { track } from "../cleanup";
 import { FORMAT_IDS, isHytaleFormat } from "../formats";
-import { getMainShape } from "../util";
+import { getBoneAnchor } from "../util";
 import { AttachmentCollection, processAttachmentTextures } from "./texture";
 import { assignCollectionScope } from "./unload";
 
@@ -12,7 +12,7 @@ import { assignCollectionScope } from "./unload";
  * not already in a blockymodel collection, and deduplicated
  * so that if both a parent and descendant are selected, only the parent is kept.
  */
-function getSelectedRootGroups(): Group[] {
+export function getSelectedRootGroups(): Group[] {
 	let selected = Group.all.filter(g => g.selected);
 
 	// Exclude groups already in a blockymodel collection
@@ -31,9 +31,10 @@ function getSelectedRootGroups(): Group[] {
 
 /**
  * Creates is_piece wrapper groups for the selected groups, mirroring the structure
- * that import produces. Groups sharing the same unselected parent get one shared wrapper.
+ * that import produces. Groups sharing the same unselected parent get one shared wrapper,
+ * and an existing attachment reuses its piece on that parent.
  */
-function createIsPieceWrappers(attachmentName: string, selectedGroups: Group[]): Group[] {
+export function createIsPieceWrappers(attachmentName: string, selectedGroups: Group[], collection?: Collection): Group[] {
 	// Map parent group → wrapper group
 	let wrappersByParent = new Map<Group, Group>();
 	let collectionRoots: Group[] = [];
@@ -42,17 +43,14 @@ function createIsPieceWrappers(attachmentName: string, selectedGroups: Group[]):
 		let parent = group.parent;
 
 		if (parent instanceof Group) {
-			let wrapper = wrappersByParent.get(parent);
+			let wrapper = wrappersByParent.get(parent) ?? parent.children.find((child): child is Group => {
+				return child instanceof Group && (child as Group & {is_piece?: boolean}).is_piece === true && !!collection?.children.includes(child.uuid);
+			});
 			if (!wrapper) {
-				let referenceNode = getMainShape(parent);
-				let wrapperOrigin = referenceNode
-					? referenceNode.origin.slice()
-					: parent.origin.slice().V3_add(parent.original_offset ?? [0, 0, 0]);
-
 				wrapper = new Group({
 					name: attachmentName + ':' + parent.name,
 					autouv: 1,
-					origin: wrapperOrigin,
+					origin: getBoneAnchor(parent),
 					rotation: [0, 0, 0],
 					visibility: true,
 				});
@@ -162,7 +160,6 @@ export function setupCreateAttachment() {
 						groups: selectedGroups,
 						outliner: true,
 						textures: [],
-						// @ts-expect-error
 						texture_groups: [],
 					});
 
@@ -201,19 +198,21 @@ export function setupCreateAttachment() {
 					// Gather all new wrapper groups created
 					let newWrapperGroups = collectionRoots.filter(g => !selectedGroups.includes(g));
 
-					Undo.finishEdit('Create attachment', {
+					let entry = Undo.finishEdit('Create attachment', {
 						collections: [collection],
 						groups: [...selectedGroups, ...newWrapperGroups],
 						outliner: true,
 						textures: newTextures,
-						// @ts-expect-error
 						texture_groups: textureGroup ? [textureGroup] : [],
 					});
 
 					Canvas.updateAllFaces();
 
-					// Export (outside undo block — file export is not undoable)
-					Codecs.blockymodel.exportCollection(collection);
+					// Export (outside undo block — file export is not undoable). Redo must keep the chosen path.
+					Codecs.blockymodel.exportCollection(collection).then(() => {
+						let saved = (entry?.post as UndoSave & { collections?: Record<string, {export_path?: string}> })?.collections?.[collection.uuid];
+						if (saved) saved.export_path = collection.export_path;
+					});
 				}
 			}).show();
 		}

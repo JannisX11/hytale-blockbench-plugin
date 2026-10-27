@@ -1520,7 +1520,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       if (existing) {
         let icon2 = existing.querySelector("i");
         icon2.textContent = unloaded ? "download" : "eject";
-        icon2.classList.toggle("toggle_disabled", unloaded);
         continue;
       }
       let visBtn = el.querySelector(":scope > .in_list_button:last-child");
@@ -1530,7 +1529,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       let icon = document.createElement("i");
       icon.className = "material-icons icon";
       icon.textContent = unloaded ? "download" : "eject";
-      if (unloaded) icon.classList.add("toggle_disabled");
       btn.appendChild(icon);
       btn.addEventListener("click", (e) => {
         e.stopPropagation();

@@ -253,7 +253,6 @@ export function syncUnloadButtons() {
         if (existing) {
             let icon = existing.querySelector('i')!;
             icon.textContent = unloaded ? 'download' : 'eject';
-            icon.classList.toggle('toggle_disabled', unloaded);
             continue;
         }
 
@@ -265,7 +264,6 @@ export function syncUnloadButtons() {
         let icon = document.createElement('i');
         icon.className = 'material-icons icon';
         icon.textContent = unloaded ? 'download' : 'eject';
-        if (unloaded) icon.classList.add('toggle_disabled');
         btn.appendChild(icon);
         btn.addEventListener('click', (e) => {
             e.stopPropagation();

@@ -207,6 +207,8 @@ export async function promptAndUnload(collections: Collection[]): Promise<boolea
     }
 
     for (let c of toUnload) unloadCollection(c);
+    // Discarded changes leave nothing unsaved
+    for (let c of unsaved) c.saved = true;
     return true;
 }
 

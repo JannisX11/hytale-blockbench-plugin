@@ -1481,6 +1481,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       }
     }
     for (let c of toUnload) unloadCollection(c);
+    for (let c of unsaved) c.saved = true;
     return true;
   }
   async function toggleCollectionLoaded(collection) {

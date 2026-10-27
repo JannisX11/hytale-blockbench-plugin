@@ -1941,14 +1941,8 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       description: "Watch attachment files on disk for external changes and prompt to reload when modified.",
       type: "toggle",
       value: false,
-      onChange(value) {
-        if (value) {
-          syncWatchers();
-        } else {
-          watchedCollections.clear();
-          watchedProjects.clear();
-          stopPolling();
-        }
+      onChange() {
+        syncWatchers();
       }
     });
     track(setting);

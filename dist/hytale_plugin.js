@@ -6341,24 +6341,6 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
   }
 
   // src/mirror_fix.ts
-  var SNAP_EPSILON = 0.01;
-  function snapAncestors(element) {
-    if (!isHytaleFormat()) return;
-    let center = Format.centered_grid ? 0 : 8;
-    let node = element.parent;
-    while (node instanceof Group) {
-      if (node.origin[0] !== center && Math.abs(node.origin[0] - center) < SNAP_EPSILON) {
-        node.origin[0] = center;
-      }
-      if (node.rotation[1] !== 0 && Math.abs(node.rotation[1]) < SNAP_EPSILON) {
-        node.rotation[1] = 0;
-      }
-      if (node.rotation[2] !== 0 && Math.abs(node.rotation[2]) < SNAP_EPSILON) {
-        node.rotation[2] = 0;
-      }
-      node = node.parent;
-    }
-  }
   function hasDescendantElements(group) {
     for (let child of group.children) {
       if (child instanceof OutlinerElement) return true;
@@ -6366,20 +6348,10 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     }
     return false;
   }
-  function isAncestrySymmetrical(child, center) {
-    let node = child.parent;
-    while (node instanceof Group) {
-      if (Math.abs(node.origin[0] - center) >= SNAP_EPSILON) return false;
-      if (Math.abs(node.rotation[1]) >= SNAP_EPSILON) return false;
-      if (Math.abs(node.rotation[2]) >= SNAP_EPSILON) return false;
-      node = node.parent;
-    }
-    return true;
-  }
   function findOrCreateMirrorParent(child, center) {
     let parent = child.parent;
     if (!(parent instanceof Group)) return "root";
-    if (Math.abs(parent.origin[0] - center) < SNAP_EPSILON && isAncestrySymmetrical(child, center)) {
+    if (Math.epsilon(parent.origin[0], center) && MirrorModeling.isParentTreeSymmetrical(child, { center })) {
       return parent;
     }
     let mirrorGrandparent = findOrCreateMirrorParent(parent, center);
@@ -6449,16 +6421,6 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     }
   }
   function setupMirrorFix() {
-    const origIsCentered = MirrorModeling.isCentered;
-    MirrorModeling.isCentered = function(element) {
-      snapAncestors(element);
-      return origIsCentered(element);
-    };
-    const origCreateClone = MirrorModeling.createClone;
-    MirrorModeling.createClone = function(original, undo_aspects) {
-      snapAncestors(original);
-      return origCreateClone(original, undo_aspects);
-    };
     let action = BarItems.apply_mirror_modeling;
     let origClick = action.click;
     action.click = function(...args) {
@@ -6475,8 +6437,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
         outliner: true
       });
       for (let group of emptyGroups) {
-        snapAncestors(group);
-        let isCentered = Math.abs(group.origin[0] - center) < SNAP_EPSILON && isAncestrySymmetrical(group, center);
+        let isCentered = Math.epsilon(group.origin[0], center) && MirrorModeling.isParentTreeSymmetrical(group, { center });
         if (isCentered) continue;
         let mirrorParent = findOrCreateMirrorParent(group, center);
         mirrorGroupTree(group, mirrorParent, center);
@@ -6486,8 +6447,6 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     };
     track({
       delete() {
-        MirrorModeling.isCentered = origIsCentered;
-        MirrorModeling.createClone = origCreateClone;
         action.click = origClick;
       }
     });

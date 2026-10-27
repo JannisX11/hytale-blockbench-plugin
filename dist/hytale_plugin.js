@@ -647,7 +647,7 @@
           if (!obj) continue;
           obj.classList.add(SCOPE_CLASS);
           if (marker) {
-            if (!minimalColoring) obj.style.setProperty(COLOR_VAR, hexToRgba(marker.pastel, 0.35));
+            if (!minimalColoring) obj.style.setProperty(COLOR_VAR, hexToRgba(marker.pastel, 0.12));
             obj.style.setProperty(BORDER_VAR, marker.standard);
             obj.classList.add(COLOR_CLASS);
           }

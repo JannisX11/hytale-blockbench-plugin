@@ -3835,16 +3835,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       }
     });
   }
-  function setupUnsavedIndicator() {
-    let style = Blockbench.addCSS(`
-		#collections_list .collection .in_list_button[title]:not(.unclickable):not(.hytale_piece_error_icon) {
-			color: var(--color-warning);
-		}
-	`);
-    track({ delete() {
-      style.delete();
-    } });
-  }
   function setupOutlinerStyles() {
     let style = Blockbench.addCSS(`
 		.outliner_object.hytale_attachment_piece > .icon.material-icons:not(.outliner_toggle)::before {
@@ -3882,7 +3872,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     setupAttachmentValidation();
     setupAttachmentWatcher();
     setupCollectionDoubleClick();
-    setupUnsavedIndicator();
     setupUnload();
     setupCollectionFolders();
     setupCollectionColor();

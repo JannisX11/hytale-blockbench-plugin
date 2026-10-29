@@ -44,6 +44,2021 @@
   function getMainShape(group) {
     return group.children.find(qualifiesAsMainShape);
   }
+  function isGamePiece(group) {
+    return group.is_piece === true && !getMainShape(group);
+  }
+  function isPieceNode(node) {
+    return node.shape?.type == "none" && node.shape?.settings?.isPiece === true;
+  }
+  function getBoneAnchor(bone) {
+    let shape = getMainShape(bone);
+    if (shape) return shape.from.slice().V3_add(shape.to).V3_divide(2, 2, 2);
+    return bone.origin.slice().V3_add(bone.original_offset ?? [0, 0, 0]);
+  }
+
+  // src/texture.ts
+  function updateUVSize(texture) {
+    let size = [texture.width, texture.display_height];
+    let frames = texture.frameCount;
+    if (settings.detect_flipbook_textures.value == false || frames <= 2 || frames % 1) {
+      size[1] = texture.height;
+    }
+    texture.uv_width = size[0];
+    texture.uv_height = size[1];
+  }
+  function setupTextureHandling() {
+    let setting2 = new Setting("preview_selected_texture", {
+      name: "Preview Selected Texture",
+      description: "When selecting a texture in a Hytale format, preview the texture on the model instantly",
+      category: "preview",
+      type: "toggle",
+      value: true
+    });
+    track(setting2);
+    let handler = Blockbench.on("select_texture", (arg) => {
+      if (!isHytaleFormat()) return;
+      if (setting2.value == false) return;
+      let texture = arg.texture;
+      let texture_group = texture.getGroup();
+      if (texture_group) {
+        let collection = Collection.all.find((c) => c.name == texture_group.name);
+        if (collection) {
+          collection.texture = texture.uuid;
+          Canvas.updateAllFaces(texture);
+        }
+      } else {
+        texture.setAsDefaultTexture();
+      }
+      UVEditor.vue.updateTexture();
+    });
+    track(handler);
+  }
+
+  // src/attachments/texture.ts
+  function cloneTexture(tex) {
+    let copy = tex.getSaveCopy();
+    delete copy.path;
+    delete copy.uuid;
+    let cloned = new Texture(copy);
+    cloned.convertToInternal(tex.getDataURL());
+    cloned.load();
+    let sourcePath = tex.path || tex.source_path;
+    if (sourcePath) cloned.source_path = sourcePath;
+    return cloned;
+  }
+  function resolveTexturePath(tex) {
+    if (tex.path) return tex.path;
+    if (tex.source_path) return tex.source_path;
+    let source = Texture.all.find((s) => s.name === tex.name && s.path && s.uuid !== tex.uuid);
+    return source?.path || "";
+  }
+  function isAttachmentTextureGroup(groupUuid) {
+    let tg = TextureGroup.all.find((tg2) => tg2.uuid === groupUuid);
+    if (!tg) return false;
+    return Collection.all.some((c) => c.name === tg.name && c.export_codec === "blockymodel");
+  }
+  function getCollection(cube) {
+    return Collection.all.find((c) => c.contains(cube));
+  }
+  function processAttachmentTextures(attachmentName, newTextures, fileName = attachmentName) {
+    let textureGroup = new TextureGroup({ name: attachmentName });
+    textureGroup.folded = true;
+    textureGroup.add();
+    if (newTextures.length === 0) return "";
+    for (let i = 0; i < newTextures.length; i++) {
+      let tex = newTextures[i];
+      if (tex.group && tex.group !== textureGroup.uuid) {
+        let cloned = cloneTexture(tex);
+        cloned.add(false);
+        tex = cloned;
+        newTextures[i] = cloned;
+      }
+      tex.group = textureGroup.uuid;
+      updateUVSize(tex);
+    }
+    let texture = newTextures.find((t) => t.name.startsWith(fileName)) ?? newTextures[0];
+    return texture.uuid;
+  }
+  function setupAttachmentTextures() {
+    let textureProperty = new Property(Collection, "string", "texture", {
+      condition: { formats: FORMAT_IDS }
+    });
+    track(textureProperty);
+    let originalGetTexture = CubeFace.prototype.getTexture;
+    CubeFace.prototype.getTexture = function(...args) {
+      if (isHytaleFormat()) {
+        let collection = getCollection(this.cube);
+        if (collection && "texture" in collection) {
+          if (collection.texture) {
+            let texture = Texture.all.find((t) => t.uuid == collection.texture);
+            if (texture) return texture;
+          }
+          return null;
+        }
+        if (this.texture == null) return null;
+        return Texture.getDefault();
+      }
+      return originalGetTexture.call(this, ...args);
+    };
+    track({
+      delete() {
+        CubeFace.prototype.getTexture = originalGetTexture;
+      }
+    });
+    let isDedupRemove = false;
+    let originalFromPath = Texture.prototype.fromPath;
+    Texture.prototype.fromPath = function(...args) {
+      if (isHytaleFormat()) {
+        isDedupRemove = true;
+        try {
+          return originalFromPath.apply(this, args);
+        } finally {
+          isDedupRemove = false;
+        }
+      }
+      return originalFromPath.apply(this, args);
+    };
+    track({
+      delete() {
+        Texture.prototype.fromPath = originalFromPath;
+      }
+    });
+    let originalRemove = Texture.prototype.remove;
+    Texture.prototype.remove = function(...args) {
+      if (isDedupRemove && this.group && isAttachmentTextureGroup(this.group)) {
+        return;
+      }
+      return originalRemove.apply(this, args);
+    };
+    track({
+      delete() {
+        Texture.prototype.remove = originalRemove;
+      }
+    });
+    let originalAdd = Texture.prototype.add;
+    Texture.prototype.add = function(...args) {
+      if (isHytaleFormat() && this.path) {
+        let savedPath = this.path;
+        this.path = "";
+        let result = originalAdd.apply(this, args);
+        this.path = savedPath;
+        return result;
+      }
+      return originalAdd.apply(this, args);
+    };
+    track({
+      delete() {
+        Texture.prototype.add = originalAdd;
+      }
+    });
+    let assignTexture = {
+      id: "set_texture",
+      name: "menu.cube.texture",
+      icon: "collections",
+      condition: { formats: FORMAT_IDS },
+      children(context) {
+        function applyTexture(textureValue, undoMessage) {
+          Undo.initEdit({ collections: Collection.selected });
+          for (let collection of Collection.selected) {
+            collection.texture = textureValue;
+          }
+          Undo.finishEdit(undoMessage);
+          Canvas.updateAllFaces();
+        }
+        let arr = [
+          {
+            icon: "crop_square",
+            name: Format.single_texture_default ? "menu.cube.texture.default" : "menu.cube.texture.blank",
+            click() {
+              applyTexture("", "Unassign texture from collection");
+            }
+          }
+        ];
+        Texture.all.forEach((t) => {
+          arr.push({
+            name: t.name,
+            icon: t.img,
+            marked: t.uuid == context.texture,
+            click() {
+              applyTexture(t.uuid, "Apply texture to collection");
+            }
+          });
+        });
+        return arr;
+      }
+    };
+    Collection.menu.addAction(assignTexture);
+    track({
+      delete() {
+        Collection.menu.removeAction("set_texture");
+      }
+    });
+    let cloneKeybind = new KeybindItem("hytale_clone_texture_modifier", {
+      name: "Duplicate Texture on Drop",
+      description: "Hold this key while dropping a texture to duplicate it instead of moving",
+      keybind: new Keybind({ key: 18 }),
+      category: "textures"
+    });
+    track(cloneKeybind);
+    let cloneModifierHeld = false;
+    function onCloneKeyDown(e) {
+      let kb = cloneKeybind.keybind;
+      if (e.keyCode === kb.key || e.key === "Alt" && (kb.key === 18 || kb.alt)) {
+        cloneModifierHeld = true;
+      }
+    }
+    function onCloneKeyUp(e) {
+      let kb = cloneKeybind.keybind;
+      if (e.keyCode === kb.key || e.key === "Alt" && (kb.key === 18 || kb.alt)) {
+        cloneModifierHeld = false;
+      }
+    }
+    document.addEventListener("keydown", onCloneKeyDown, true);
+    document.addEventListener("keyup", onCloneKeyUp, true);
+    track({ delete() {
+      document.removeEventListener("keydown", onCloneKeyDown, true);
+      document.removeEventListener("keyup", onCloneKeyUp, true);
+    } });
+    let pendingCloneFixups = [];
+    let finishEditListener = Blockbench.on("finish_edit", (event) => {
+      try {
+        if (!isHytaleFormat() || !cloneModifierHeld) return;
+        let aspects = event.aspects;
+        let beforeSave = Undo.current_save;
+        if (!beforeSave?.textures || !aspects?.textures) return;
+        let clones = [];
+        for (let tex of aspects.textures) {
+          let saved = beforeSave.textures[tex.uuid];
+          if (!saved) continue;
+          let oldGroup = saved.group;
+          if (!oldGroup || oldGroup === tex.group) continue;
+          if (!isAttachmentTextureGroup(oldGroup)) continue;
+          let targetGroup = tex.group;
+          tex.group = oldGroup;
+          let cloned = cloneTexture(tex);
+          cloned.group = targetGroup;
+          cloned.add(false);
+          clones.push(cloned);
+          pendingCloneFixups.push(cloned);
+        }
+        if (clones.length) {
+          aspects.textures.push(...clones);
+          Canvas.updateLayeredTextures();
+        }
+      } catch (e) {
+        console.error("[Hytale] texture clone error:", e);
+      }
+    });
+    track(finishEditListener);
+    let finishedEditListener = Blockbench.on("finished_edit", (event) => {
+      if (!isHytaleFormat()) return;
+      for (let clone of pendingCloneFixups) {
+        if (Texture.all.includes(clone)) {
+          clone.saved = true;
+        }
+      }
+      pendingCloneFixups.length = 0;
+      let aspects = event.aspects;
+      if (!aspects?.textures) return;
+      for (let tex of aspects.textures) {
+        if (!tex.group || !isAttachmentTextureGroup(tex.group)) continue;
+        let tg = TextureGroup.all.find((tg2) => tg2.uuid === tex.group);
+        if (!tg) continue;
+        let collection = Collection.all.find((c) => c.name === tg.name && c.export_codec === "blockymodel");
+        if (!collection || collection.texture) continue;
+        collection.texture = tex.uuid;
+        Canvas.updateAllFaces();
+      }
+    });
+    track(finishedEditListener);
+  }
+
+  // src/attachments/attach_to.ts
+  function getAttachments() {
+    return Collection.all.filter((c) => c.export_codec === "blockymodel");
+  }
+  function getOwningAttachment(node) {
+    let attachments = getAttachments();
+    let current = node;
+    while (current instanceof OutlinerNode) {
+      let uuid = current.uuid;
+      let owner = attachments.find((c) => c.children.includes(uuid));
+      if (owner) return owner;
+      current = current.parent;
+    }
+    if (node.parent !== "root" || !node.scope) return;
+    return attachments.find((c) => c.scope == node.scope);
+  }
+  function getAttachParent(collection) {
+    let uuid = collection.attach_to;
+    return uuid ? Collection.all.find((c) => c.uuid === uuid) : void 0;
+  }
+  function getAttachChain(collection) {
+    let chain = [];
+    let parent = collection && getAttachParent(collection);
+    while (parent && parent !== collection && !chain.includes(parent)) {
+      chain.unshift(parent);
+      parent = getAttachParent(parent);
+    }
+    return chain;
+  }
+  function getAttachDependents(collection) {
+    let dependents = [];
+    let queue = [collection];
+    while (queue.length) {
+      let current = queue.shift();
+      for (let child of Collection.all) {
+        if (child === collection || dependents.includes(child) || getAttachParent(child) !== current) continue;
+        dependents.push(child);
+        queue.push(child);
+      }
+    }
+    return dependents;
+  }
+  function applyAttachParents(records) {
+    for (let [uuid, parent_uuid] of records) {
+      let collection = Collection.all.find((c) => c.uuid === uuid);
+      if (!collection || collection.attach_to === parent_uuid) continue;
+      reparseAttachment(collection, () => {
+        collection.attach_to = parent_uuid;
+      });
+    }
+  }
+  function setAttachParents(changes, message = "Change attachment parent") {
+    changes = changes.filter(([collection, parent]) => getAttachParent(collection) !== parent);
+    if (!changes.length) return;
+    let before = changes.map(([collection]) => [collection.uuid, collection.attach_to ?? ""]);
+    let after = changes.map(([collection, parent]) => [collection.uuid, parent?.uuid ?? ""]);
+    applyAttachParents(after);
+    pushReloadUndo(before, after, message, applyAttachParents);
+  }
+  function releaseDependents(removed) {
+    let changes = [];
+    for (let collection of Collection.all) {
+      if (removed.includes(collection)) continue;
+      let parent = getAttachParent(collection);
+      if (!parent || !removed.includes(parent)) continue;
+      while (parent && removed.includes(parent)) parent = getAttachParent(parent);
+      changes.push([collection, parent]);
+    }
+    setAttachParents(changes, "Release attached attachments");
+  }
+  function setupAttachTo() {
+    let attach_to_property = new Property(Collection, "string", "attach_to", {
+      default: "",
+      condition: { formats: FORMAT_IDS }
+    });
+    track(attach_to_property);
+    let original_contains = Collection.prototype.contains;
+    let original_get_children = Collection.prototype.getChildren;
+    let original_get_all_children = Collection.prototype.getAllChildren;
+    let isAttachment = (collection) => isHytaleFormat() && collection.export_codec === "blockymodel";
+    Collection.prototype.contains = function(node) {
+      if (!isAttachment(this)) return original_contains.call(this, node);
+      return getOwningAttachment(node) === this;
+    };
+    Collection.prototype.getChildren = function() {
+      if (!isAttachment(this)) return original_get_children.call(this);
+      return this.children.map((uuid) => OutlinerNode.uuids[uuid]).filter(Boolean);
+    };
+    Collection.prototype.getAllChildren = function() {
+      if (!isAttachment(this)) return original_get_all_children.call(this);
+      return Outliner.nodes.filter((node) => getOwningAttachment(node) === this);
+    };
+    track({
+      delete() {
+        Collection.prototype.contains = original_contains;
+        Collection.prototype.getChildren = original_get_children;
+        Collection.prototype.getAllChildren = original_get_all_children;
+      }
+    });
+    let attach_to_menu = {
+      id: "hytale_attach_to",
+      name: "Attach To",
+      icon: "link",
+      condition: () => Collection.selected.length == 1 && Collection.selected[0].export_codec === "blockymodel" && !isUnloaded(Collection.selected[0]),
+      children() {
+        let collection = Collection.selected[0];
+        let current = getAttachParent(collection);
+        let excluded = [collection, ...getAttachDependents(collection)];
+        let entry = (name, target) => ({
+          name,
+          icon: current === target ? "radio_button_checked" : "radio_button_unchecked",
+          click: () => setAttachParents([[collection, target]])
+        });
+        let items = [entry("Main Model", void 0)];
+        for (let candidate of getAttachments()) {
+          if (excluded.includes(candidate)) continue;
+          items.push(entry(candidate.name, candidate));
+        }
+        return items;
+      }
+    };
+    Collection.menu.addAction(attach_to_menu, "#settings");
+    track({
+      delete() {
+        Collection.menu.removeAction("hytale_attach_to");
+      }
+    });
+  }
+
+  // src/attachments/rebuild.ts
+  function parseAttachmentJson(collection, json, path) {
+    let result = Codecs.blockymodel.parse(json, path, { attachment: collection.name, held: isHeld(collection) });
+    let new_groups = result.new_groups;
+    let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
+    collection.extend({ children: root_groups.map((g) => g.uuid) }).add();
+    assignCollectionScope(collection);
+  }
+  function transferNodeUuids(from, to) {
+    let by_path = /* @__PURE__ */ new Map();
+    let by_name = /* @__PURE__ */ new Map();
+    let baseName = (node) => node.name.replace(/--C\d+$/, "");
+    let collect = (nodes, path) => {
+      for (let node of nodes ?? []) {
+        let key = path + "/" + baseName(node);
+        by_path.set(key, [...by_path.get(key) ?? [], node]);
+        by_name.set(baseName(node), [...by_name.get(baseName(node)) ?? [], node]);
+        collect(node.children, key);
+      }
+    };
+    collect(from.nodes, "");
+    let used = /* @__PURE__ */ new Set();
+    let sameKind = (a, b) => !!a.shape?.settings?.isStaticBox == !!b.shape?.settings?.isStaticBox;
+    let copy = (source, node) => {
+      used.add(source);
+      node.uuid = source.uuid;
+      node.shapeUuid = source.shapeUuid;
+      if (!node.shape) return;
+      node.fileHidden = node.shape.visible == false;
+      node.groupVisible = source.groupVisible ?? true;
+      let shape_visible = source.shape?.visible != false;
+      if (shape_visible == !!source.fileHidden) node.shape.visible = shape_visible;
+    };
+    let unmatched = [];
+    let assign = (nodes, path) => {
+      for (let node of nodes ?? []) {
+        let key = path + "/" + baseName(node);
+        let source = by_path.get(key)?.find((c) => !used.has(c) && sameKind(c, node));
+        if (source) copy(source, node);
+        else unmatched.push(node);
+        assign(node.children, key);
+      }
+    };
+    assign(to.nodes, "");
+    for (let node of unmatched) {
+      let candidates = by_name.get(baseName(node))?.filter((c) => !used.has(c) && sameKind(c, node));
+      if (candidates?.length === 1) copy(candidates[0], node);
+    }
+  }
+  function stashAnimators() {
+    let stash = [];
+    for (let animation of Animator.animations) {
+      for (let uuid in animation.animators) stash.push([animation, uuid, animation.animators[uuid]]);
+    }
+    return stash;
+  }
+  function restoreAnimators(stash) {
+    for (let [animation, uuid, animator] of stash) {
+      if (!animation.animators[uuid] && OutlinerNode.uuids[uuid]) animation.animators[uuid] = animator;
+    }
+  }
+  function rebuildWithDependents(collection, rebuild) {
+    let animators = stashAnimators();
+    let dependents = getAttachDependents(collection).filter((c) => !isUnloaded(c));
+    let snapshots = dependents.map((c) => Codecs.blockymodel.compile({ attachment: c, raw: true, uuids: true }));
+    for (let dependent of dependents.slice().reverse()) {
+      for (let child of dependent.getChildren()) child.remove();
+    }
+    rebuild();
+    dependents.forEach((dependent, i) => parseAttachmentJson(dependent, snapshots[i], dependent.export_path));
+    restoreAnimators(animators);
+    Canvas.updateAllFaces();
+  }
+  function reparseAttachment(collection, change, json) {
+    if (isUnloaded(collection)) return change?.();
+    rebuildWithDependents(collection, () => {
+      json ??= Codecs.blockymodel.compile({ attachment: collection, raw: true, uuids: true });
+      for (let child of collection.getChildren()) child.remove();
+      change?.();
+      parseAttachmentJson(collection, json, collection.export_path);
+    });
+  }
+
+  // src/attachments/held.ts
+  function isHeld(collection) {
+    return collection.held === true;
+  }
+  function setHeld(collection, held) {
+    collection.held = held;
+  }
+  function detectHeld(json, path) {
+    if (/[\\/](Armors|Cosmetics|Characters|Attachments)[\\/]/i.test(path)) return false;
+    let root = json.nodes?.[0];
+    if (!root) return false;
+    return !isPieceNode(root) || /^[RL]-Attachment$/.test(root.name);
+  }
+  function changeHeld(collection, held) {
+    let uuid = collection.uuid;
+    let apply = (value) => {
+      let target = Collection.all.find((c) => c.uuid === uuid);
+      if (!target || isHeld(target) === value) return;
+      reparseAttachment(target, () => setHeld(target, value));
+      applyCollectionColors();
+    };
+    apply(held);
+    pushReloadUndo(!held, held, held ? "Make attachment held" : "Make attachment worn", apply);
+  }
+  function setupHeld() {
+    let held_property = new Property(Collection, "boolean", "held", {
+      default: false,
+      condition: { formats: FORMAT_IDS }
+    });
+    track(held_property);
+    let isAttachment = () => Collection.selected.length == 1 && Collection.selected[0].export_codec === "blockymodel";
+    let make_held = {
+      id: "hytale_make_held",
+      name: "Make Held Item",
+      icon: "pan_tool",
+      condition: () => isAttachment() && !isHeld(Collection.selected[0]),
+      click: () => changeHeld(Collection.selected[0], true)
+    };
+    let make_worn = {
+      id: "hytale_make_worn",
+      name: "Make Worn Item",
+      icon: "checkroom",
+      condition: () => isAttachment() && isHeld(Collection.selected[0]),
+      click: () => changeHeld(Collection.selected[0], false)
+    };
+    Collection.menu.addAction(make_held, "#settings");
+    Collection.menu.addAction(make_worn, "#settings");
+    track({
+      delete() {
+        Collection.menu.removeAction("hytale_make_held");
+        Collection.menu.removeAction("hytale_make_worn");
+      }
+    });
+  }
+
+  // src/attachments/collection_color.ts
+  var SCOPE_CLASS = "hytale_scope_override";
+  var COLOR_CLASS = "hytale_collection_colored";
+  var COLOR_VAR = "--hytale-collection-color";
+  var BORDER_VAR = "--hytale-collection-border";
+  var colorUpdatePending = false;
+  var minimalColoring = false;
+  function scheduleColorUpdate() {
+    if (colorUpdatePending) return;
+    colorUpdatePending = true;
+    requestAnimationFrame(() => {
+      colorUpdatePending = false;
+      applyCollectionColors();
+    });
+  }
+  function hexToRgba(hex, alpha) {
+    let r = parseInt(hex.slice(1, 3), 16);
+    let g = parseInt(hex.slice(3, 5), 16);
+    let b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  function applyCollectionColors() {
+    if (!isHytaleFormat()) return;
+    const outlinerPanel = Panels.outliner?.node;
+    if (outlinerPanel) {
+      outlinerPanel.querySelectorAll(`.${SCOPE_CLASS}`).forEach((el) => {
+        el.style.removeProperty(COLOR_VAR);
+        el.style.removeProperty(BORDER_VAR);
+        el.classList.remove(SCOPE_CLASS, COLOR_CLASS);
+      });
+    }
+    const collectionsPanel = Panels.collections?.node;
+    if (collectionsPanel) {
+      collectionsPanel.querySelectorAll(`.${SCOPE_CLASS}`).forEach((el) => {
+        el.style.removeProperty(BORDER_VAR);
+        el.classList.remove(SCOPE_CLASS, COLOR_CLASS);
+      });
+      collectionsPanel.querySelectorAll(".hytale_collection_icon_colored").forEach((el) => {
+        el.style.removeProperty("color");
+        el.classList.remove("hytale_collection_icon_colored");
+      });
+    }
+    for (let collection of Collection.all) {
+      if (collection.export_codec !== "blockymodel") continue;
+      let colorIndex = collection.color;
+      let hasColor = colorIndex != null && colorIndex >= 0;
+      let marker = hasColor ? markerColors[colorIndex % markerColors.length] : null;
+      if (outlinerPanel) {
+        for (let child of collection.getAllChildren()) {
+          let li = outlinerPanel.querySelector(`[id="${child.uuid}"]`);
+          if (!li) continue;
+          let obj = li.querySelector(":scope > .outliner_object");
+          if (!obj) continue;
+          obj.classList.add(SCOPE_CLASS);
+          if (marker) {
+            if (!minimalColoring) obj.style.setProperty(COLOR_VAR, hexToRgba(marker.pastel, 0.35));
+            obj.style.setProperty(BORDER_VAR, marker.standard);
+            obj.classList.add(COLOR_CLASS);
+          }
+        }
+      }
+      if (collectionsPanel) {
+        let li = collectionsPanel.querySelector(`[uuid="${collection.uuid}"]`);
+        if (li) {
+          li.classList.add(SCOPE_CLASS);
+          let type_icon = li.querySelector(":scope > i.material-icons");
+          let type = isHeld(collection) ? "pan_tool" : "checkroom";
+          if (type_icon && type_icon.textContent !== type) type_icon.textContent = type;
+          if (marker) {
+            li.style.setProperty(BORDER_VAR, marker.standard);
+            li.classList.add(COLOR_CLASS);
+            let icon = li.querySelector(":scope > i.material-icons");
+            if (icon) {
+              icon.style.color = marker.standard;
+              icon.classList.add("hytale_collection_icon_colored");
+            }
+          }
+        }
+      }
+    }
+  }
+  function setupCollectionColor() {
+    let colorProperty = new Property(Collection, "number", "color", {
+      default: -1,
+      condition: { formats: FORMAT_IDS }
+    });
+    track(colorProperty);
+    let colorMenuItem = {
+      id: "set_collection_color",
+      name: "menu.cube.color",
+      icon: "color_lens",
+      condition: { formats: FORMAT_IDS },
+      children() {
+        let items = [
+          {
+            icon: "block",
+            name: "generic.none",
+            click() {
+              Undo.initEdit({ collections: Collection.selected });
+              for (let collection of Collection.selected) {
+                collection.color = -1;
+              }
+              Undo.finishEdit("Remove collection color");
+              applyCollectionColors();
+            }
+          }
+        ];
+        for (let i = 0; i < markerColors.length; i++) {
+          let color = markerColors[i];
+          items.push({
+            icon: "bubble_chart",
+            color: color.standard,
+            name: color.name || "cube.color." + color.id,
+            click() {
+              Undo.initEdit({ collections: Collection.selected });
+              for (let collection of Collection.selected) {
+                collection.color = i;
+              }
+              Undo.finishEdit("Set collection color");
+              applyCollectionColors();
+            }
+          });
+        }
+        return items;
+      }
+    };
+    Collection.menu.addAction(colorMenuItem, "#settings");
+    track({
+      delete() {
+        Collection.menu.removeAction("set_collection_color");
+      }
+    });
+    let setting2 = new Setting("minimal_attachment_coloring", {
+      name: "Subtle Attachment Colors",
+      category: "edit",
+      description: "Colored attachments will only show a thin line indicator in the outliner instead of a full row highlight.",
+      type: "toggle",
+      value: false,
+      onChange(value) {
+        minimalColoring = value;
+        applyCollectionColors();
+      }
+    });
+    minimalColoring = setting2.value;
+    track(setting2);
+    let style = Blockbench.addCSS(`
+		.${SCOPE_CLASS} {
+			--color-scope: transparent !important;
+		}
+		.outliner_object.${COLOR_CLASS}:not(.selected) {
+			background-color: var(${COLOR_VAR});
+		}
+		.${COLOR_CLASS} {
+			border-left-color: var(${BORDER_VAR}) !important;
+		}
+	`);
+    let hookFinishedEdit = Blockbench.on("finished_edit", scheduleColorUpdate);
+    let hookSelectMode = Blockbench.on("select_mode", scheduleColorUpdate);
+    let hookSelection = Blockbench.on("update_selection", scheduleColorUpdate);
+    let outlinerList = Panels.outliner?.node?.querySelector("#cubes_list");
+    let outlinerObserver = null;
+    if (outlinerList) {
+      outlinerObserver = new MutationObserver(scheduleColorUpdate);
+      outlinerObserver.observe(outlinerList, { childList: true, subtree: true });
+    }
+    let collectionsList = Panels.collections?.node?.querySelector("#collections_list");
+    let collectionsObserver = null;
+    if (collectionsList) {
+      collectionsObserver = new MutationObserver(scheduleColorUpdate);
+      collectionsObserver.observe(collectionsList, { childList: true, subtree: true, characterData: true });
+    }
+    setTimeout(applyCollectionColors, 100);
+    track(hookFinishedEdit, hookSelectMode, hookSelection, style, {
+      delete() {
+        outlinerObserver?.disconnect();
+        collectionsObserver?.disconnect();
+        Panels.outliner?.node?.querySelectorAll(`.${SCOPE_CLASS}`).forEach((el) => {
+          el.style.removeProperty(COLOR_VAR);
+          el.style.removeProperty(BORDER_VAR);
+          el.classList.remove(SCOPE_CLASS, COLOR_CLASS);
+        });
+        Panels.collections?.node?.querySelectorAll(`.${SCOPE_CLASS}`).forEach((el) => {
+          el.style.removeProperty(BORDER_VAR);
+          el.classList.remove(SCOPE_CLASS, COLOR_CLASS);
+        });
+        Panels.collections?.node?.querySelectorAll(".hytale_collection_icon_colored").forEach((el) => {
+          el.style.removeProperty("color");
+          el.classList.remove("hytale_collection_icon_colored");
+        });
+        Panels.collections?.node?.querySelectorAll("li.collection > i.material-icons").forEach((el) => {
+          el.textContent = "inventory_2";
+        });
+      }
+    });
+  }
+
+  // src/attachments/delete.ts
+  function joinUndoSteps(entries, message) {
+    if (entries.length < 2) return;
+    Undo.history.splice(Undo.history.length - entries.length, entries.length);
+    Undo.index = Undo.history.length;
+    pushReloadUndo("undo", "redo", message, (direction) => {
+      if (direction == "undo") {
+        entries.slice().reverse().forEach((entry) => Undo.loadSave(entry.before, entry.post));
+      } else {
+        entries.forEach((entry) => Undo.loadSave(entry.post, entry.before));
+      }
+    });
+  }
+  function removeAttachments(collections, message) {
+    let previous_entries = new Set(Undo.history);
+    releaseDependents(collections);
+    let remove_elements = [];
+    let remove_groups = [];
+    let textures = [];
+    let texture_groups = [];
+    for (let collection of collections) {
+      if (collection.export_codec !== "blockymodel") continue;
+      for (let child of collection.getAllChildren()) {
+        (child instanceof Group ? remove_groups : remove_elements).safePush(child);
+      }
+      let texture_group = TextureGroup.all.find((tg) => tg.name === collection.name);
+      if (texture_group) {
+        textures.safePush(...Texture.all.filter((t) => t.group === texture_group.uuid));
+        texture_groups.push(texture_group);
+      }
+    }
+    Undo.initEdit({
+      collections,
+      groups: remove_groups,
+      elements: remove_elements,
+      outliner: true,
+      texture_groups,
+      textures
+    });
+    collections.forEach((c) => {
+      unwatchCollection(c);
+      Collection.all.remove(c);
+    });
+    collections.empty();
+    textures.forEach((t) => t.remove(true));
+    textures.empty();
+    texture_groups.forEach((t) => t.remove());
+    texture_groups.empty();
+    remove_groups.forEach((group) => group.remove());
+    remove_groups.empty();
+    remove_elements.forEach((element) => element.remove());
+    remove_elements.empty();
+    updateSelection();
+    Undo.finishEdit(message);
+    joinUndoSteps(Undo.history.filter((entry) => !previous_entries.has(entry)), message);
+  }
+  function setupDelete() {
+    let shared_delete = SharedActions.add("delete", {
+      subject: "collection",
+      priority: 1,
+      condition: () => Prop.active_panel == "collections" && isHytaleFormat() && Collection.selected.some((c) => c.export_codec === "blockymodel"),
+      run() {
+        removeAttachments(Collection.selected.slice(), "Remove attachment");
+      }
+    });
+    track(shared_delete);
+  }
+
+  // src/attachments/collection_folder.ts
+  var GROUP_CLASS = "hytale_collection_folder";
+  var HEAD_CLASS = "hytale_collection_folder_head";
+  var LIST_CLASS = "hytale_collection_folder_list";
+  var MEMBER_ATTR = "data-hytale-folder";
+  var folders = [];
+  var updatePending = false;
+  var observer = null;
+  function fc(c) {
+    return c;
+  }
+  function fp() {
+    return Project;
+  }
+  function uniqueFolderName(base) {
+    let names = new Set(folders.map((f) => f.name));
+    if (!names.has(base)) return base;
+    for (let i = 2; ; i++) {
+      let name = `${base} ${i}`;
+      if (!names.has(name)) return name;
+    }
+  }
+  function syncToProject() {
+    if (!Project) return;
+    fp().collection_folders = folders.map((f) => f.getSaveCopy());
+  }
+  function loadFromProject() {
+    folders.length = 0;
+    if (!Project) return;
+    let data = fp().collection_folders;
+    if (!Array.isArray(data)) return;
+    for (let entry of data) folders.push(new CollectionFolder(entry));
+    folders.sort((a, b) => a.order - b.order);
+  }
+  function recordFolders(entry, before) {
+    if (!entry) return;
+    entry.folders_before = before;
+    entry.folders_after = folders.map((f) => f.getSaveCopy());
+  }
+  function setFolder(collections, folderUuid, undoLabel, changeFolders) {
+    let before = folders.map((f) => f.getSaveCopy());
+    Undo.initEdit({ collections });
+    changeFolders?.();
+    for (let c of collections) fc(c).folder = folderUuid;
+    syncToProject();
+    recordFolders(Undo.finishEdit(undoLabel), before);
+    scheduleUpdate();
+  }
+  function scheduleUpdate() {
+    if (updatePending) return;
+    updatePending = true;
+    requestAnimationFrame(() => {
+      updatePending = false;
+      injectFolderDOM();
+    });
+  }
+  var CollectionFolder = class {
+    uuid;
+    name;
+    folded;
+    order;
+    menu;
+    constructor(data) {
+      this.uuid = data?.uuid ?? guid();
+      this.name = data?.name ?? uniqueFolderName("Set");
+      this.folded = data?.folded ?? false;
+      this.order = data?.order ?? folders.length;
+      this.menu = new Menu("collection_folder", [
+        { id: "rename", name: "generic.rename", icon: "text_format", click: () => this.rename() },
+        { id: "resolve", name: "menu.texture_group.resolve", icon: "fa-leaf", click: () => this.remove() },
+        { id: "delete_all", name: "Delete Set and Attachments", icon: "delete_forever", click: () => this.removeWithAttachments() }
+      ]);
+    }
+    add() {
+      if (!folders.includes(this)) folders.push(this);
+      syncToProject();
+      scheduleUpdate();
+      return this;
+    }
+    remove() {
+      setFolder(this.getCollections(), "", "Remove collection folder", () => folders.remove(this));
+    }
+    removeWithAttachments() {
+      let before = folders.map((f) => f.getSaveCopy());
+      removeAttachments(this.getCollections(), "Delete set and attachments");
+      folders.remove(this);
+      syncToProject();
+      recordFolders(Undo.history[Undo.history.length - 1], before);
+      scheduleUpdate();
+    }
+    rename() {
+      Blockbench.textPrompt("generic.rename", this.name, (name) => {
+        if (name && name !== this.name) {
+          this.name = name;
+          syncToProject();
+          scheduleUpdate();
+        }
+      });
+    }
+    toggle() {
+      this.folded = !this.folded;
+      syncToProject();
+      scheduleUpdate();
+    }
+    getCollections() {
+      return Collection.all.filter((c) => c.folder === this.uuid);
+    }
+    getSaveCopy() {
+      return { uuid: this.uuid, name: this.name, folded: this.folded, order: this.order };
+    }
+    showContextMenu(event) {
+      this.menu.open(event, this);
+    }
+    static get all() {
+      return folders;
+    }
+  };
+  function getUngroupedCollections() {
+    return Collection.all.filter((c) => {
+      let f = fc(c).folder;
+      return !f || !folders.find((folder) => folder.uuid === f);
+    });
+  }
+  function unwrapFolderDOM(list2) {
+    list2.querySelectorAll(`.${GROUP_CLASS}`).forEach((group) => {
+      let children = group.querySelectorAll(":scope > ." + LIST_CLASS + " > li.collection");
+      children.forEach((el) => {
+        el.style.removeProperty("display");
+        el.removeAttribute(MEMBER_ATTR);
+        list2.insertBefore(el, group);
+      });
+      group.remove();
+    });
+  }
+  function injectFolderDOM() {
+    if (!isHytaleFormat()) return;
+    let list2 = Panels.collections?.node?.querySelector("#collections_list");
+    if (!list2) return;
+    observer?.disconnect();
+    unwrapFolderDOM(list2);
+    let collectionEls = Array.from(list2.querySelectorAll(":scope > li.collection"));
+    function findEl(uuid) {
+      return collectionEls.find((el) => el.getAttribute("uuid") === uuid) ?? null;
+    }
+    let sorted = folders.slice().sort((a, b) => a.order - b.order);
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      let group = createFolderGroup(sorted[i], collectionEls);
+      list2.prepend(group);
+    }
+    for (let c of getUngroupedCollections()) {
+      let el = findEl(c.uuid);
+      if (el) list2.appendChild(el);
+    }
+    observer?.observe(list2, { childList: true });
+    applyCollectionColors();
+    syncUnloadButtons();
+  }
+  function createFolderGroup(folder, collectionEls) {
+    let group = document.createElement("li");
+    group.className = GROUP_CLASS;
+    let head = document.createElement("div");
+    head.className = HEAD_CLASS;
+    head.setAttribute("data-folder-uuid", folder.uuid);
+    if (folder.folded) head.classList.add("folded");
+    let arrow = document.createElement("i");
+    arrow.className = "icon-open-state fa " + (folder.folded ? "fa-angle-right" : "fa-angle-down");
+    head.appendChild(arrow);
+    let label = document.createElement("label");
+    label.textContent = folder.name;
+    label.title = folder.name;
+    head.appendChild(label);
+    if (!folder.folded) {
+      let addBtn = document.createElement("div");
+      addBtn.className = "in_list_button";
+      let addIcon = document.createElement("i");
+      addIcon.className = "material-icons icon";
+      addIcon.textContent = "add";
+      addBtn.appendChild(addIcon);
+      addBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        importAttachmentToFolder(folder.uuid);
+      });
+      addBtn.addEventListener("dblclick", (e) => e.stopPropagation());
+      head.appendChild(addBtn);
+    }
+    let collections = folder.getCollections();
+    let anyUnloaded = collections.some((c) => isUnloaded(c));
+    let unloadBtn = document.createElement("div");
+    unloadBtn.className = "in_list_button";
+    let unloadIcon = document.createElement("i");
+    unloadIcon.className = "material-icons icon";
+    if (anyUnloaded) unloadIcon.classList.add("toggle_disabled");
+    unloadIcon.textContent = anyUnloaded ? "download" : "eject";
+    unloadBtn.appendChild(unloadIcon);
+    unloadBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (anyUnloaded) {
+        for (let c of collections) {
+          if (isUnloaded(c)) reloadCollection(c);
+        }
+      } else {
+        promptAndUnload(collections);
+      }
+    });
+    unloadBtn.addEventListener("dblclick", (e) => e.stopPropagation());
+    head.appendChild(unloadBtn);
+    let loadedCollections = collections.filter((c) => !isUnloaded(c));
+    let anyVisible = loadedCollections.some((c) => c.getVisibility());
+    let visBtn = document.createElement("div");
+    visBtn.className = "in_list_button";
+    let visIcon = document.createElement("i");
+    visIcon.className = "material-icons icon";
+    if (loadedCollections.length === 0) {
+      visIcon.classList.add("toggle_disabled");
+      visIcon.textContent = "visibility_off";
+    } else {
+      visIcon.textContent = anyVisible ? "visibility" : "visibility_off";
+      if (!anyVisible) visIcon.classList.add("toggle_disabled");
+    }
+    visBtn.appendChild(visIcon);
+    visBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleCollectionChildVisibility(collections);
+      let nowVisible = loadedCollections.some((c) => c.getVisibility());
+      visIcon.textContent = nowVisible ? "visibility" : "visibility_off";
+      visIcon.classList.toggle("toggle_disabled", !nowVisible);
+    });
+    visBtn.addEventListener("dblclick", (e) => e.stopPropagation());
+    head.appendChild(visBtn);
+    head.addEventListener("click", (e) => {
+      e.stopPropagation();
+      folder.toggle();
+    });
+    head.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      folder.showContextMenu(e);
+    });
+    head.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      head.classList.add("drag_hover");
+    });
+    head.addEventListener("dragleave", () => head.classList.remove("drag_hover"));
+    head.addEventListener("drop", (e) => {
+      e.preventDefault();
+      head.classList.remove("drag_hover");
+      let uuid = e.dataTransfer?.getData("text/collection-uuid");
+      let collection = uuid ? Collection.all.find((c) => c.uuid === uuid) : null;
+      if (!collection) return;
+      let collections2 = Collection.selected.includes(collection) && Collection.selected.length > 1 ? Collection.selected : [collection];
+      setFolder(collections2, folder.uuid, "Move collection to folder");
+    });
+    group.appendChild(head);
+    let childList = document.createElement("ul");
+    childList.className = LIST_CLASS;
+    if (folder.folded) childList.style.display = "none";
+    for (let collection of folder.getCollections()) {
+      let el = collectionEls.find((cel) => cel.getAttribute("uuid") === collection.uuid);
+      if (!el) continue;
+      el.setAttribute(MEMBER_ATTR, folder.uuid);
+      childList.appendChild(el);
+    }
+    group.appendChild(childList);
+    return group;
+  }
+  function setupCollectionDrag() {
+    let panel = Panels.collections?.node;
+    if (!panel) return;
+    const dragHandler = (e) => {
+      if (e.button !== 0) return;
+      if (!isHytaleFormat()) return;
+      let target = e.target;
+      while (target && !target.classList?.contains("collection")) {
+        if (target === panel) return;
+        target = target.parentElement;
+      }
+      if (!target) return;
+      let uuid = target.getAttribute("uuid");
+      if (!uuid) return;
+      let dragCollection = Collection.all.find((c) => c.uuid === uuid);
+      if (!dragCollection) return;
+      let dragCollections = Collection.selected.includes(dragCollection) && Collection.selected.length > 1 ? Collection.selected.slice() : [dragCollection];
+      let startX = e.clientX, startY = e.clientY;
+      let active = false;
+      let helper = null;
+      function onMove(e2) {
+        let dx = e2.clientX - startX, dy = e2.clientY - startY;
+        if (!active && Math.sqrt(dx * dx + dy * dy) > 6) {
+          active = true;
+          helper = document.createElement("div");
+          helper.className = "hytale_collection_drag_helper";
+          helper.textContent = dragCollections.length > 1 ? `${dragCollections.length} attachments` : dragCollections[0].name;
+          document.body.appendChild(helper);
+        }
+        if (!active || !helper) return;
+        e2.preventDefault();
+        helper.style.left = `${e2.clientX}px`;
+        helper.style.top = `${e2.clientY}px`;
+        document.querySelectorAll(`.${HEAD_CLASS}`).forEach((el) => el.classList.remove("drag_hover"));
+        let under = document.elementFromPoint(e2.clientX, e2.clientY)?.closest(`.${HEAD_CLASS}`);
+        if (under) under.classList.add("drag_hover");
+      }
+      function onUp(e2) {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        helper?.remove();
+        document.querySelectorAll(`.${HEAD_CLASS}`).forEach((el) => el.classList.remove("drag_hover"));
+        if (!active) return;
+        let folderHead = document.elementFromPoint(e2.clientX, e2.clientY)?.closest(`.${HEAD_CLASS}`);
+        let targetUuid = folderHead?.getAttribute("data-folder-uuid") ?? "";
+        let toMove = dragCollections.filter((c) => fc(c).folder !== targetUuid);
+        if (toMove.length > 0) {
+          setFolder(toMove, targetUuid, "Move collection to folder");
+        }
+      }
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    };
+    panel.addEventListener("mousedown", dragHandler);
+    return { delete() {
+      panel?.removeEventListener("mousedown", dragHandler);
+    } };
+  }
+  function setupCollectionFolders() {
+    let folderProp = new Property(Collection, "string", "folder", { default: "", condition: { formats: FORMAT_IDS } });
+    let foldersProp = new Property(ModelProject, "array", "collection_folders", { default: [], condition: { formats: FORMAT_IDS } });
+    track(folderProp, foldersProp);
+    let createAction = new Action("create_collection_folder", {
+      name: "Create Set",
+      icon: "create_new_folder",
+      category: "collections",
+      condition: { formats: FORMAT_IDS },
+      click() {
+        let folder = new CollectionFolder();
+        setFolder(Collection.selected.slice(), folder.uuid, "Create set", () => folder.add());
+      }
+    });
+    track(createAction);
+    Panels.collections.toolbars[0].add(createAction);
+    Panels.collections.menu.addAction(createAction);
+    let moveMenu = {
+      id: "move_to_folder",
+      name: "Move to Set",
+      icon: "drive_file_move",
+      condition: { formats: FORMAT_IDS },
+      children() {
+        let items = [{
+          icon: "block",
+          name: "generic.none",
+          click(ctx) {
+            setFolder([ctx], "", "Remove collection from folder");
+          }
+        }];
+        for (let folder of folders) {
+          items.push({
+            icon: "folder",
+            name: folder.name,
+            click(ctx) {
+              setFolder([ctx], folder.uuid, "Move collection to folder");
+            }
+          });
+        }
+        return items;
+      }
+    };
+    Collection.menu.addAction(moveMenu, "#settings");
+    track({ delete() {
+      Collection.menu.removeAction("move_to_folder");
+    } });
+    let reloadAndUpdate = () => {
+      loadFromProject();
+      scheduleUpdate();
+    };
+    let restoreFolders = (data) => {
+      if (data) fp().collection_folders = data.map((folder) => ({ ...folder }));
+      reloadAndUpdate();
+    };
+    let hookProject = Blockbench.on("select_project", reloadAndUpdate);
+    let hookUnselect = Blockbench.on("unselect_project", () => {
+      let list2 = Panels.collections?.node?.querySelector("#collections_list");
+      if (list2) unwrapFolderDOM(list2);
+    });
+    let hookEdit = Blockbench.on("finished_edit", scheduleUpdate);
+    let hookSelection = Blockbench.on("update_selection", scheduleUpdate);
+    let hookMode = Blockbench.on("select_mode", scheduleUpdate);
+    let hookUndo = Blockbench.on("undo", ({ entry }) => restoreFolders(entry?.folders_before));
+    let hookRedo = Blockbench.on("redo", ({ entry }) => restoreFolders(entry?.folders_after));
+    let listEl = Panels.collections?.node?.querySelector("#collections_list");
+    if (listEl) {
+      observer = new MutationObserver(scheduleUpdate);
+      observer.observe(listEl, { childList: true });
+    }
+    let dragCleanup = setupCollectionDrag() ?? { delete() {
+    } };
+    let style = Blockbench.addCSS(`
+        .${GROUP_CLASS} {
+            padding-bottom: 4px;
+        }
+        .${HEAD_CLASS} {
+            height: 32px;
+            padding: 4px;
+            padding-right: 8px;
+            display: flex;
+            gap: 5px;
+            align-items: center;
+            cursor: pointer;
+        }
+        .${HEAD_CLASS}:hover {
+            color: var(--color-text);
+        }
+        .${HEAD_CLASS}.drag_hover {
+            background: var(--color-accent);
+            color: var(--color-accent_text);
+        }
+        .${HEAD_CLASS} > .icon-open-state {
+            text-align: center;
+            width: 21px;
+            margin-top: 4px;
+            flex-shrink: 0;
+        }
+        .${HEAD_CLASS} > label {
+            flex: 1;
+            overflow: hidden;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+        .${HEAD_CLASS} > label + .in_list_button {
+            margin-left: auto;
+        }
+        .${HEAD_CLASS}.folded > label {
+            max-width: calc(60% - 50px);
+            min-width: 30px;
+        }
+        .${LIST_CLASS} {
+            margin-left: 14px;
+            padding-left: 6px;
+        }
+        .hytale_collection_drag_helper {
+            position: fixed; pointer-events: none; z-index: 1000;
+            background: var(--color-accent); color: var(--color-accent_text);
+            padding: 2px 8px; border-radius: 4px; font-size: 12px;
+            transform: translate(10px, -50%);
+        }
+    `);
+    loadFromProject();
+    setTimeout(scheduleUpdate, 100);
+    track(hookProject, hookUnselect, hookEdit, hookSelection, hookMode, hookUndo, hookRedo, style, dragCleanup, {
+      delete() {
+        observer?.disconnect();
+        folders.length = 0;
+        let list2 = Panels.collections?.node?.querySelector("#collections_list");
+        if (list2) {
+          list2.querySelectorAll(`.${GROUP_CLASS}`).forEach((group) => {
+            let children = group.querySelectorAll("li.collection");
+            children.forEach((el) => {
+              el.removeAttribute(MEMBER_ATTR);
+              list2.insertBefore(el, group);
+            });
+            group.remove();
+          });
+        }
+      }
+    });
+  }
+
+  // src/attachments/unload.ts
+  var unloadedStates = /* @__PURE__ */ new Map();
+  var UNLOADED_ATTR = "data-hytale-unloaded";
+  function setUnloadedAttr(collection, unloaded) {
+    let list2 = Panels.collections?.node?.querySelector("#collections_list");
+    let el = list2?.querySelector(`[uuid="${collection.uuid}"]`);
+    if (!el) return;
+    if (unloaded) el.setAttribute(UNLOADED_ATTR, "");
+    else el.removeAttribute(UNLOADED_ATTR);
+  }
+  function assignCollectionScope(collection) {
+    let usedScopes = /* @__PURE__ */ new Set();
+    for (let node of Group.all.concat(Outliner.elements)) {
+      usedScopes.add(node.scope);
+    }
+    for (let c of Collection.all) usedScopes.add(c.scope);
+    let scope = 1;
+    while (usedScopes.has(scope)) scope++;
+    for (let child of collection.getAllChildren()) {
+      child.scope = scope;
+    }
+    collection.scope = scope;
+  }
+  function isUnloaded(collection) {
+    return collection.unloaded === true;
+  }
+  function unloadCollection(collection) {
+    if (isUnloaded(collection)) return;
+    if (collection.export_codec !== "blockymodel") return;
+    let savedState = collection.saved;
+    let json = Codecs.blockymodel.compile({ attachment: collection, raw: true, uuids: true });
+    let animators = stashAnimators();
+    let texturePaths = [];
+    let primaryTexturePath = "";
+    let primaryUuid = collection.texture || "";
+    if (primaryUuid) {
+      let pt = Texture.all.find((t) => t.uuid === primaryUuid);
+      if (pt) primaryTexturePath = resolveTexturePath(pt);
+    }
+    let tg = TextureGroup.all.find((t) => t.name === collection.name);
+    if (tg) {
+      let textures = Texture.all.filter((t) => t.group === tg.uuid);
+      texturePaths = textures.map((t) => resolveTexturePath(t)).filter(Boolean);
+      textures.forEach((t) => t.remove(true));
+      tg.remove();
+    }
+    rebuildWithDependents(collection, () => {
+      for (let child of collection.getAllChildren()) {
+        if (child instanceof Group) child.remove();
+        else child.remove();
+      }
+      collection.extend({ children: [] });
+    });
+    unloadedStates.set(collection.uuid, { json, animators, texturePaths, primaryTexturePath });
+    let uc = collection;
+    uc.unloaded = true;
+    uc.unloaded_texture_paths = JSON.stringify(texturePaths);
+    uc.unloaded_primary_path = primaryTexturePath;
+    unwatchCollection(collection);
+    setUnloadedAttr(collection, true);
+    Canvas.updateAllFaces();
+    collection.saved = savedState;
+    scheduleUpdate();
+  }
+  function reloadCollection(collection) {
+    if (!isUnloaded(collection)) return;
+    let savedState = collection.saved;
+    let state = unloadedStates.get(collection.uuid);
+    let path = collection.export_path;
+    let fs = requireNativeModule("fs");
+    let json;
+    let useFile = path && fs.existsSync(path);
+    if (useFile) {
+      json = autoParseJSON(fs.readFileSync(path, "utf-8"));
+      if (state) transferNodeUuids(state.json, json);
+    } else if (state) {
+      json = state.json;
+    } else {
+      return;
+    }
+    rebuildWithDependents(collection, () => parseAttachmentJson(collection, json, path || ""));
+    if (state) restoreAnimators(state.animators);
+    let uc = collection;
+    let texturePaths = state?.texturePaths ?? [];
+    if (texturePaths.length === 0 && uc.unloaded_texture_paths) {
+      try {
+        texturePaths = JSON.parse(uc.unloaded_texture_paths);
+      } catch {
+      }
+    }
+    if (useFile) {
+      let dirname = PathModule.dirname(path);
+      for (let tp of discoverTexturePaths(dirname, PathModule.basename(path, PathModule.extname(path)))) {
+        if (!texturePaths.includes(tp)) texturePaths.push(tp);
+      }
+    }
+    let primaryTexturePath = state?.primaryTexturePath || uc.unloaded_primary_path || "";
+    let tg = new TextureGroup({ name: collection.name });
+    tg.folded = true;
+    tg.add();
+    let allTextures = [];
+    for (let tp of texturePaths) {
+      let existing = Texture.all.find((t) => t.path === tp);
+      if (existing && existing.group && existing.group !== tg.uuid) {
+        if (fs.existsSync(tp)) {
+          let tex = new Texture().fromPath(tp).add(false, true);
+          tex.group = tg.uuid;
+          allTextures.push(tex);
+        }
+      } else if (existing) {
+        existing.group = tg.uuid;
+        allTextures.push(existing);
+      } else if (fs.existsSync(tp)) {
+        let tex = new Texture().fromPath(tp).add(false, true);
+        tex.group = tg.uuid;
+        allTextures.push(tex);
+      }
+    }
+    if (primaryTexturePath) {
+      let primary = allTextures.find((t) => t.path === primaryTexturePath);
+      if (primary) collection.texture = primary.uuid;
+    } else if (allTextures.length > 0) {
+      let primary = allTextures.find((t) => t.name.startsWith(collection.name)) ?? allTextures[0];
+      collection.texture = primary.uuid;
+    }
+    uc.unloaded = false;
+    uc.unloaded_texture_paths = "";
+    uc.unloaded_primary_path = "";
+    unloadedStates.delete(collection.uuid);
+    watchCollection(collection);
+    setUnloadedAttr(collection, false);
+    Canvas.updateAllFaces();
+    collection.saved = savedState;
+    scheduleUpdate();
+  }
+  async function promptAndUnload(collections) {
+    let toUnload = collections.filter((c) => !isUnloaded(c) && c.export_codec === "blockymodel");
+    if (toUnload.length === 0) return true;
+    let unsaved = toUnload.filter((c) => c.saved === false);
+    if (unsaved.length > 0) {
+      let message = unsaved.length === 1 ? `"${unsaved[0].name}" has unsaved changes.` : `${unsaved.length} attachments have unsaved changes:
+${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
+      let result = await new Promise((resolve) => {
+        Blockbench.showMessageBox({
+          title: "Unsaved Attachment Changes",
+          message,
+          icon: "warning",
+          buttons: ["dialog.save", "dialog.discard", "dialog.cancel"],
+          confirm: 0,
+          cancel: 2
+        }, resolve);
+      });
+      if (result === 2) return false;
+      if (result === 0) {
+        for (let c of unsaved) {
+          await Codecs.blockymodel.writeCollection(c);
+        }
+      }
+    }
+    for (let c of toUnload) unloadCollection(c);
+    return true;
+  }
+  async function toggleCollectionLoaded(collection) {
+    if (isUnloaded(collection)) {
+      reloadCollection(collection);
+    } else {
+      await promptAndUnload([collection]);
+    }
+  }
+  function toggleCollectionChildVisibility(collections) {
+    let loaded = collections.filter((c) => !isUnloaded(c));
+    if (!loaded.length) return;
+    let allHidden = loaded.every((c) => !c.getVisibility());
+    let allElements = [];
+    for (let c of loaded) {
+      for (let child of c.getAllChildren()) {
+        if (!("visibility" in child) || typeof child.visibility !== "boolean") continue;
+        child.visibility = allHidden;
+        if (!(child instanceof Group)) allElements.push(child);
+      }
+    }
+    Canvas.updateView({ elements: allElements, element_aspects: { visibility: true } });
+  }
+  function syncUnloadButtons() {
+    if (!isHytaleFormat()) return;
+    let list2 = Panels.collections?.node?.querySelector("#collections_list");
+    if (!list2) return;
+    for (let collection of Collection.all) {
+      let el = list2.querySelector(`[uuid="${collection.uuid}"]`);
+      if (!el) continue;
+      let unloaded = isUnloaded(collection);
+      if (unloaded) el.setAttribute(UNLOADED_ATTR, "");
+      else el.removeAttribute(UNLOADED_ATTR);
+      if (collection.export_codec !== "blockymodel") continue;
+      el.style.setProperty("--color-scope", "transparent", "important");
+      let existing = el.querySelector(".hytale_unload_btn");
+      if (existing) {
+        let icon2 = existing.querySelector("i");
+        icon2.textContent = unloaded ? "download" : "eject";
+        icon2.classList.toggle("toggle_disabled", unloaded);
+        continue;
+      }
+      let visBtn = el.querySelector(":scope > .in_list_button:last-child");
+      if (!visBtn) continue;
+      let btn = document.createElement("div");
+      btn.className = "in_list_button hytale_unload_btn";
+      let icon = document.createElement("i");
+      icon.className = "material-icons icon";
+      icon.textContent = unloaded ? "download" : "eject";
+      if (unloaded) icon.classList.add("toggle_disabled");
+      btn.appendChild(icon);
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        toggleCollectionLoaded(collection);
+      });
+      btn.addEventListener("dblclick", (e) => e.stopPropagation());
+      visBtn.insertAdjacentElement("beforebegin", btn);
+    }
+  }
+  function setupUnload() {
+    let unloadedProp = new Property(Collection, "boolean", "unloaded", {
+      default: false,
+      condition: { formats: FORMAT_IDS }
+    });
+    let texPathsProp = new Property(Collection, "string", "unloaded_texture_paths", {
+      default: "",
+      condition: { formats: FORMAT_IDS }
+    });
+    let primaryPathProp = new Property(Collection, "string", "unloaded_primary_path", {
+      default: "",
+      condition: { formats: FORMAT_IDS }
+    });
+    track(unloadedProp, texPathsProp, primaryPathProp);
+    let originalToggle = Collection.prototype.toggleVisibility;
+    Collection.prototype.toggleVisibility = function(event) {
+      if (!isHytaleFormat() || this.export_codec !== "blockymodel") {
+        return originalToggle.call(this, event);
+      }
+      if (isUnloaded(this)) {
+        reloadCollection(this);
+        return;
+      }
+      toggleCollectionChildVisibility([this]);
+    };
+    track({ delete() {
+      Collection.prototype.toggleVisibility = originalToggle;
+    } });
+    let style = Blockbench.addCSS(`
+        #collections_list li.collection[${UNLOADED_ATTR}] {
+            opacity: 0.45;
+        }
+        #collections_list li.collection[${UNLOADED_ATTR}] > .in_list_button:last-child {
+            display: none;
+        }
+        #collections_list .hytale_unload_btn {
+            cursor: pointer;
+        }
+    `);
+    track(style);
+    function unloadAllOnOpen() {
+      if (!isHytaleFormat()) return;
+      for (let collection of Collection.all) {
+        if (collection.export_codec === "blockymodel" && !isUnloaded(collection)) {
+          unloadCollection(collection);
+        }
+      }
+      for (let folder of CollectionFolder.all) {
+        if (!folder.folded) {
+          folder.folded = true;
+        }
+      }
+      scheduleUpdate();
+    }
+    let hookOpen = Blockbench.on("load_project", unloadAllOnOpen);
+    let hookEdit = Blockbench.on("finished_edit", syncUnloadButtons);
+    let hookSelection = Blockbench.on("update_selection", syncUnloadButtons);
+    let hookProject = Blockbench.on("select_project", syncUnloadButtons);
+    setTimeout(syncUnloadButtons, 150);
+    track(hookOpen, hookEdit, hookSelection, hookProject, {
+      delete() {
+        unloadedStates.clear();
+        let list2 = Panels.collections?.node?.querySelector("#collections_list");
+        if (list2) {
+          list2.querySelectorAll(`[${UNLOADED_ATTR}]`).forEach((el) => el.removeAttribute(UNLOADED_ATTR));
+          list2.querySelectorAll(".hytale_unload_btn").forEach((el) => el.remove());
+          list2.querySelectorAll("li.collection").forEach((el) => el.style.removeProperty("--color-scope"));
+        }
+      }
+    });
+  }
+
+  // src/attachments/rename.ts
+  function getUniqueAttachmentName(name, path, self) {
+    let taken = (candidate) => Collection.all.some((c) => c !== self && c.export_codec === "blockymodel" && c.name === candidate);
+    if (!taken(name)) return name;
+    let folder = path ? PathModule.basename(PathModule.dirname(path)) : "";
+    if (folder && !taken(`${folder} ${name}`)) return `${folder} ${name}`;
+    let i = 2;
+    while (taken(`${name} (${i})`)) i++;
+    return `${name} (${i})`;
+  }
+  function setupAttachmentRename() {
+    let listener = Blockbench.on("edit_collection_properties", ({ collection }) => {
+      if (!isHytaleFormat() || collection.export_codec !== "blockymodel") return;
+      collection.name = getUniqueAttachmentName(collection.name, void 0, collection);
+      let prefix = collection.name + ":";
+      let stale = collection.getChildren().filter((node) => {
+        return node instanceof Group && node.name.includes(":") && !node.name.startsWith(prefix);
+      });
+      if (!stale.length) return;
+      let old_name = stale[0].name.replace(/:[^:]*$/, "");
+      let texture_group = TextureGroup.all.find((tg) => tg.name === old_name);
+      let save = Undo.current_save;
+      if (save) {
+        save.aspects.groups = [...save.aspects.groups ?? [], ...stale];
+        save.groups = [...save.groups ?? [], ...stale.map((group) => {
+          let copy = group.getChildlessCopy();
+          copy.uuid = group.uuid;
+          return copy;
+        })];
+        if (texture_group) {
+          save.aspects.texture_groups = [...save.aspects.texture_groups ?? [], texture_group];
+          save.texture_groups = { ...save.texture_groups ?? {}, [texture_group.uuid]: texture_group.getUndoCopy() };
+        }
+      }
+      for (let group of stale) {
+        group.name = prefix + group.name.replace(/^.+:/, "");
+      }
+      if (texture_group) texture_group.name = collection.name;
+    });
+    track(listener);
+  }
+
+  // src/attachments/import.ts
+  var reload_all_attachments;
+  function importFiles(files, folderUuid) {
+    for (let file of files) {
+      if (Collection.all.some((c) => c.export_path === file.path)) {
+        Blockbench.showQuickMessage(`Attachment "${file.name}" is already imported`, 2e3);
+        continue;
+      }
+      let json = autoParseJSON(file.content);
+      let attachment_name = file.name.replace(/\.\w+$/, "");
+      let name = getUniqueAttachmentName(attachment_name, file.path);
+      let held = detectHeld(json, file.path);
+      let content = Codecs.blockymodel.parse(json, file.path, { attachment: name, held });
+      let new_groups = content.new_groups;
+      let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
+      let collection = new Collection({
+        name,
+        children: root_groups.map((g) => g.uuid),
+        export_codec: "blockymodel",
+        visibility: true
+      }).add();
+      collection.export_path = file.path;
+      setHeld(collection, held);
+      assignCollectionScope(collection);
+      if (folderUuid) collection.folder = folderUuid;
+      let texturesToProcess = content.new_textures;
+      if (texturesToProcess.length === 0) {
+        let dirname = PathModule.dirname(file.path);
+        let texturePaths = discoverTexturePaths(dirname, attachment_name);
+        for (let texPath of texturePaths) {
+          let tex = new Texture().fromPath(texPath).add(false);
+          texturesToProcess.push(tex);
+        }
+      }
+      let textureUuid = processAttachmentTextures(name, texturesToProcess, attachment_name);
+      if (textureUuid) {
+        collection.texture = textureUuid;
+      }
+      Canvas.updateAllFaces();
+      watchCollection(collection);
+    }
+  }
+  function importAttachmentToFolder(folderUuid) {
+    Filesystem.importFile({
+      extensions: ["blockymodel"],
+      type: "Blockymodel",
+      multiple: true,
+      startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, "") + osfs + "Attachments"
+    }, (files) => importFiles(files, folderUuid));
+  }
+  function reloadAttachment(collection) {
+    if (isUnloaded(collection)) return;
+    let path = collection.export_path;
+    if (!path) return;
+    let fs = requireNativeModule("fs");
+    if (!fs.existsSync(path)) return;
+    let beforeJson = Codecs.blockymodel.compile({ attachment: collection, raw: true, uuids: true });
+    let fileJson = autoParseJSON(fs.readFileSync(path, "utf-8"));
+    transferNodeUuids(beforeJson, fileJson);
+    let uuid = collection.uuid;
+    let restore = (json) => {
+      let target = Collection.all.find((c) => c.uuid === uuid);
+      if (target) reparseAttachment(target, void 0, json);
+    };
+    restore(fileJson);
+    let afterJson = Codecs.blockymodel.compile({ attachment: collection, raw: true, uuids: true });
+    pushReloadUndo(beforeJson, afterJson, "Reload attachment", restore);
+    Canvas.updateAllFaces();
+  }
+  function setupImport() {
+    let import_as_attachment = new Action("import_as_hytale_attachment", {
+      name: "Import Attachment",
+      icon: "fa-hat-cowboy",
+      condition: { formats: FORMAT_IDS },
+      click() {
+        Filesystem.importFile({
+          extensions: ["blockymodel"],
+          type: "Blockymodel",
+          multiple: true,
+          startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, "") + osfs + "Attachments"
+        }, (files) => importFiles(files));
+      }
+    });
+    track(import_as_attachment);
+    let toolbar = Panels.collections.toolbars[0];
+    toolbar.add(import_as_attachment);
+    MenuBar.menus.file.addAction(import_as_attachment, "import");
+    let reload_attachment_action = new Action("reload_hytale_attachment", {
+      name: "Reload Attachment",
+      icon: "refresh",
+      condition: () => Collection.selected.length && Modes.edit && isHytaleFormat(),
+      click() {
+        for (let collection of Collection.selected) {
+          reloadAttachment(collection);
+        }
+      }
+    });
+    Collection.menu.addAction(reload_attachment_action, 10);
+    track(reload_attachment_action);
+    reload_all_attachments = new Action("reload_all_hytale_attachments", {
+      name: "Reload All Attachments",
+      icon: "sync",
+      condition: { formats: FORMAT_IDS },
+      click() {
+        for (let collection of Collection.all.filter((c) => c.export_path && !isUnloaded(c))) {
+          reloadAttachment(collection);
+        }
+      }
+    });
+    track(reload_all_attachments);
+    toolbar.add(reload_all_attachments);
+  }
+
+  // src/attachments/watcher.ts
+  var POLL_INTERVAL = 1500;
+  var watchedCollections = /* @__PURE__ */ new Map();
+  var watchedProjects = /* @__PURE__ */ new Map();
+  var pendingRefresh = /* @__PURE__ */ new Set();
+  var setting;
+  var pollTimer = null;
+  function getMtime(path) {
+    let fs = requireNativeModule("fs");
+    if (!fs.existsSync(path)) return null;
+    let stat = fs.statSync(path);
+    return stat.mtimeMs ?? new Date(stat.mtime).getTime();
+  }
+  function pollChanges() {
+    for (let project of ModelProject.all) {
+      for (let collection of project.collections) {
+        if (!collection.export_path || collection.export_codec !== "blockymodel") continue;
+        let lastMtime2 = watchedCollections.get(collection.uuid);
+        if (lastMtime2 === void 0) continue;
+        let mtime2 = getMtime(collection.export_path);
+        if (mtime2 === null || mtime2 <= lastMtime2) continue;
+        watchedCollections.set(collection.uuid, mtime2);
+        let key2 = collection.export_path + ":" + project.uuid;
+        if (pendingRefresh.delete(key2)) continue;
+        promptCollectionReload(collection);
+      }
+      if (!project.export_path || !FORMAT_IDS.includes(project.format?.id)) continue;
+      let lastMtime = watchedProjects.get(project.uuid);
+      if (lastMtime === void 0) continue;
+      let mtime = getMtime(project.export_path);
+      if (mtime === null || mtime <= lastMtime) continue;
+      watchedProjects.set(project.uuid, mtime);
+      let key = project.export_path + ":" + project.uuid;
+      if (pendingRefresh.delete(key)) continue;
+      promptProjectReload(project);
+    }
+  }
+  function startPolling() {
+    if (pollTimer) return;
+    pollTimer = setInterval(pollChanges, POLL_INTERVAL);
+  }
+  function stopPolling() {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+  function promptCollectionReload(collection) {
+    let project = ModelProject.all.find((p) => p.collections.includes(collection));
+    if (project && Project !== project) {
+      project.whenNextOpen(() => promptCollectionReload(collection));
+      return;
+    }
+    Blockbench.showMessageBox({
+      title: "Attachment Changed",
+      message: `"${collection.name}" was modified on disk. Reload it?`,
+      buttons: ["Reload", "Ignore"]
+    }, (choice) => {
+      if (choice === 0) {
+        reloadAttachment(collection);
+      }
+    });
+  }
+  function promptProjectReload(project) {
+    if (Project !== project) {
+      project.whenNextOpen(() => promptProjectReload(project));
+      return;
+    }
+    Blockbench.showMessageBox({
+      title: "Model Changed",
+      message: `"${project.getDisplayName()}" was modified on disk. Reload it?`,
+      buttons: ["Reload", "Ignore"]
+    }, (choice) => {
+      if (choice === 0) {
+        reloadProject(project);
+      }
+    });
+  }
+  function pushReloadUndo(beforeJson, afterJson, message, restore) {
+    let entry = {
+      before: { load: () => restore(beforeJson) },
+      post: { load: () => restore(afterJson) },
+      action: message,
+      type: "edit",
+      time: Date.now()
+    };
+    if (Undo.history.length > Undo.index) Undo.history.length = Undo.index;
+    Undo.history.push(entry);
+    if (Undo.history.length > settings.undo_limit.value) Undo.history.shift();
+    Undo.index = Undo.history.length;
+    Project.saved = false;
+    Blockbench.dispatchEvent("finished_edit", { aspects: {}, message });
+  }
+  function reloadProject(project) {
+    let path = project.export_path;
+    if (!path) return;
+    let fs = requireNativeModule("fs");
+    if (!fs.existsSync(path)) return;
+    project.select();
+    let beforeJson = Codecs.blockymodel.compile({ raw: true });
+    for (let node of [...Outliner.root]) {
+      if (node instanceof OutlinerNode) node.remove();
+    }
+    let afterJson = autoParseJSON(fs.readFileSync(path, "utf-8"));
+    Codecs.blockymodel.parse(afterJson, path);
+    pushReloadUndo(beforeJson, afterJson, "Reload project", (json) => {
+      for (let node of [...Outliner.root]) {
+        if (node instanceof OutlinerNode) node.remove();
+      }
+      Codecs.blockymodel.parse(json, path);
+      Canvas.updateAll();
+    });
+    Canvas.updateAll();
+  }
+  function markSelfWrite(path) {
+    if (!Project) return;
+    pendingRefresh.add(path + ":" + Project.uuid);
+  }
+  function syncWatchers() {
+    if (!setting?.value) {
+      watchedCollections.clear();
+      watchedProjects.clear();
+      stopPolling();
+      return;
+    }
+    let activeCollectionUuids = /* @__PURE__ */ new Set();
+    let activeProjectUuids = /* @__PURE__ */ new Set();
+    for (let project of ModelProject.all) {
+      for (let collection of project.collections) {
+        if (collection.export_path && collection.export_codec === "blockymodel") {
+          activeCollectionUuids.add(collection.uuid);
+          if (!watchedCollections.has(collection.uuid)) {
+            let mtime = getMtime(collection.export_path);
+            if (mtime !== null) watchedCollections.set(collection.uuid, mtime);
+          }
+        }
+      }
+      if (project.export_path && FORMAT_IDS.includes(project.format?.id)) {
+        activeProjectUuids.add(project.uuid);
+        if (!watchedProjects.has(project.uuid)) {
+          let mtime = getMtime(project.export_path);
+          if (mtime !== null) watchedProjects.set(project.uuid, mtime);
+        }
+      }
+    }
+    for (let [uuid] of watchedCollections) {
+      if (!activeCollectionUuids.has(uuid)) watchedCollections.delete(uuid);
+    }
+    for (let [uuid] of watchedProjects) {
+      if (!activeProjectUuids.has(uuid)) watchedProjects.delete(uuid);
+    }
+    if (watchedCollections.size > 0 || watchedProjects.size > 0) {
+      startPolling();
+    } else {
+      stopPolling();
+    }
+  }
+  function watchCollection(collection) {
+    if (!setting?.value) return;
+    let mtime = getMtime(collection.export_path);
+    if (mtime !== null) watchedCollections.set(collection.uuid, mtime);
+    startPolling();
+  }
+  function unwatchCollection(collection) {
+    watchedCollections.delete(collection.uuid);
+    if (watchedCollections.size === 0 && watchedProjects.size === 0) stopPolling();
+  }
+  function setupAttachmentWatcher() {
+    setting = new Setting("watch_attachment_files", {
+      name: "Watch Attachment Files",
+      category: "edit",
+      description: "Watch attachment files on disk for external changes and prompt to reload when modified.",
+      type: "toggle",
+      value: false,
+      onChange(value) {
+        if (value) {
+          syncWatchers();
+        } else {
+          watchedCollections.clear();
+          watchedProjects.clear();
+          stopPolling();
+        }
+      }
+    });
+    track(setting);
+    let onSelectProject = Blockbench.on("select_project", syncWatchers);
+    track(onSelectProject);
+    let onFinishedEdit = Blockbench.on("finished_edit", syncWatchers);
+    track(onFinishedEdit);
+    track({
+      delete() {
+        watchedCollections.clear();
+        watchedProjects.clear();
+        stopPolling();
+      }
+    });
+  }
+
+  // src/attachments/attachment_list.ts
+  function compileAttachmentList(model, modelDir) {
+    let relative = (path) => PathModule.relative(modelDir, path).replace(/\\/g, "/");
+    let attachments = [];
+    for (let c of Collection.all) {
+      if (c.export_codec !== "blockymodel" || !c.export_path) continue;
+      let texPaths = [];
+      let primaryTex = "";
+      if (isUnloaded(c)) {
+        if (c.unloaded_texture_paths) {
+          try {
+            let absPaths = JSON.parse(c.unloaded_texture_paths);
+            texPaths = absPaths.map(relative).filter(Boolean);
+          } catch {
+          }
+        }
+        if (c.unloaded_primary_path) primaryTex = relative(c.unloaded_primary_path);
+      } else {
+        let tg = TextureGroup.all.find((t) => t.name === c.name);
+        if (tg) {
+          texPaths = Texture.all.filter((t) => t.group === tg.uuid).map((t) => {
+            let p2 = resolveTexturePath(t);
+            return p2 ? relative(p2) : "";
+          }).filter(Boolean);
+        }
+        let tex = c.texture && Texture.all.find((t) => t.uuid === c.texture);
+        let p = tex && resolveTexturePath(tex);
+        if (p) primaryTex = relative(p);
+      }
+      let parentPath = getAttachParent(c)?.export_path;
+      attachments.push({
+        name: c.name,
+        path: relative(c.export_path),
+        textures: texPaths,
+        primaryTexture: primaryTex,
+        folder: c.folder || void 0,
+        color: c.color != null && c.color >= 0 ? c.color : void 0,
+        unloaded: isUnloaded(c) || void 0,
+        // By path: names may change and need not be unique in older projects
+        attachTo: parentPath ? relative(parentPath) : void 0,
+        held: isHeld(c)
+      });
+    }
+    if (attachments.length) model.attachments = attachments;
+    let folders2 = CollectionFolder.all.map((f) => f.getSaveCopy());
+    if (folders2.length) model.attachmentFolders = folders2;
+  }
+  function loadAttachmentList(model, modelDir) {
+    let fs = requireNativeModule("fs");
+    let resolve = (path) => PathModule.resolve(modelDir, path);
+    let attachments = model.attachments ?? [];
+    for (let fd of model.attachmentFolders ?? []) {
+      fd.folded = true;
+      new CollectionFolder(fd).add();
+    }
+    for (let att of attachments) {
+      let absPath = resolve(att.path);
+      if (Collection.all.some((c) => c.export_path === absPath)) continue;
+      let collection = new Collection({
+        name: getUniqueAttachmentName(att.name, absPath),
+        children: [],
+        export_codec: "blockymodel",
+        visibility: true
+      }).add();
+      collection.export_path = absPath;
+      collection.unloaded = true;
+      assignCollectionScope(collection);
+      if (att.folder) collection.folder = att.folder;
+      if (att.color != null && att.color >= 0) collection.color = att.color;
+      collection.unloaded_texture_paths = JSON.stringify(att.textures.map(resolve));
+      if (att.primaryTexture) collection.unloaded_primary_path = resolve(att.primaryTexture);
+      if (!fs.existsSync(absPath)) {
+        Blockbench.showQuickMessage(`Attachment "${att.name}" not found at ${att.path}`, 3e3);
+      }
+      try {
+        setHeld(collection, att.held ?? detectHeld(autoParseJSON(fs.readFileSync(absPath, "utf-8"), false), absPath));
+      } catch {
+      }
+    }
+    let findByPath = (rel) => Collection.all.find((c) => c.export_path === resolve(rel));
+    for (let att of attachments) {
+      let parent = att.attachTo && findByPath(att.attachTo);
+      let collection = findByPath(att.path);
+      if (parent && collection) collection.attach_to = parent.uuid;
+    }
+  }
 
   // src/blockymodel.ts
   function discoverTexturePaths(dirname, modelName) {
@@ -183,6 +2198,7 @@
             z: input[2]
           });
         };
+        let fileVisible = (node) => options.uuids || !options.attachment ? !!node.visibility : !node.file_hidden;
         function turnNodeIntoBox(node, cube, original_element) {
           let size = cube.size();
           let stretch = cube.stretch.slice();
@@ -227,12 +2243,15 @@
             }
           }
           node.shape.stretch = formatVector(stretch);
-          node.shape.visible = cube.visibility;
+          node.shape.visible = fileVisible(cube);
           node.shape.doubleSided = cube.double_sided == true;
           node.shape.shadingMode = cube.shading_mode;
           node.shape.unwrapMode = "custom";
           if (cube == original_element) {
             node.shape.settings.isStaticBox = true;
+          } else if (options.uuids) {
+            node.shapeUuid = cube.uuid;
+            node.fileHidden = cube.file_hidden;
           }
           const BBToHytaleDirection = {
             north: "back",
@@ -322,28 +2341,45 @@
             node.shape.textureLayout[direction] = layout_face;
           }
         }
-        function getNodeOffset(group, include_original_offset = true) {
+        function getNodeOffset(group) {
           let cube = getMainShape(group);
           if (cube) {
             let center_pos = cube.from.slice().V3_add(cube.to).V3_divide(2, 2, 2);
             center_pos.V3_subtract(group.origin);
             return center_pos;
-          } else if (include_original_offset) {
-            return group.original_offset;
           } else {
-            return [0, 0, 0];
+            return group.original_offset;
           }
+        }
+        function isAttachedPiece(group) {
+          return !!options.attachment && !isHeld(options.attachment) && isGamePiece(group) && group.parent instanceof Group && !options.attachment.contains(group.parent);
+        }
+        function isHeldRoot(group) {
+          return !!options.attachment && isHeld(options.attachment) && options.attachment.children.includes(group.uuid);
+        }
+        function getFileParent(group) {
+          let parent = OutlinerNode.uuids[group.file_parent];
+          if (!options.attachment || !(parent instanceof Group) || parent === group.parent) return;
+          if (getOwningAttachment(parent) !== options.attachment) return;
+          for (let node = parent; node instanceof Group; node = node.parent) {
+            if (!node.export || node === group) return;
+          }
+          return parent;
+        }
+        function getPiecesFiledUnder(group) {
+          return Group.all.filter((g) => getFileParent(g) === group);
         }
         function compileNode(element, name = element.name) {
           if (!element.export) return void 0;
-          if (!options.attachment) {
-            let collection = Collection.all.find((c) => c.contains(element));
-            if (collection && collection.export_codec == "blockymodel") return;
-          }
+          if (getOwningAttachment(element) !== options.attachment) return void 0;
+          let attached_piece = element instanceof Group && isAttachedPiece(element);
+          let filed_piece = element instanceof Group && !!getFileParent(element);
+          let held_root = element instanceof Group && isHeldRoot(element);
+          let rotation = attached_piece || filed_piece || held_root ? element.original_rotation ?? element.rotation : element.rotation;
           let euler = Reusable.euler1.set(
-            Math.degToRad(element.rotation[0]),
-            Math.degToRad(element.rotation[1]),
-            Math.degToRad(element.rotation[2]),
+            Math.degToRad(rotation[0]),
+            Math.degToRad(rotation[1]),
+            Math.degToRad(rotation[2]),
             element.scene_object.rotation.order
           );
           let quaternion = Reusable.quat1.setFromEuler(euler);
@@ -357,13 +2393,14 @@
           let offset = element instanceof Group ? getNodeOffset(element) : [0, 0, 0];
           if (element.parent instanceof Group) {
             origin.V3_subtract(element.parent.origin);
-            let parent_offset = getNodeOffset(element.parent, !options.attachment);
-            if (parent_offset) {
+            let parent_offset = getNodeOffset(element.parent);
+            if (parent_offset && !isAttachedPiece(element.parent)) {
               origin.V3_subtract(parent_offset);
             }
           }
-          if (options.attachment && element instanceof Group && element.is_piece && element.original_position?.some((v) => v)) {
-            origin = element.original_position;
+          let original_position = element.original_position;
+          if (original_position && (filed_piece || held_root || attached_piece && original_position.some((v) => v))) {
+            origin = original_position.slice();
           }
           let node = {
             id: node_id.toString(),
@@ -373,18 +2410,23 @@
             shape: {
               type: "none",
               offset: formatVector(offset),
-              stretch: formatVector([1, 1, 1]),
+              stretch: formatVector(element.original_stretch ?? [1, 1, 1]),
               settings: {
                 isPiece: element instanceof Group && element.is_piece || false
               },
               textureLayout: {},
               unwrapMode: "custom",
-              visible: element.visibility,
+              visible: fileVisible(element),
               doubleSided: false,
               shadingMode: "flat"
             }
           };
           node_id++;
+          if (options.uuids) {
+            node.uuid = element.uuid;
+            node.fileHidden = element.file_hidden;
+            if (element instanceof Group) node.groupVisible = element.visibility;
+          }
           if (element instanceof Cube) {
             turnNodeIntoBox(node, element, element);
           } else if ("children" in element) {
@@ -407,19 +2449,27 @@
                 node.children.push(result);
               }
             }
+            for (let piece of getPiecesFiledUnder(element)) {
+              let result = compileNode(piece);
+              if (!result) continue;
+              if (!node.children) node.children = [];
+              node.children.push(result);
+            }
           }
           return node;
         }
         let nodes = Outliner.root.filter((node) => node instanceof Group || node instanceof Cube);
         if (options.attachment instanceof Collection) {
-          let in_collection = options.attachment.getChildren();
-          nodes = in_collection.filter((g) => {
-            return g instanceof Group;
-          });
+          let collection = options.attachment;
+          let in_collection = collection.getChildren();
+          nodes = in_collection.filter((g) => g instanceof Group && !getFileParent(g));
         }
         for (let node of nodes) {
           let compiled = compileNode(node);
           if (compiled) model.nodes.push(compiled);
+        }
+        if (!options.attachment && Project.export_path) {
+          compileAttachmentList(model, PathModule.dirname(Project.export_path));
         }
         if (options.raw) {
           return model;
@@ -435,17 +2485,44 @@
         }
         const new_groups = [];
         const existing_groups = Group.all.slice();
+        const attach_targets = /* @__PURE__ */ new Map();
+        if (args.attachment) {
+          let register = (group, name) => {
+            if (!isGamePiece(group) || !attach_targets.has(name)) attach_targets.set(name, group);
+          };
+          let own_collection = Collection.all.find((c) => c.export_codec == "blockymodel" && c.name == args.attachment);
+          for (let group of existing_groups) {
+            if (!getOwningAttachment(group)) register(group, group.name);
+          }
+          for (let collection of getAttachChain(own_collection)) {
+            for (let group of existing_groups) {
+              if (!collection.contains(group)) continue;
+              if (isGamePiece(group) && group.parent instanceof Group && !collection.contains(group.parent)) continue;
+              register(group, group.name.replace(/^.+:/, ""));
+            }
+          }
+        }
+        const takeUuid = (uuid) => uuid && !OutlinerNode.uuids[uuid] ? uuid : void 0;
+        let held;
+        let first_root = model.nodes[0];
+        if (args.attachment && args.held && first_root) {
+          let o = first_root.orientation;
+          held = {
+            bone: attach_targets.get(isPieceNode(first_root) ? first_root.name : "R-Attachment") ?? existing_groups.find((g) => g.parent == "root" && !getOwningAttachment(g)),
+            inverse: new THREE.Quaternion(o.x, o.y, o.z, o.w).normalize().invert(),
+            position: new THREE.Vector3(...parseVector(first_root.position))
+          };
+        }
         function parseNode(node, parent_node, parent_group = "root", parent_offset) {
-          if (args.attachment) {
-            let attachment_node;
-            if (args.attachment && node.shape?.settings?.isPiece === true && existing_groups.length) {
-              let node_name = node.name;
-              attachment_node = existing_groups.find((g) => g.name == node_name);
-            }
-            if (attachment_node) {
-              parent_group = attachment_node;
-              parent_node = null;
-            }
+          let held_root = !!held && !parent_node;
+          let file_parent = parent_group;
+          let attachment_node;
+          if (args.attachment && !held && isPieceNode(node)) {
+            attachment_node = attach_targets.get(node.name);
+          }
+          if (attachment_node) {
+            parent_group = attachment_node;
+            parent_node = null;
           }
           let quaternion = new THREE.Quaternion();
           quaternion.set(node.orientation.x, node.orientation.y, node.orientation.z, node.orientation.w);
@@ -459,10 +2536,22 @@
             Math.roundTo(Math.radToDeg(rotation_euler.y), 3),
             Math.roundTo(Math.radToDeg(rotation_euler.z), 3)
           ];
-          if (args.attachment && !parent_node && parent_group instanceof Group) {
-            let reference_node = getMainShape(parent_group) ?? parent_group;
+          let original_rotation;
+          if (attachment_node) {
             original_position = origin;
-            origin = reference_node.origin.slice();
+            original_rotation = rotation;
+            origin = getBoneAnchor(attachment_node);
+            rotation = [0, 0, 0];
+          } else if (held_root && held) {
+            original_position = origin;
+            original_rotation = rotation;
+            let euler = new THREE.Euler().setFromQuaternion(held.inverse.clone().multiply(quaternion), "ZYX");
+            rotation = [euler.x, euler.y, euler.z].map((v) => Math.roundTo(Math.radToDeg(v), 3));
+            origin = new THREE.Vector3(...origin).applyQuaternion(held.inverse).sub(held.position).toArray();
+            if (held.bone) {
+              origin.V3_add(getBoneAnchor(held.bone));
+              parent_group = held.bone;
+            }
           } else if (parent_offset && parent_group instanceof Group) {
             origin.V3_add(parent_offset);
             origin.V3_add(parent_group.origin);
@@ -474,20 +2563,25 @@
               autouv: 1,
               origin,
               rotation,
-              visibility: node.shape?.visible != false
-            });
+              // In-game a hidden node only hides its own shape, so attachments keep its children visible
+              visibility: node.groupVisible ?? (!!args.attachment || node.shape?.visible != false)
+            }, takeUuid(node.uuid));
             new_groups.push(group);
             group.addTo(parent_group);
             if (!parent_node && args.attachment) {
               group.name = args.attachment + ":" + group.name;
               group.color = 1;
-              group.rotation.V3_set(0, 0, 0);
             }
             group.init();
             let custom_data = {
               is_piece: node.shape?.settings?.isPiece ?? false,
+              file_hidden: node.fileHidden ?? node.shape?.visible == false,
               original_position,
-              original_offset: offset
+              original_offset: offset,
+              // Unused in-game on shapeless nodes, but kept so files round-trip
+              original_stretch: node.shape?.type == "none" ? parseVector(node.shape.stretch, [1, 1, 1]) : void 0,
+              original_rotation,
+              file_parent: attachment_node && file_parent instanceof Group ? file_parent.uuid : ""
             };
             group.extend(custom_data);
           } else {
@@ -531,7 +2625,8 @@
                 size[1] / 2 + origin[1] + offset[1],
                 size[2] / 2 + origin[2] + offset[2]
               ]
-            });
+            }, takeUuid(group ? node.shapeUuid : node.uuid));
+            cube.extend({ file_hidden: node.fileHidden ?? node.shape.visible == false });
             if (group) {
               group.color = cube.color;
               cube.origin.V3_set(
@@ -677,7 +2772,7 @@
             cube.addTo(group || parent_group).init();
           }
           if (node.children?.length && group instanceof Group) {
-            if (args.attachment && node.shape.settings.isPiece) {
+            if (attachment_node) {
               offset = [0, 0, 0];
             }
             for (let child of node.children) {
@@ -698,7 +2793,8 @@
           if (texture_paths.length > 0 && !args.attachment) {
             new_textures = loadTexturesFromPaths(texture_paths, Project.name);
           } else if (texture_paths.length > 0) {
-            new_textures = loadTexturesFromPaths(texture_paths);
+            let new_paths = texture_paths.filter((p) => !Texture.all.find((t) => t.path == p));
+            new_textures = loadTexturesFromPaths(new_paths);
           }
           if (new_textures.length === 0 && !args.attachment) {
             setTimeout(() => {
@@ -732,6 +2828,9 @@
             });
           }
         }
+        if (!args.attachment && model.attachments && isApp && path) {
+          loadAttachmentList(model, PathModule.dirname(path));
+        }
         return { new_groups, new_textures };
       },
       // MARK: Other
@@ -751,13 +2850,17 @@
         }, (path) => this.afterDownload(path));
       },
       async exportCollection(collection) {
+        if (isUnloaded(collection)) return;
         this.context = collection;
+        if (collection.export_path) markSelfWrite(collection.export_path);
         await this.export({ attachment: collection });
         if ("saved" in collection) collection.saved = true;
         this.context = null;
       },
       async writeCollection(collection) {
+        if (isUnloaded(collection)) return;
         this.context = collection;
+        if (collection.export_path) markSelfWrite(collection.export_path);
         this.write(this.compile({ attachment: collection }), collection.export_path);
         if ("saved" in collection) collection.saved = true;
         this.context = null;
@@ -778,8 +2881,10 @@
     MenuBar.menus.file.addAction(export_action, "export.1");
     let hook = Blockbench.on("quick_save_model", () => {
       if (FORMAT_IDS.includes(Format.id) == false) return;
+      if (Project.export_path) markSelfWrite(Project.export_path);
       for (let collection of Collection.all) {
         if (collection.export_codec != codec.id) continue;
+        if (isUnloaded(collection)) continue;
         codec.writeCollection(collection);
       }
     });
@@ -845,13 +2950,6 @@
       format_page,
       block_size: 64,
       ...common
-      // TODO: Auto-reload attachments on tab switch. Needs dirty tracking and setting toggle to avoid losing unsaved changes
-      /*
-      onActivation() {
-          common.onActivation?.();
-          setTimeout(() => reload_all_attachments?.click(), 0);
-      }
-      */
     });
     let format_prop = new ModelFormat("hytale_prop", {
       name: "Hytale Prop",
@@ -938,7 +3036,7 @@
         }
       }
     });
-    let setting = new Setting("hytale_duplicate_bone_names", {
+    let setting2 = new Setting("hytale_duplicate_bone_names", {
       name: "Duplicate Bone Names",
       category: "edit",
       description: "Allow creating duplicate groups names in Hytale formats. Multiple groups with the same name can be used to apply animations to multiple nodes at once.",
@@ -946,13 +3044,13 @@
       value: false
     });
     let override = Group.addBehaviorOverride({
-      condition: () => isHytaleFormat() && setting.value == true,
+      condition: () => isHytaleFormat() && setting2.value == true,
       priority: 2,
       behavior: {
         unique_name: false
       }
     });
-    track(override, setting);
+    track(override, setting2);
   }
 
   // src/blockyanim.ts
@@ -1216,277 +3314,597 @@
         BarItems.export_animation_file.condition = original_condition;
       }
     });
-    let setting = new Setting("auto_load_hytale_animations", {
+    let setting2 = new Setting("auto_load_hytale_animations", {
       name: "Auto-load Hytale Animations",
       description: "Automatically load blockyanim files when opening a Hytale model",
       category: "edit",
       type: "toggle",
       value: true
     });
-    track(setting);
+    track(setting2);
   }
 
-  // src/texture.ts
-  function updateUVSize(texture) {
-    let size = [texture.width, texture.display_height];
-    let frames = texture.frameCount;
-    if (settings.detect_flipbook_textures.value == false || frames <= 2 || frames % 1) {
-      size[1] = texture.height;
-    }
-    texture.uv_width = size[0];
-    texture.uv_height = size[1];
-  }
-  function setupTextureHandling() {
-    let setting = new Setting("preview_selected_texture", {
-      name: "Preview Selected Texture",
-      description: "When selecting a texture in a Hytale format, preview the texture on the model instantly",
-      category: "preview",
-      type: "toggle",
-      value: true
-    });
-    track(setting);
-    let handler = Blockbench.on("select_texture", (arg) => {
-      if (!isHytaleFormat()) return;
-      if (setting.value == false) return;
-      let texture = arg.texture;
-      let texture_group = texture.getGroup();
-      if (texture_group) {
-        let collection = Collection.all.find((c) => c.name == texture_group.name);
-        if (collection) {
-          collection.texture = texture.uuid;
-          Canvas.updateAllFaces(texture);
-        }
-      } else {
-        texture.setAsDefaultTexture();
+  // src/attachments/create.ts
+  function getSelectedRootGroups() {
+    let selected2 = Group.all.filter((g) => g.selected);
+    selected2 = selected2.filter((g) => !Collection.all.some((c) => c.export_codec === "blockymodel" && c.contains(g)));
+    return selected2.filter((group) => {
+      let parent = group.parent;
+      while (parent instanceof Group) {
+        if (selected2.includes(parent)) return false;
+        parent = parent.parent;
       }
-      UVEditor.vue.updateTexture();
+      return true;
     });
-    track(handler);
   }
-
-  // src/attachment_texture.ts
-  function getCollection(cube) {
-    return Collection.all.find((c) => c.contains(cube));
-  }
-  function processAttachmentTextures(attachmentName, newTextures) {
-    let textureGroup = new TextureGroup({ name: attachmentName });
-    textureGroup.folded = true;
-    textureGroup.add();
-    if (newTextures.length === 0) return "";
-    for (let tex of newTextures) {
-      tex.group = textureGroup.uuid;
-      updateUVSize(tex);
-    }
-    let texture = newTextures.find((t) => t.name.startsWith(attachmentName)) ?? newTextures[0];
-    return texture.uuid;
-  }
-  function setupAttachmentTextures() {
-    let textureProperty = new Property(Collection, "string", "texture", {
-      condition: { formats: FORMAT_IDS }
-    });
-    track(textureProperty);
-    let originalGetTexture = CubeFace.prototype.getTexture;
-    CubeFace.prototype.getTexture = function(...args) {
-      if (isHytaleFormat()) {
-        if (this.texture == null) return null;
-        let collection = getCollection(this.cube);
-        if (collection && "texture" in collection) {
-          if (collection.texture) {
-            let texture = Texture.all.find((t) => t.uuid == collection.texture);
-            if (texture) return texture;
-          }
-          return null;
-        }
-        return Texture.getDefault();
-      }
-      return originalGetTexture.call(this, ...args);
-    };
-    track({
-      delete() {
-        CubeFace.prototype.getTexture = originalGetTexture;
-      }
-    });
-    let assignTexture = {
-      id: "set_texture",
-      name: "menu.cube.texture",
-      icon: "collections",
-      condition: { formats: FORMAT_IDS },
-      children(context) {
-        function applyTexture(textureValue, undoMessage) {
-          Undo.initEdit({ collections: Collection.selected });
-          for (let collection of Collection.selected) {
-            collection.texture = textureValue;
-          }
-          Undo.finishEdit(undoMessage);
-          Canvas.updateAllFaces();
-        }
-        let arr = [
-          {
-            icon: "crop_square",
-            name: Format.single_texture_default ? "menu.cube.texture.default" : "menu.cube.texture.blank",
-            click() {
-              applyTexture("", "Unassign texture from collection");
-            }
-          }
-        ];
-        Texture.all.forEach((t) => {
-          arr.push({
-            name: t.name,
-            icon: t.img,
-            marked: t.uuid == context.texture,
-            click() {
-              applyTexture(t.uuid, "Apply texture to collection");
-            }
+  function createIsPieceWrappers(attachmentName, selectedGroups, collection) {
+    let wrappersByParent = /* @__PURE__ */ new Map();
+    let collectionRoots = [];
+    for (let group of selectedGroups) {
+      let parent = group.parent;
+      if (parent instanceof Group) {
+        let wrapper = wrappersByParent.get(parent) ?? parent.children.find((child) => {
+          return child instanceof Group && child.is_piece === true && !!collection?.children.includes(child.uuid);
+        });
+        if (!wrapper) {
+          wrapper = new Group({
+            name: attachmentName + ":" + parent.name,
+            autouv: 1,
+            origin: getBoneAnchor(parent),
+            rotation: [0, 0, 0],
+            visibility: true
           });
-        });
-        return arr;
+          wrapper.addTo(parent);
+          wrapper.init();
+          wrapper.extend({
+            is_piece: true,
+            original_position: [0, 0, 0],
+            original_offset: [0, 0, 0]
+          });
+          wrapper.color = 1;
+          wrappersByParent.set(parent, wrapper);
+          collectionRoots.push(wrapper);
+        }
+        group.addTo(wrapper);
+      } else {
+        group.name = attachmentName + ":" + group.name;
+        group.color = 1;
+        collectionRoots.push(group);
       }
-    };
-    Collection.menu.addAction(assignTexture);
-    track({
-      delete() {
-        Collection.menu.removeAction("set_texture");
-      }
-    });
+    }
+    return collectionRoots;
   }
-
-  // src/attachments.ts
-  var reload_all_attachments;
-  function setupAttachments() {
-    setupAttachmentTextures();
-    let shared_delete = SharedActions.add("delete", {
-      subject: "collection",
-      priority: 1,
-      condition: () => Prop.active_panel == "collections" && isHytaleFormat() && Collection.selected.some((c) => c.export_codec === "blockymodel"),
-      run() {
-        let collections = Collection.selected.slice();
-        let remove_elements = [];
-        let remove_groups = [];
-        let textures = [];
-        let texture_groups = [];
-        for (let collection of collections) {
-          if (collection.export_codec === "blockymodel") {
-            for (let child of collection.getAllChildren()) {
-              child = child;
-              (child instanceof Group ? remove_groups : remove_elements).safePush(child);
-            }
-            let texture_group = TextureGroup.all.find((tg) => tg.name === collection.name);
-            if (texture_group) {
-              let textures2 = Texture.all.filter((t) => t.group === texture_group.uuid);
-              textures.safePush(...textures2);
-              texture_groups.push(texture_group);
-            }
+  function loadTexturesFromFolder(folderPath) {
+    let fs = requireNativeModule("fs");
+    let textures = [];
+    try {
+      let files = fs.readdirSync(folderPath);
+      for (let fileName of files) {
+        if (fileName.match(/\.png$/i)) {
+          let fullPath = PathModule.join(folderPath, fileName);
+          let existing = Texture.all.find((t) => t.path === fullPath);
+          if (existing) {
+            textures.push(existing);
+          } else {
+            textures.push(new Texture().fromPath(fullPath).add(false, true));
           }
         }
-        Undo.initEdit({
-          collections,
-          groups: remove_groups,
-          elements: remove_elements,
-          outliner: true,
-          texture_groups,
-          textures
-        });
-        collections.forEach((c) => Collection.all.remove(c));
-        collections.empty();
-        textures.forEach((t) => t.remove(true));
-        textures.empty();
-        texture_groups.forEach((t) => t.remove());
-        texture_groups.empty();
-        remove_groups.forEach((group) => group.remove());
-        remove_groups.empty();
-        remove_elements.forEach((element) => element.remove());
-        remove_elements.empty();
-        updateSelection();
-        Undo.finishEdit("Remove attachment");
       }
-    });
-    track(shared_delete);
-    let import_as_attachment = new Action("import_as_hytale_attachment", {
-      name: "Import Attachment",
-      icon: "fa-hat-cowboy",
-      condition: { formats: FORMAT_IDS },
+    } catch (err) {
+      console.error("Failed to read texture folder:", err);
+    }
+    return textures;
+  }
+  function setupCreateAttachment() {
+    let create_attachment = new Action("create_hytale_attachment", {
+      name: "Create Attachment from Selection",
+      icon: "fa-object-group",
+      category: "file",
+      condition: () => Modes.edit && isHytaleFormat() && getSelectedRootGroups().length > 0,
       click() {
-        Filesystem.importFile({
-          extensions: ["blockymodel"],
-          type: "Blockymodel",
-          multiple: true,
-          startpath: Project.export_path.replace(/[\\\/]\w+.\w+$/, "") + osfs + "Attachments"
-        }, (files) => {
-          for (let file of files) {
-            let json = autoParseJSON(file.content);
-            let attachment_name = file.name.replace(/\.\w+$/, "");
-            let content = Codecs.blockymodel.parse(json, file.path, { attachment: attachment_name });
-            let name = file.name.split(".")[0];
-            let new_groups = content.new_groups;
-            let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
+        let selectedGroups = getSelectedRootGroups();
+        let defaultName = selectedGroups.length === 1 ? selectedGroups[0].name : "";
+        new Dialog({
+          id: "create_hytale_attachment",
+          title: "Create Attachment",
+          width: 540,
+          form: {
+            name: {
+              label: "Attachment Name",
+              value: defaultName
+            },
+            _divider: "_",
+            texture_file: {
+              label: "Texture File (optional)",
+              type: "file",
+              extensions: ["png"],
+              resource_id: "texture"
+            },
+            texture_folder: {
+              label: "Texture Folder (optional)",
+              type: "folder",
+              resource_id: "texture"
+            }
+          },
+          onConfirm(result) {
+            let name = result.name;
+            if (!name) {
+              Blockbench.showQuickMessage("Attachment name is required", 2e3);
+              return;
+            }
+            if (Collection.all.some((c) => c.name === name)) {
+              Blockbench.showQuickMessage("An attachment with this name already exists", 2e3);
+              return;
+            }
+            selectedGroups = getSelectedRootGroups();
+            if (selectedGroups.length === 0) {
+              Blockbench.showQuickMessage("No valid groups selected", 2e3);
+              return;
+            }
+            Undo.initEdit({
+              collections: [],
+              groups: selectedGroups,
+              outliner: true,
+              textures: [],
+              texture_groups: []
+            });
+            let collectionRoots = createIsPieceWrappers(name, selectedGroups);
             let collection = new Collection({
               name,
-              children: root_groups.map((g) => g.uuid),
+              children: collectionRoots.map((g) => g.uuid),
               export_codec: "blockymodel",
               visibility: true
             }).add();
-            collection.export_path = file.path;
-            let texturesToProcess = content.new_textures;
-            if (texturesToProcess.length === 0) {
-              let dirname = PathModule.dirname(file.path);
-              let texturePaths = discoverTexturePaths(dirname, attachment_name);
-              for (let texPath of texturePaths) {
-                let tex = new Texture().fromPath(texPath).add(false);
-                texturesToProcess.push(tex);
-              }
+            assignCollectionScope(collection);
+            let newTextures = [];
+            let textureFile = result.texture_file;
+            let textureFolder = result.texture_folder;
+            if (textureFile) {
+              let existing = Texture.all.find((t) => t.path === textureFile);
+              newTextures.push(existing ?? new Texture().fromPath(textureFile).add(false, true));
+            } else if (textureFolder) {
+              newTextures = loadTexturesFromFolder(textureFolder);
             }
-            let textureUuid = processAttachmentTextures(attachment_name, texturesToProcess);
+            let textureUuid = processAttachmentTextures(name, newTextures);
             if (textureUuid) {
               collection.texture = textureUuid;
             }
+            let textureGroup = TextureGroup.all.find((tg) => tg.name === name);
+            let newWrapperGroups = collectionRoots.filter((g) => !selectedGroups.includes(g));
+            let entry = Undo.finishEdit("Create attachment", {
+              collections: [collection],
+              groups: [...selectedGroups, ...newWrapperGroups],
+              outliner: true,
+              textures: newTextures,
+              texture_groups: textureGroup ? [textureGroup] : []
+            });
             Canvas.updateAllFaces();
+            Codecs.blockymodel.exportCollection(collection).then(() => {
+              let saved = entry?.post?.collections?.[collection.uuid];
+              if (saved) saved.export_path = collection.export_path;
+            });
           }
+        }).show();
+      }
+    });
+    track(create_attachment);
+    Panels.collections.toolbars[0].add(create_attachment);
+  }
+
+  // src/attachments/add_to.ts
+  function getSelectedAttachmentCollections() {
+    return Collection.selected.filter((c) => c.export_codec === "blockymodel");
+  }
+  function setupAddToAttachment() {
+    let add_to_attachment = new Action("add_to_hytale_attachment", {
+      name: "Add Selection to Attachment",
+      icon: "box_add",
+      category: "file",
+      condition: () => Modes.edit && isHytaleFormat() && getSelectedRootGroups().length > 0 && getSelectedAttachmentCollections().length > 0,
+      click() {
+        let collections = getSelectedAttachmentCollections();
+        let selectedGroups = getSelectedRootGroups();
+        if (selectedGroups.length === 0) return;
+        Undo.initEdit({
+          collections,
+          groups: selectedGroups,
+          outliner: true
         });
-      }
-    });
-    track(import_as_attachment);
-    let toolbar = Panels.collections.toolbars[0];
-    toolbar.add(import_as_attachment);
-    MenuBar.menus.file.addAction(import_as_attachment, "import");
-    function reloadAttachment(collection) {
-      for (let child of collection.getChildren()) {
-        child.remove();
-      }
-      Filesystem.readFile([collection.export_path], {}, ([file]) => {
-        let json = autoParseJSON(file.content);
-        let content = Codecs.blockymodel.parse(json, file.path, { attachment: collection.name });
-        let new_groups = content.new_groups;
-        let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
-        collection.extend({
-          children: root_groups.map((g) => g.uuid)
-        }).add();
+        let allNewWrappers = [];
+        for (let collection of collections) {
+          let newRoots = createIsPieceWrappers(collection.name, selectedGroups, collection);
+          collection.children.push(...newRoots.map((root) => root.uuid));
+          let newWrapperGroups = newRoots.filter((g) => !selectedGroups.includes(g));
+          allNewWrappers.push(...newWrapperGroups);
+        }
+        Undo.finishEdit("Add to attachment", {
+          collections,
+          groups: [...selectedGroups, ...allNewWrappers],
+          outliner: true
+        });
         Canvas.updateAllFaces();
-      });
+      }
+    });
+    track(add_to_attachment);
+    Panels.collections.toolbars[0].add(add_to_attachment);
+  }
+
+  // src/attachments/validation.ts
+  function isPieceHasError(group) {
+    for (let child of group.children) {
+      if (child instanceof Cube) return true;
     }
-    let reload_attachment_action = new Action("reload_hytale_attachment", {
-      name: "Reload Attachment",
-      icon: "refresh",
-      condition: () => Collection.selected.length && Modes.edit && isHytaleFormat(),
-      click() {
-        for (let collection of Collection.selected) {
-          reloadAttachment(collection);
-        }
-      }
+    return false;
+  }
+  function collectionHasPieceError(collection) {
+    for (let group of Group.all) {
+      if (!group.is_piece) continue;
+      if (!collection.contains(group)) continue;
+      if (isPieceHasError(group)) return true;
+    }
+    return false;
+  }
+  function piecePrefix(group) {
+    let c = Collection.all.find((c2) => c2.export_codec === "blockymodel" && c2.contains(group));
+    return c ? `[${c.name}] ` : "";
+  }
+  function nodeHasPieceError(node) {
+    if (node instanceof Group && node.is_piece) {
+      return node.children.some((c) => c instanceof Cube);
+    }
+    return node instanceof Cube && node.parent instanceof Group && node.parent.is_piece;
+  }
+  function allValidatorProblems() {
+    let errors = [];
+    let warnings = [];
+    Validator.checks.forEach((check) => {
+      errors.push(...check.errors);
+      warnings.push(...check.warnings);
     });
-    Collection.menu.addAction(reload_attachment_action, 10);
-    track(reload_attachment_action);
-    reload_all_attachments = new Action("reload_all_hytale_attachments", {
-      name: "Reload All Attachments",
-      icon: "sync",
+    return { errors, warnings };
+  }
+  function openValidatorForCollection(collection) {
+    let prefix = `[${collection.name}] `;
+    Validator.errors.replace(allValidatorProblems().errors.filter((e) => typeof e.message === "string" && e.message.startsWith(prefix)));
+    Validator.warnings.empty();
+    Validator.openDialog();
+    let dialog = Validator.dialog;
+    let originalHide = dialog.hide;
+    dialog.hide = function(...args) {
+      dialog.hide = originalHide;
+      let full = allValidatorProblems();
+      Validator.errors.replace(full.errors);
+      Validator.warnings.replace(full.warnings);
+      return originalHide.apply(this, args);
+    };
+  }
+  var ERROR_ICON_CLASS = "hytale_piece_error_icon";
+  function updateCollectionErrorIcons() {
+    if (!isHytaleFormat()) return;
+    document.querySelectorAll("." + ERROR_ICON_CLASS).forEach((el) => el.remove());
+    for (let collection of Collection.all) {
+      if (!collectionHasPieceError(collection)) continue;
+      let li = document.querySelector(`#collections_list li.collection[uuid="${collection.uuid}"]`);
+      if (!li) continue;
+      let errorBtn = document.createElement("div");
+      errorBtn.className = `in_list_button ${ERROR_ICON_CLASS}`;
+      errorBtn.title = "This attachment has invalid piece structure";
+      errorBtn.innerHTML = '<i class="material-icons icon" style="color: var(--color-error)">error</i>';
+      errorBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openValidatorForCollection(collection);
+      });
+      let firstButton = li.querySelector(".in_list_button:not(." + ERROR_ICON_CLASS + ")");
+      if (firstButton) {
+        li.insertBefore(errorBtn, firstButton);
+      } else {
+        li.appendChild(errorBtn);
+      }
+    }
+  }
+  function confirmSaveWithErrors(collection) {
+    if (!collectionHasPieceError(collection)) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      Blockbench.showMessageBox({
+        title: "Invalid Attachment Structure",
+        message: `The attachment "${collection.name}" has an invalid schema and may not work as expected in-game. Press "Inspect Errors" to review them.`,
+        icon: "warning",
+        buttons: ["Save Anyway", "Inspect Errors"],
+        confirm: 0,
+        cancel: 1
+      }, (button) => {
+        if (button === 0) {
+          resolve(true);
+        } else {
+          resolve(false);
+          openValidatorForCollection(collection);
+        }
+      });
+    });
+  }
+  function setupAttachmentValidation() {
+    let piece_check = new ValidatorCheck("hytale_attachment_piece_structure", {
+      update_triggers: ["update_selection"],
       condition: { formats: FORMAT_IDS },
+      run() {
+        for (let group of Group.all) {
+          if (!group.is_piece) continue;
+          let cubeCount = 0;
+          for (let child of group.children) {
+            if (child instanceof Cube) cubeCount++;
+          }
+          if (cubeCount > 0) {
+            this.fail({
+              message: `${piecePrefix(group)}"${group.name}" has ${cubeCount} cube(s) as direct children. Cubes cannot be direct children of a group marked as "Attachment Piece" : wrap them in a sub-group.`,
+              buttons: [{
+                name: "Select Group",
+                icon: "fa-folder",
+                click() {
+                  Validator.dialog.hide();
+                  group.select();
+                }
+              }]
+            });
+          }
+        }
+        Vue.nextTick(updateCollectionErrorIcons);
+      }
+    });
+    piece_check.name = "Hytale Attachment Piece Structure";
+    track(piece_check);
+    track({
+      delete() {
+        document.querySelectorAll("." + ERROR_ICON_CLASS).forEach((el) => el.remove());
+      }
+    });
+    let outlinerHook = Blockbench.on("get_outliner_node_classes", ({ node, classes }) => {
+      if (isHytaleFormat() && nodeHasPieceError(node)) classes.push("hytale_outliner_error");
+    });
+    let outlinerStyle = Blockbench.addCSS(`
+		.outliner_object.hytale_outliner_error .cube_name { color: var(--color-error); }
+		.outliner_object.hytale_outliner_error .outliner_toggle { order: 1; }
+		.outliner_object.hytale_outliner_error::after {
+			content: 'error';
+			font-family: 'Material Icons';
+			color: var(--color-error);
+			font-size: 15px;
+			order: 0;
+			margin: 0 4px;
+		}
+	`);
+    track(outlinerHook, { delete() {
+      outlinerStyle.delete();
+    } });
+    let codec = Codecs.blockymodel;
+    let originalExportCollection = codec.exportCollection.bind(codec);
+    let originalWriteCollection = codec.writeCollection.bind(codec);
+    codec.exportCollection = async function(collection) {
+      if (await confirmSaveWithErrors(collection)) {
+        return originalExportCollection(collection);
+      }
+    };
+    codec.writeCollection = async function(collection) {
+      if (await confirmSaveWithErrors(collection)) {
+        return originalWriteCollection(collection);
+      }
+    };
+    track({
+      delete() {
+        codec.exportCollection = originalExportCollection;
+        codec.writeCollection = originalWriteCollection;
+      }
+    });
+    let force_save_item = {
+      id: "force_save_hytale_attachment",
+      name: "Force Save",
+      icon: "save",
+      condition: (collection) => isHytaleFormat() && collection instanceof Collection && collection.export_codec === "blockymodel" && !isUnloaded(collection) && collectionHasPieceError(collection),
+      click(collection) {
+        if (collection.export_path) codec.writeCollection(collection);
+        else codec.exportCollection(collection);
+      }
+    };
+    Collection.menu.addAction(force_save_item, 10);
+    track({
+      delete() {
+        Collection.menu.removeAction("force_save_hytale_attachment");
+      }
+    });
+  }
+
+  // src/attachments/detach.ts
+  function findAttachmentCollection(group) {
+    return Collection.all.find((c) => c.export_codec === "blockymodel" && c.contains(group));
+  }
+  function findPieceWrapper(group, collection) {
+    let current = group;
+    while (current instanceof Group) {
+      if (current.is_piece && collection.children.includes(current.uuid)) {
+        return current;
+      }
+      current = current.parent;
+    }
+    return void 0;
+  }
+  function setupDetachFromAttachment() {
+    let detach_action = new Action("detach_from_hytale_attachment", {
+      name: "Detach from Attachment",
+      icon: "move_up",
+      category: "edit",
+      condition: () => {
+        if (!Modes.edit || !isHytaleFormat()) return false;
+        let group = Group.first_selected;
+        if (!group) return false;
+        return !!findAttachmentCollection(group);
+      },
       click() {
-        for (let collection of Collection.all.filter((c) => c.export_path)) {
-          reloadAttachment(collection);
+        let selectedGroups = Group.all.filter((g) => g.selected);
+        selectedGroups = selectedGroups.filter((g) => findAttachmentCollection(g));
+        if (selectedGroups.length === 0) return;
+        selectedGroups = selectedGroups.filter((group) => {
+          let parent = group.parent;
+          while (parent instanceof Group) {
+            if (selectedGroups.includes(parent)) return false;
+            parent = parent.parent;
+          }
+          return true;
+        });
+        let allElements = [];
+        let allGroups = [];
+        let affectedCollections = [];
+        for (let group of selectedGroups) {
+          let collection = findAttachmentCollection(group);
+          affectedCollections.safePush(collection);
+          allGroups.safePush(group);
+          group.forEachChild((obj) => {
+            if (obj instanceof Group) allGroups.safePush(obj);
+            else allElements.safePush(obj);
+          }, Group, true);
+          let wrapper = findPieceWrapper(group, collection);
+          if (wrapper) allGroups.safePush(wrapper);
+        }
+        Undo.initEdit({
+          collections: affectedCollections,
+          groups: allGroups,
+          elements: allElements,
+          outliner: true
+        });
+        for (let group of selectedGroups) {
+          let collection = findAttachmentCollection(group);
+          let wrapper = findPieceWrapper(group, collection);
+          if (wrapper && wrapper !== group) {
+            let wrapperParent = wrapper.parent;
+            let insertIndex = wrapper.getParentArray().indexOf(wrapper);
+            group.addTo(wrapperParent, insertIndex);
+            if (wrapper.children.length === 0) {
+              collection.children.remove(wrapper.uuid);
+              wrapper.remove(false);
+              allGroups.remove(wrapper);
+            }
+          } else if (wrapper === group) {
+            collection.children.remove(group.uuid);
+            let children = group.children.slice();
+            let parent = group.parent;
+            let insertIndex = group.getParentArray().indexOf(group);
+            for (let child of children) {
+              child.addTo(parent, insertIndex);
+            }
+            group.remove(false);
+            allGroups.remove(group);
+          } else {
+            collection.children.remove(group.uuid);
+            let prefix = collection.name + ":";
+            if (group.name.startsWith(prefix)) {
+              group.name = group.name.substring(prefix.length);
+            }
+            group.color = 0;
+          }
+          group.scope = 0;
+          group.forEachChild((node) => {
+            node.scope = 0;
+          });
+          if (collection.children.length === 0) {
+            Collection.all.remove(collection);
+            affectedCollections.remove(collection);
+          }
+        }
+        Canvas.updateAllPositions();
+        Undo.finishEdit("Detach from attachment");
+        updateSelection();
+      }
+    });
+    track(detach_action);
+    Group.prototype.menu.addAction(detach_action, "#manage");
+    track({
+      delete() {
+        Group.prototype.menu.removeAction(detach_action);
+      }
+    });
+  }
+
+  // src/attachments/index.ts
+  function setupCollectionDoubleClick() {
+    let collectionsNode = Panels.collections?.node;
+    if (!collectionsNode) return;
+    function onDblClick(e) {
+      if (!isHytaleFormat()) return;
+      if (e.target.closest(".in_list_button")) return;
+      let target = e.target;
+      while (target && !target.classList?.contains("collection")) {
+        target = target.parentElement;
+      }
+      if (!target) return;
+      let uuid = target.getAttribute("uuid");
+      let collection = Collection.all.find((c) => c.uuid === uuid);
+      if (!collection?.export_path) return;
+      let openEntry = Collection.menu.structure.find((entry) => entry?.id === "open");
+      if (openEntry && Condition(openEntry.condition, collection)) {
+        e.stopPropagation();
+        openEntry.click(collection);
+      }
+    }
+    collectionsNode.addEventListener("dblclick", onDblClick, true);
+    track({
+      delete() {
+        collectionsNode.removeEventListener("dblclick", onDblClick, true);
+      }
+    });
+  }
+  function setupUnsavedIndicator() {
+    let style = Blockbench.addCSS(`
+		#collections_list .collection .in_list_button[title]:not(.unclickable):not(.hytale_piece_error_icon) {
+			color: var(--color-warning);
+		}
+	`);
+    track({ delete() {
+      style.delete();
+    } });
+  }
+  function setupOutlinerStyles() {
+    let style = Blockbench.addCSS(`
+		.outliner_object.hytale_attachment_piece > .icon.material-icons:not(.outliner_toggle)::before {
+			content: "attachment";
+			display: block;
+			margin-bottom: 10px;
+			margin-right: 10px;
+		}
+		.outliner_object.hytale_quad > .icon.fa_big.fa-cube::before {
+			content: "\\f0c8";
+			font-weight: 400;
+			font-style: italic;
+		}
+		.outliner_object.hytale_attachment_piece > input[type=text] {
+			text-decoration: underline;
+		}
+	`);
+    let outlinerHook = Blockbench.on("get_outliner_node_classes", ({ node, classes }) => {
+      if (isHytaleFormat()) {
+        if (node.is_piece) classes.push("hytale_attachment_piece");
+        if (node instanceof Cube && node.size().some((v) => Math.epsilon(v, 0))) {
+          classes.push("hytale_quad");
         }
       }
     });
-    track(reload_all_attachments);
-    toolbar.add(reload_all_attachments);
+    track(outlinerHook, style);
+  }
+  function setupAttachments() {
+    setupAttachmentTextures();
+    setupDelete();
+    setupImport();
+    setupCreateAttachment();
+    setupAddToAttachment();
+    setupDetachFromAttachment();
+    setupAttachmentValidation();
+    setupAttachmentWatcher();
+    setupCollectionDoubleClick();
+    setupUnsavedIndicator();
+    setupUnload();
+    setupCollectionFolders();
+    setupCollectionColor();
+    setupAttachTo();
+    setupAttachmentRename();
+    setupHeld();
+    setupOutlinerStyles();
   }
 
   // src/animations.ts
@@ -1766,6 +4184,27 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
       condition: { formats: FORMAT_IDS }
     });
     track(original_offset_property);
+    let original_stretch_property = new Property(Group, "vector", "original_stretch", {
+      condition: { formats: FORMAT_IDS },
+      default: [1, 1, 1]
+    });
+    track(original_stretch_property);
+    let original_rotation_property = new Property(Group, "vector", "original_rotation", {
+      condition: { formats: FORMAT_IDS }
+    });
+    track(original_rotation_property);
+    let file_parent_property = new Property(Group, "string", "file_parent", {
+      condition: { formats: FORMAT_IDS }
+    });
+    track(file_parent_property);
+    let group_file_hidden_property = new Property(Group, "boolean", "file_hidden", {
+      condition: { formats: FORMAT_IDS }
+    });
+    track(group_file_hidden_property);
+    let cube_file_hidden_property = new Property(Cube, "boolean", "file_hidden", {
+      condition: { formats: FORMAT_IDS }
+    });
+    track(cube_file_hidden_property);
     const transparent_property = new Property(CubeFace, "boolean", "transparent", {
       condition: { formats: FORMAT_IDS },
       default: false
@@ -2228,17 +4667,17 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
 
   // src/photoshop_copy_paste.ts
   function setupPhotoshopTools() {
-    let setting = new Setting("copy_paste_magenta_alpha", {
+    let setting2 = new Setting("copy_paste_magenta_alpha", {
       name: "Copy-Paste with Magenta Alpha",
       description: "Copy image selections with magenta background and remove magenta when pasting to help transfer transparency to Photoshop",
       type: "toggle",
       category: "paint",
       value: false
     });
-    track(setting);
+    track(setting2);
     let shared_copy = SharedActions.add("copy", {
       subject: "image_content_photoshop",
-      condition: () => Prop.active_panel == "uv" && Modes.paint && UVEditor.texture && FORMAT_IDS.includes(Format.id) && setting.value == true,
+      condition: () => Prop.active_panel == "uv" && Modes.paint && UVEditor.texture && FORMAT_IDS.includes(Format.id) && setting2.value == true,
       priority: 2,
       run(event, cut) {
         let texture = UVEditor.texture;
@@ -2297,7 +4736,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     track(shared_copy);
     let shared_paste = SharedActions.add("paste", {
       subject: "image_content_photoshop",
-      condition: () => Prop.active_panel == "uv" && Modes.paint && UVEditor.texture && FORMAT_IDS.includes(Format.id) && setting.value == true,
+      condition: () => Prop.active_panel == "uv" && Modes.paint && UVEditor.texture && FORMAT_IDS.includes(Format.id) && setting2.value == true,
       priority: 2,
       run(event) {
         let texture = UVEditor.texture;
@@ -2768,7 +5207,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
   function setupUVOutline() {
     const style = Blockbench.addCSS(UV_OUTLINE_CSS);
     track(style);
-    const setting = new Setting("uv_outline_only", {
+    const setting2 = new Setting("uv_outline_only", {
       name: "UV Outline Only",
       description: "Show only outlines for UV faces instead of filled overlays",
       category: "edit",
@@ -2777,7 +5216,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
         document.body.classList.toggle("hytale-uv-outline-only", value);
       }
     });
-    track(setting);
+    track(setting2);
     const selectProjectListener = Blockbench.on("select_project", updateHytaleFormatClass);
     track(selectProjectListener);
     document.body.classList.toggle("hytale-uv-outline-only", settings.uv_outline_only?.value ?? true);
@@ -3909,6 +6348,159 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     track({ delete: () => events.forEach(([type, handler]) => document.removeEventListener(type, handler, true)) });
   }
 
+  // src/mirror_fix.ts
+  var SNAP_EPSILON = 0.01;
+  function snapAncestors(element) {
+    if (!isHytaleFormat()) return;
+    let center = Format.centered_grid ? 0 : 8;
+    let node = element.parent;
+    while (node instanceof Group) {
+      if (node.origin[0] !== center && Math.abs(node.origin[0] - center) < SNAP_EPSILON) {
+        node.origin[0] = center;
+      }
+      if (node.rotation[1] !== 0 && Math.abs(node.rotation[1]) < SNAP_EPSILON) {
+        node.rotation[1] = 0;
+      }
+      if (node.rotation[2] !== 0 && Math.abs(node.rotation[2]) < SNAP_EPSILON) {
+        node.rotation[2] = 0;
+      }
+      node = node.parent;
+    }
+  }
+  function hasDescendantElements(group) {
+    for (let child of group.children) {
+      if (child instanceof OutlinerElement) return true;
+      if (child instanceof Group && hasDescendantElements(child)) return true;
+    }
+    return false;
+  }
+  function isAncestrySymmetrical(child, center) {
+    let node = child.parent;
+    while (node instanceof Group) {
+      if (Math.abs(node.origin[0] - center) >= SNAP_EPSILON) return false;
+      if (Math.abs(node.rotation[1]) >= SNAP_EPSILON) return false;
+      if (Math.abs(node.rotation[2]) >= SNAP_EPSILON) return false;
+      node = node.parent;
+    }
+    return true;
+  }
+  function findOrCreateMirrorParent(child, center) {
+    let parent = child.parent;
+    if (!(parent instanceof Group)) return "root";
+    if (Math.abs(parent.origin[0] - center) < SNAP_EPSILON && isAncestrySymmetrical(child, center)) {
+      return parent;
+    }
+    let mirrorGrandparent = findOrCreateMirrorParent(parent, center);
+    let mirrorOriginX = MirrorModeling.flipCoord(parent.origin[0]);
+    let mirrorRotY = -parent.rotation[1];
+    let mirrorRotZ = -parent.rotation[2];
+    let searchList = mirrorGrandparent instanceof Group ? mirrorGrandparent.children : Outliner.root;
+    let match = searchList.find((node) => {
+      if (!(node instanceof Group)) return false;
+      if (!node.origin.equals) return false;
+      return Math.epsilon(node.origin[0], mirrorOriginX) && Math.epsilon(node.origin[1], parent.origin[1]) && Math.epsilon(node.origin[2], parent.origin[2]) && Math.epsilon(node.rotation[1], mirrorRotY) && Math.epsilon(node.rotation[2], mirrorRotZ);
+    });
+    if (match) return match;
+    let mirror = new Group(parent);
+    flipGroupName(mirror);
+    mirror.origin[0] = mirrorOriginX;
+    mirror.rotation[1] = mirrorRotY;
+    mirror.rotation[2] = mirrorRotZ;
+    mirror.isOpen = parent.isOpen;
+    mirror.addTo(mirrorGrandparent).init();
+    mirror.createUniqueName();
+    return mirror;
+  }
+  function flipGroupName(node) {
+    const pairs = {
+      right: "left",
+      Right: "Left",
+      RIGHT: "LEFT",
+      R: "L",
+      r: "l"
+    };
+    for (let [a, b] of Object.entries(pairs)) {
+      if (tryReplaceName(node, a, b)) return;
+      if (tryReplaceName(node, b, a)) return;
+    }
+  }
+  function tryReplaceName(node, from, to) {
+    if (!node.name.includes(from)) return false;
+    let regex = from;
+    if (from.length === 1) {
+      regex = new RegExp(`(?<=^|[_. -])${from}(?=[_. -]|$)`);
+    }
+    let result = node.name.replace(regex, to);
+    if (result === node.name) return false;
+    node.name = result;
+    return true;
+  }
+  function mirrorGroupTree(source, targetParent, center) {
+    let mirrorOriginX = MirrorModeling.flipCoord(source.origin[0]);
+    let searchList = targetParent instanceof Group ? targetParent.children : Outliner.root;
+    let exists = searchList.some(
+      (node) => node instanceof Group && Math.epsilon(node.origin[0], mirrorOriginX) && Math.epsilon(node.origin[1], source.origin[1]) && Math.epsilon(node.origin[2], source.origin[2])
+    );
+    if (exists) return;
+    let mirror = new Group(source);
+    flipGroupName(mirror);
+    mirror.origin[0] = mirrorOriginX;
+    mirror.rotation[1] *= -1;
+    mirror.rotation[2] *= -1;
+    mirror.isOpen = source.isOpen;
+    mirror.addTo(targetParent).init();
+    mirror.createUniqueName();
+    for (let child of source.children) {
+      if (child instanceof Group) {
+        mirrorGroupTree(child, mirror, center);
+      }
+    }
+  }
+  function setupMirrorFix() {
+    const origIsCentered = MirrorModeling.isCentered;
+    MirrorModeling.isCentered = function(element) {
+      snapAncestors(element);
+      return origIsCentered(element);
+    };
+    const origCreateClone = MirrorModeling.createClone;
+    MirrorModeling.createClone = function(original, undo_aspects) {
+      snapAncestors(original);
+      return origCreateClone(original, undo_aspects);
+    };
+    let action = BarItems.apply_mirror_modeling;
+    let origClick = action.click;
+    action.click = function(...args) {
+      if (!isHytaleFormat()) return origClick.apply(this, args);
+      let center = Format.centered_grid ? 0 : 8;
+      let toggle = BarItems.mirror_modeling;
+      let valueBefore = toggle.value;
+      toggle.value = true;
+      let selectedGroups = Group.all.filter((g) => g.selected);
+      let emptyGroups = selectedGroups.filter((g) => !hasDescendantElements(g));
+      Undo.initEdit({
+        elements: Outliner.selected,
+        groups: Group.selected,
+        outliner: true
+      });
+      for (let group of emptyGroups) {
+        snapAncestors(group);
+        let isCentered = Math.abs(group.origin[0] - center) < SNAP_EPSILON && isAncestrySymmetrical(group, center);
+        if (isCentered) continue;
+        let mirrorParent = findOrCreateMirrorParent(group, center);
+        mirrorGroupTree(group, mirrorParent, center);
+      }
+      Undo.finishEdit("Applied mirror modeling");
+      toggle.value = valueBefore;
+    };
+    track({
+      delete() {
+        MirrorModeling.isCentered = origIsCentered;
+        MirrorModeling.createClone = origCreateClone;
+        action.click = origClick;
+      }
+    });
+  }
+
   // src/pivot_control.ts
   var pivotFollowEnabled = true;
   function setupPivotControl() {
@@ -4764,14 +7356,14 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
 
   // src/ui_tweaks.ts
   function setupUITweaks() {
-    let setting = new Setting("hytale_sync_sidebar_width", {
+    let setting2 = new Setting("hytale_sync_sidebar_width", {
       name: "Sync Sidebar Width",
       description: "Sync the width of the sidebars and size of some panels between Edit and Paint mode",
       category: "interface",
       type: "toggle",
       value: false
     });
-    track(setting);
+    track(setting2);
     let previous_mode = null;
     let previous_data = null;
     let previous_uv_panel_data = null;
@@ -4781,7 +7373,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       previous_uv_panel_data = Panels.uv.position_data;
     }));
     track(Blockbench.on("select_mode", ({ mode }) => {
-      if (!setting.value) return;
+      if (!setting2.value) return;
       if (!previous_data) return;
       if (mode.id == "edit" && previous_mode == "paint" || mode.id == "paint" && previous_mode == "edit") {
         Object.assign(Interface.getModeData(), previous_data);
@@ -5301,6 +7893,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       setupAltDuplicate();
       setupNameOverlap();
       setupUVOutline();
+      setupMirrorFix();
       setupChangeOrientation();
       setupPreviewScenes();
       setupUVCanvasResize();

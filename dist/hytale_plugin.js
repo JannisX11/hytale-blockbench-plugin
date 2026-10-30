@@ -6418,13 +6418,18 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
         groups: Group.selected,
         outliner: true
       });
+      let groupsBefore = new Set(Group.all);
       for (let group of emptyGroups) {
         let isCentered = Math.epsilon(group.origin[0], center) && MirrorModeling.isParentTreeSymmetrical(group, { center });
         if (isCentered) continue;
         let mirrorParent = findOrCreateMirrorParent(group, center);
         mirrorGroupTree(group, mirrorParent, center);
       }
-      Undo.finishEdit("Applied mirror modeling");
+      Undo.finishEdit("Applied mirror modeling", {
+        elements: Outliner.selected,
+        groups: [...Group.selected, ...Group.all.filter((g) => !groupsBefore.has(g))],
+        outliner: true
+      });
       toggle.value = valueBefore;
     };
     track({

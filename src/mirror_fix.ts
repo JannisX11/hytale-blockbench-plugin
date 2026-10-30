@@ -129,6 +129,7 @@ export function setupMirrorFix() {
 			groups: Group.selected,
 			outliner: true,
 		});
+		let groupsBefore = new Set(Group.all);
 
 		for (let group of emptyGroups) {
 			let isCentered = Math.epsilon(group.origin[0], center)
@@ -139,7 +140,12 @@ export function setupMirrorFix() {
 			mirrorGroupTree(group, mirrorParent, center);
 		}
 
-		Undo.finishEdit('Applied mirror modeling');
+		// Undo only removes new groups that are listed in the edit
+		Undo.finishEdit('Applied mirror modeling', {
+			elements: Outliner.selected,
+			groups: [...Group.selected, ...Group.all.filter(g => !groupsBefore.has(g))],
+			outliner: true,
+		});
 		toggle.value = valueBefore;
 	};
 

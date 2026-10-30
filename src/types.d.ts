@@ -67,6 +67,9 @@ interface NumSlider {
 interface Tool {
 	transformerMode?: 'translate' | 'scale' | 'rotate' | 'stretch' | 'hidden' | ''
 }
+interface BarItemRegistry {
+	add_group: Action
+}
 
 /** Blockbench's rotate gizmo internals; mirrors THREE.TransformGizmoRotate in transform_gizmo.js */
 interface RotateGizmo extends THREE.Object3D {

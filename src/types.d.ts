@@ -66,6 +66,7 @@ interface NumSlider {
 }
 interface Tool {
 	transformerMode?: 'translate' | 'scale' | 'rotate' | 'stretch' | 'hidden' | ''
+	brush?: import('blockbench-types/generated/interface/actions').BrushOptions
 }
 
 /** Blockbench's rotate gizmo internals; mirrors THREE.TransformGizmoRotate in transform_gizmo.js */

@@ -4,6 +4,14 @@
   function track(...items) {
     list.push(...items);
   }
+  function trackTimeout(interval_code) {
+    list.push({
+      delete() {
+        clearTimeout(interval_code);
+      }
+    });
+    return interval_code;
+  }
   function cleanup() {
     for (let deletable of list) {
       try {
@@ -4354,8 +4362,8 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
         Cube.prototype.setUVMode = set_uv_mode_original;
       }
     });
-    let original_add_group_click = BarItems.add_group.click;
-    BarItems.add_group.click = function(...args) {
+    let original_add_group_click = BarItems.group_elements.click;
+    BarItems.group_elements.click = function(...args) {
       if (!isHytaleFormat() || Outliner.selected.length !== 1 || Group.multi_selected.length > 0) {
         return original_add_group_click.apply(this, args);
       }
@@ -4402,7 +4410,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     };
     track({
       delete() {
-        BarItems.add_group.click = original_add_group_click;
+        BarItems.group_elements.click = original_add_group_click;
       }
     });
     let inflate_condition_original = BarItems.slider_inflate.condition;
@@ -4629,7 +4637,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
   // package.json
   var package_default = {
     name: "hytale-blockbench-plugin",
-    version: "0.10.0",
+    version: "0.11.0",
     description: "Create models and animations for Hytale",
     main: "src/plugin.ts",
     type: "module",
@@ -4640,7 +4648,7 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     author: "JannisX11, Kanno",
     license: "GPL-3.0",
     dependencies: {
-      "blockbench-types": "^5.2.0"
+      "blockbench-types": "^5.2.1"
     },
     devDependencies: {
       esbuild: "^0.25.9"
@@ -6390,6 +6398,48 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
         BarItems[a]?.select();
       }
     };
+    function centerBones(axis) {
+      let bones = Group.multi_selected.filter((group) => !Group.multi_selected.some((other) => group.isChildOf(other, 128)));
+      let groups = [];
+      let elements = [];
+      for (let bone of bones) {
+        bone.forEachChild((child) => {
+          groups.push(child);
+        }, Group, true);
+        bone.forEachChild((child) => {
+          elements.push(child);
+        }, OutlinerElement);
+      }
+      Undo.initEdit({ elements, groups, outliner: true });
+      for (let bone of bones) {
+        let difference = new THREE.Vector3();
+        difference.setComponent(axis, -bone.mesh.getWorldPosition(new THREE.Vector3()).getComponent(axis));
+        difference.applyQuaternion(bone.mesh.parent.getWorldQuaternion(new THREE.Quaternion()).invert());
+        bone.forEachChild((child) => {
+          child.origin.V3_add(difference);
+        }, Group, true);
+        bone.forEachChild((cube) => {
+          cube.origin.V3_add(difference);
+          cube.from.V3_add(difference);
+          cube.to.V3_add(difference);
+        }, Cube);
+      }
+      Canvas.updateAllBones(groups);
+      Canvas.updateView({
+        elements,
+        element_aspects: { transform: true, geometry: true },
+        selection: true
+      });
+      Undo.finishEdit(`Center selection on ${"XYZ"[axis]} axis`);
+    }
+    let centerActions = [BarItems.center_x, BarItems.center_y, BarItems.center_z];
+    let originalCenterClicks = centerActions.map((action) => action.click);
+    centerActions.forEach((action, axis) => {
+      action.click = function(...args) {
+        if (!isHytaleFormat() || !Modes.edit || !Group.first_selected) return originalCenterClicks[axis].apply(this, args);
+        centerBones(axis);
+      };
+    });
     track(toggle, {
       delete() {
         Blockbench.removeListener("finish_edit", onFinishEdit);
@@ -6402,6 +6452,9 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
           savedUpdatePivotMarker = null;
         }
         Toolbox.toggleTransforms = originalToggleTransforms;
+        centerActions.forEach((action, axis) => {
+          action.click = originalCenterClicks[axis];
+        });
       }
     });
   }
@@ -7285,6 +7338,53 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
         Painter.loadBrushPreset = originalApplyBrushPreset;
       }
     });
+    let last_preview_id;
+    let last_preview_rotation_y;
+    let is_navigating_timer = 0;
+    let action = new Action("snap_view_to_side_view", {
+      icon: "recenter",
+      name: "Snap View to Side View",
+      category: "navigate",
+      keybind: new Keybind({ key: 18, alt: null, shift: null, ctrl: null }),
+      condition: () => Preview.selected instanceof Preview,
+      click(event) {
+        if (is_navigating_timer == 0 && event.keyCode <= 18) return;
+        let preview = Preview.selected;
+        preview.setProjectionMode(true, true);
+        let center = preview.controls.target;
+        let delta = preview.camera.position.clone().sub(center);
+        let distance = delta.length();
+        preview.camera.position.copy(center);
+        if (Math.abs(delta.x) > Math.abs(delta.y) && Math.abs(delta.x) > Math.abs(delta.z)) {
+          preview.camera.position.x += distance * Math.sign(delta.x);
+        } else if (Math.abs(delta.y) > Math.abs(delta.z)) {
+          preview.camera.position.y += distance * Math.sign(delta.y);
+        } else {
+          preview.camera.position.z += distance * Math.sign(delta.z);
+        }
+        preview.controls.stopMovement();
+        setTimeout(() => {
+          last_preview_id = preview.id;
+          last_preview_rotation_y = preview.camera.rotation.y;
+        }, 100);
+      }
+    });
+    let on_rotate = Blockbench.on("update_camera_position", ({ preview }) => {
+      is_navigating_timer = 2;
+      if (preview.id == last_preview_id && preview.camera.rotation.y != last_preview_rotation_y && preview.isOrtho) {
+        preview.setProjectionMode(false, true);
+        last_preview_id = void 0;
+        last_preview_rotation_y = void 0;
+      }
+    });
+    document.addEventListener("pointerup", () => {
+      is_navigating_timer = 0;
+    }, { passive: true });
+    let interval = setInterval(() => {
+      if (is_navigating_timer > 0) is_navigating_timer--;
+    }, 250);
+    trackTimeout(interval);
+    track(action, on_rotate);
   }
 
   // src/pivot_snap.ts

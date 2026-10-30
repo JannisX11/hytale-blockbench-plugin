@@ -273,6 +273,51 @@ export function setupPivotControl() {
 		}
 	};
 
+	// Center on bones: pivot of each selected bone goes to 0, children keep their offset
+	function centerBones(axis: number) {
+		// A selected child already moves with its selected parent
+		let bones = Group.multi_selected.filter(group => !Group.multi_selected.some(other => group.isChildOf(other, 128)));
+
+		let groups: Group[] = [];
+		let elements: OutlinerElement[] = [];
+		for (let bone of bones) {
+			bone.forEachChild((child: Group) => { groups.push(child); }, Group, true);
+			bone.forEachChild((child: OutlinerElement) => { elements.push(child); }, OutlinerElement);
+		}
+
+		Undo.initEdit({ elements, groups, outliner: true });
+
+		for (let bone of bones) {
+			let difference = new THREE.Vector3();
+			difference.setComponent(axis, -bone.mesh.getWorldPosition(new THREE.Vector3()).getComponent(axis));
+			difference.applyQuaternion(bone.mesh.parent.getWorldQuaternion(new THREE.Quaternion()).invert());
+
+			bone.forEachChild((child: Group) => { child.origin.V3_add(difference); }, Group, true);
+			bone.forEachChild((cube: Cube) => {
+				cube.origin.V3_add(difference);
+				cube.from.V3_add(difference);
+				cube.to.V3_add(difference);
+			}, Cube);
+		}
+		Canvas.updateAllBones(groups);
+		Canvas.updateView({
+			elements,
+			element_aspects: { transform: true, geometry: true },
+			selection: true,
+		});
+
+		Undo.finishEdit(`Center selection on ${'XYZ'[axis]} axis`);
+	}
+
+	let centerActions = [BarItems.center_x, BarItems.center_y, BarItems.center_z] as Action[];
+	let originalCenterClicks = centerActions.map(action => action.click);
+	centerActions.forEach((action, axis) => {
+		action.click = function (...args: any[]) {
+			if (!isHytaleFormat() || !Modes.edit || !Group.first_selected) return originalCenterClicks[axis].apply(this, args);
+			centerBones(axis);
+		};
+	});
+
 	track(toggle, {
 		delete() {
 			Blockbench.removeListener('finish_edit', onFinishEdit);
@@ -285,6 +330,7 @@ export function setupPivotControl() {
 				savedUpdatePivotMarker = null;
 			}
 			Toolbox.toggleTransforms = originalToggleTransforms;
+			centerActions.forEach((action, axis) => { action.click = originalCenterClicks[axis]; });
 		}
 	});
 }

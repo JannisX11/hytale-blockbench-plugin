@@ -54,15 +54,6 @@ function setupCollectionDoubleClick() {
 	});
 }
 
-function setupUnsavedIndicator() {
-	let style = Blockbench.addCSS(`
-		#collections_list .collection .in_list_button[title]:not(.unclickable):not(.hytale_piece_error_icon) {
-			color: var(--color-warning);
-		}
-	`);
-	track({ delete() { style.delete(); } });
-}
-
 function setupOutlinerStyles() {
 	let style = Blockbench.addCSS(`
 		.outliner_object.hytale_attachment_piece > .icon.material-icons:not(.outliner_toggle)::before {
@@ -71,12 +62,22 @@ function setupOutlinerStyles() {
 			margin-bottom: 10px;
 			margin-right: 10px;
 		}
+		.outliner_object.hytale_quad > .icon.fa_big.fa-cube::before {
+			content: "\\f0c8";
+			font-weight: 400;
+			font-style: italic;
+		}
 		.outliner_object.hytale_attachment_piece > input[type=text] {
 			text-decoration: underline;
 		}
 	`);
 	let outlinerHook = Blockbench.on('get_outliner_node_classes', ({node, classes}: any) => {
-		if (isHytaleFormat() && node.is_piece) classes.push('hytale_attachment_piece');
+		if (isHytaleFormat()) {
+			if (node.is_piece) classes.push('hytale_attachment_piece');
+			if (node instanceof Cube && node.size().some(v => Math.epsilon(v, 0))) {
+				classes.push('hytale_quad');
+			}
+		}
 	});
 	track(outlinerHook, style);
 }
@@ -91,7 +92,6 @@ export function setupAttachments() {
 	setupAttachmentValidation();
 	setupAttachmentWatcher();
 	setupCollectionDoubleClick();
-	setupUnsavedIndicator();
 	setupUnload();
 	setupCollectionFolders();
 	setupCollectionColor();

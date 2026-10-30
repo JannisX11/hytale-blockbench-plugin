@@ -222,14 +222,8 @@ export function setupAttachmentWatcher() {
 		description: 'Watch attachment files on disk for external changes and prompt to reload when modified.',
 		type: 'toggle',
 		value: false,
-		onChange(value: boolean) {
-			if (value) {
-				syncWatchers();
-			} else {
-				watchedCollections.clear();
-				watchedProjects.clear();
-				stopPolling();
-			}
+		onChange() {
+			syncWatchers();
 		}
 	});
 	track(setting);

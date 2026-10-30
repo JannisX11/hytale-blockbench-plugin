@@ -207,6 +207,8 @@ export async function promptAndUnload(collections: Collection[]): Promise<boolea
     }
 
     for (let c of toUnload) unloadCollection(c);
+    // Discarded changes leave nothing unsaved
+    for (let c of unsaved) c.saved = true;
     return true;
 }
 
@@ -253,7 +255,6 @@ export function syncUnloadButtons() {
         if (existing) {
             let icon = existing.querySelector('i')!;
             icon.textContent = unloaded ? 'download' : 'eject';
-            icon.classList.toggle('toggle_disabled', unloaded);
             continue;
         }
 
@@ -265,7 +266,6 @@ export function syncUnloadButtons() {
         let icon = document.createElement('i');
         icon.className = 'material-icons icon';
         icon.textContent = unloaded ? 'download' : 'eject';
-        if (unloaded) icon.classList.add('toggle_disabled');
         btn.appendChild(icon);
         btn.addEventListener('click', (e) => {
             e.stopPropagation();

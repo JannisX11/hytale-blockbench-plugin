@@ -655,7 +655,7 @@
           if (!obj) continue;
           obj.classList.add(SCOPE_CLASS);
           if (marker) {
-            if (!minimalColoring) obj.style.setProperty(COLOR_VAR, hexToRgba(marker.pastel, 0.35));
+            if (!minimalColoring) obj.style.setProperty(COLOR_VAR, hexToRgba(marker.pastel, 0.12));
             obj.style.setProperty(BORDER_VAR, marker.standard);
             obj.classList.add(COLOR_CLASS);
           }
@@ -1489,6 +1489,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       }
     }
     for (let c of toUnload) unloadCollection(c);
+    for (let c of unsaved) c.saved = true;
     return true;
   }
   async function toggleCollectionLoaded(collection) {
@@ -1528,7 +1529,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       if (existing) {
         let icon2 = existing.querySelector("i");
         icon2.textContent = unloaded ? "download" : "eject";
-        icon2.classList.toggle("toggle_disabled", unloaded);
         continue;
       }
       let visBtn = el.querySelector(":scope > .in_list_button:last-child");
@@ -1538,7 +1538,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       let icon = document.createElement("i");
       icon.className = "material-icons icon";
       icon.textContent = unloaded ? "download" : "eject";
-      if (unloaded) icon.classList.add("toggle_disabled");
       btn.appendChild(icon);
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -1949,14 +1948,8 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       description: "Watch attachment files on disk for external changes and prompt to reload when modified.",
       type: "toggle",
       value: false,
-      onChange(value) {
-        if (value) {
-          syncWatchers();
-        } else {
-          watchedCollections.clear();
-          watchedProjects.clear();
-          stopPolling();
-        }
+      onChange() {
+        syncWatchers();
       }
     });
     track(setting);
@@ -3850,16 +3843,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       }
     });
   }
-  function setupUnsavedIndicator() {
-    let style = Blockbench.addCSS(`
-		#collections_list .collection .in_list_button[title]:not(.unclickable):not(.hytale_piece_error_icon) {
-			color: var(--color-warning);
-		}
-	`);
-    track({ delete() {
-      style.delete();
-    } });
-  }
   function setupOutlinerStyles() {
     let style = Blockbench.addCSS(`
 		.outliner_object.hytale_attachment_piece > .icon.material-icons:not(.outliner_toggle)::before {
@@ -3868,12 +3851,22 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
 			margin-bottom: 10px;
 			margin-right: 10px;
 		}
+		.outliner_object.hytale_quad > .icon.fa_big.fa-cube::before {
+			content: "\\f0c8";
+			font-weight: 400;
+			font-style: italic;
+		}
 		.outliner_object.hytale_attachment_piece > input[type=text] {
 			text-decoration: underline;
 		}
 	`);
     let outlinerHook = Blockbench.on("get_outliner_node_classes", ({ node, classes }) => {
-      if (isHytaleFormat() && node.is_piece) classes.push("hytale_attachment_piece");
+      if (isHytaleFormat()) {
+        if (node.is_piece) classes.push("hytale_attachment_piece");
+        if (node instanceof Cube && node.size().some((v) => Math.epsilon(v, 0))) {
+          classes.push("hytale_quad");
+        }
+      }
     });
     track(outlinerHook, style);
   }
@@ -3887,7 +3880,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     setupAttachmentValidation();
     setupAttachmentWatcher();
     setupCollectionDoubleClick();
-    setupUnsavedIndicator();
     setupUnload();
     setupCollectionFolders();
     setupCollectionColor();
@@ -6605,24 +6597,6 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
   }
 
   // src/mirror_fix.ts
-  var SNAP_EPSILON = 0.01;
-  function snapAncestors(element) {
-    if (!isHytaleFormat()) return;
-    let center = Format.centered_grid ? 0 : 8;
-    let node = element.parent;
-    while (node instanceof Group) {
-      if (node.origin[0] !== center && Math.abs(node.origin[0] - center) < SNAP_EPSILON) {
-        node.origin[0] = center;
-      }
-      if (node.rotation[1] !== 0 && Math.abs(node.rotation[1]) < SNAP_EPSILON) {
-        node.rotation[1] = 0;
-      }
-      if (node.rotation[2] !== 0 && Math.abs(node.rotation[2]) < SNAP_EPSILON) {
-        node.rotation[2] = 0;
-      }
-      node = node.parent;
-    }
-  }
   function hasDescendantElements(group) {
     for (let child of group.children) {
       if (child instanceof OutlinerElement) return true;
@@ -6630,20 +6604,10 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     }
     return false;
   }
-  function isAncestrySymmetrical(child, center) {
-    let node = child.parent;
-    while (node instanceof Group) {
-      if (Math.abs(node.origin[0] - center) >= SNAP_EPSILON) return false;
-      if (Math.abs(node.rotation[1]) >= SNAP_EPSILON) return false;
-      if (Math.abs(node.rotation[2]) >= SNAP_EPSILON) return false;
-      node = node.parent;
-    }
-    return true;
-  }
   function findOrCreateMirrorParent(child, center) {
     let parent = child.parent;
     if (!(parent instanceof Group)) return "root";
-    if (Math.abs(parent.origin[0] - center) < SNAP_EPSILON && isAncestrySymmetrical(child, center)) {
+    if (Math.epsilon(parent.origin[0], center) && MirrorModeling.isParentTreeSymmetrical(child, { center })) {
       return parent;
     }
     let mirrorGrandparent = findOrCreateMirrorParent(parent, center);
@@ -6713,16 +6677,6 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     }
   }
   function setupMirrorFix() {
-    const origIsCentered = MirrorModeling.isCentered;
-    MirrorModeling.isCentered = function(element) {
-      snapAncestors(element);
-      return origIsCentered(element);
-    };
-    const origCreateClone = MirrorModeling.createClone;
-    MirrorModeling.createClone = function(original, undo_aspects) {
-      snapAncestors(original);
-      return origCreateClone(original, undo_aspects);
-    };
     let action = BarItems.apply_mirror_modeling;
     let origClick = action.click;
     action.click = function(...args) {
@@ -6738,20 +6692,22 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
         groups: Group.selected,
         outliner: true
       });
+      let groupsBefore = new Set(Group.all);
       for (let group of emptyGroups) {
-        snapAncestors(group);
-        let isCentered = Math.abs(group.origin[0] - center) < SNAP_EPSILON && isAncestrySymmetrical(group, center);
+        let isCentered = Math.epsilon(group.origin[0], center) && MirrorModeling.isParentTreeSymmetrical(group, { center });
         if (isCentered) continue;
         let mirrorParent = findOrCreateMirrorParent(group, center);
         mirrorGroupTree(group, mirrorParent, center);
       }
-      Undo.finishEdit("Applied mirror modeling");
+      Undo.finishEdit("Applied mirror modeling", {
+        elements: Outliner.selected,
+        groups: [...Group.selected, ...Group.all.filter((g) => !groupsBefore.has(g))],
+        outliner: true
+      });
       toggle.value = valueBefore;
     };
     track({
       delete() {
-        MirrorModeling.isCentered = origIsCentered;
-        MirrorModeling.createClone = origCreateClone;
         action.click = origClick;
       }
     });

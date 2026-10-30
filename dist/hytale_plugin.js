@@ -1914,9 +1914,17 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
 
   // src/uv_cycling.ts
   var cycleState = null;
-  var CLICK_THRESHOLD = 0;
+  var CLICK_THRESHOLD = 4;
   function screenToUV(event) {
-    return UVEditor.getBrushCoordinates(event, UVEditor.texture);
+    const frame = document.getElementById("uv_frame").getBoundingClientRect();
+    const vue = UVEditor.vue;
+    return {
+      x: (event.clientX - frame.left) / vue.inner_width * UVEditor.getResolution(0),
+      y: (event.clientY - frame.top) / vue.inner_height * UVEditor.getResolution(1)
+    };
+  }
+  function isNear(event, x, y) {
+    return Math.abs(event.clientX - x) <= CLICK_THRESHOLD && Math.abs(event.clientY - y) <= CLICK_THRESHOLD;
   }
   function isPointInRect(x, y, rect) {
     const minX = Math.min(rect.ax, rect.bx);
@@ -1928,10 +1936,12 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
   function getFacesAtUVPosition(uvX, uvY) {
     const faces = [];
     for (const cube of Cube.all) {
-      if (!cube.visibility) continue;
+      if (!cube.visibility || cube.locked) continue;
       for (const faceKey2 in cube.faces) {
         const face = cube.faces[faceKey2];
         if (face.enabled === false) continue;
+        if (face.texture === null) continue;
+        if (face.getTexture() != UVEditor.texture && UVEditor.texture != 0) continue;
         const rect = face.getBoundingRect();
         if (isPointInRect(uvX, uvY, rect)) {
           faces.push({ cube, faceKey: faceKey2 });
@@ -1957,6 +1967,9 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
     }
     return faces;
   }
+  function isFaceSelected(cube, faceKey2) {
+    return cube.selected && UVEditor.getSelectedFaces(cube).includes(faceKey2);
+  }
   function selectFace(cube, faceKey2) {
     cube.select();
     UVEditor.getSelectedFaces(cube, true).replace([faceKey2]);
@@ -1977,31 +1990,25 @@ For Hytale, the first cube inside a group qualifies as directly connected if it 
         if (!FORMAT_IDS.includes(Format.id)) return;
         if (Modes.paint) return;
         if (event.button !== 0) return;
-        pendingClick = { uvPos: screenToUV(event) };
+        pendingClick = { x: event.clientX, y: event.clientY };
       }
       function handleMouseUp(event) {
         if (!pendingClick) return;
         if (event.button !== 0) return;
-        const uvPos = screenToUV(event);
+        const { x, y } = pendingClick;
         pendingClick = null;
-        const isSamePosition = cycleState !== null && Math.abs(uvPos.x - cycleState.lastClickX) <= CLICK_THRESHOLD && Math.abs(uvPos.y - cycleState.lastClickY) <= CLICK_THRESHOLD;
-        if (isSamePosition && cycleState) {
-          cycleState.currentIndex = (cycleState.currentIndex + 1) % cycleState.facesAtPosition.length;
-          const { cube, faceKey: faceKey2 } = cycleState.facesAtPosition[cycleState.currentIndex];
-          setTimeout(() => selectFace(cube, faceKey2), 50);
-        } else {
-          const faces = getFacesAtUVPosition(uvPos.x, uvPos.y);
-          if (faces.length > 1) {
-            cycleState = {
-              lastClickX: uvPos.x,
-              lastClickY: uvPos.y,
-              currentIndex: 0,
-              facesAtPosition: faces
-            };
-          } else {
-            cycleState = null;
-          }
+        if (UVEditor.vue.dragging_uv || !isNear(event, x, y)) {
+          cycleState = null;
+          return;
         }
+        const isSamePosition = cycleState !== null && isNear(event, cycleState.lastClickX, cycleState.lastClickY);
+        const uvPos = screenToUV(event);
+        const faces = getFacesAtUVPosition(uvPos.x, uvPos.y);
+        if (isSamePosition && faces.length > 1) {
+          const { cube, faceKey: faceKey2 } = isFaceSelected(faces[0].cube, faces[0].faceKey) ? faces[1] : faces[0];
+          setTimeout(() => selectFace(cube, faceKey2), 50);
+        }
+        cycleState = faces.length > 1 ? { lastClickX: event.clientX, lastClickY: event.clientY } : null;
       }
       uv_viewport.addEventListener("mousedown", handleMouseDown);
       uv_viewport.addEventListener("mouseup", handleMouseUp);

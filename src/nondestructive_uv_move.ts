@@ -565,6 +565,11 @@ function linkedRotateFace(this: any, event: MouseEvent | TouchEvent) {
 function linkedDragFace(this: any, element: any, face_key: string | null, event: MouseEvent | TouchEvent) {
     if ((event as MouseEvent).which == 2 || (event as MouseEvent).which == 3) return;
 
+    if (element && !element.selected) {
+        element.select(event);
+        UVEditor.getSelectedFaces(element, true).empty();
+    }
+
     let me = event as any;
     let addToSelection = me.shiftKey || me.ctrlOrCmd || (Pressing as any).overrides?.shift || (Pressing as any).overrides?.ctrl;
 

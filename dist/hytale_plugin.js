@@ -4095,6 +4095,48 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
         BarItems[a]?.select();
       }
     };
+    function centerBones(axis) {
+      let bones = Group.multi_selected.filter((group) => !Group.multi_selected.some((other) => group.isChildOf(other, 128)));
+      let groups = [];
+      let elements = [];
+      for (let bone of bones) {
+        bone.forEachChild((child) => {
+          groups.push(child);
+        }, Group, true);
+        bone.forEachChild((child) => {
+          elements.push(child);
+        }, OutlinerElement);
+      }
+      Undo.initEdit({ elements, groups, outliner: true });
+      for (let bone of bones) {
+        let difference = new THREE.Vector3();
+        difference.setComponent(axis, -bone.mesh.getWorldPosition(new THREE.Vector3()).getComponent(axis));
+        difference.applyQuaternion(bone.mesh.parent.getWorldQuaternion(new THREE.Quaternion()).invert());
+        bone.forEachChild((child) => {
+          child.origin.V3_add(difference);
+        }, Group, true);
+        bone.forEachChild((cube) => {
+          cube.origin.V3_add(difference);
+          cube.from.V3_add(difference);
+          cube.to.V3_add(difference);
+        }, Cube);
+      }
+      Canvas.updateAllBones(groups);
+      Canvas.updateView({
+        elements,
+        element_aspects: { transform: true, geometry: true },
+        selection: true
+      });
+      Undo.finishEdit(`Center selection on ${"XYZ"[axis]} axis`);
+    }
+    let centerActions = [BarItems.center_x, BarItems.center_y, BarItems.center_z];
+    let originalCenterClicks = centerActions.map((action) => action.click);
+    centerActions.forEach((action, axis) => {
+      action.click = function(...args) {
+        if (!isHytaleFormat() || !Modes.edit || !Group.first_selected) return originalCenterClicks[axis].apply(this, args);
+        centerBones(axis);
+      };
+    });
     track(toggle, {
       delete() {
         Blockbench.removeListener("finish_edit", onFinishEdit);
@@ -4106,6 +4148,9 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
           savedUpdatePivotMarker = null;
         }
         Toolbox.toggleTransforms = originalToggleTransforms;
+        centerActions.forEach((action, axis) => {
+          action.click = originalCenterClicks[axis];
+        });
       }
     });
   }

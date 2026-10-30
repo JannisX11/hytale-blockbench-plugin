@@ -29,6 +29,7 @@ import { setupPivotSnap } from "./pivot_snap";
 import { setupNondestructiveUVMove } from "./nondestructive_uv_move";
 import { setupUVSelect } from "./uv_select";
 import { setupUVFill } from "./uv_fill";
+import { setupEraserLockAlpha } from "./eraser_lock_alpha";
 import { setupUITweaks } from "./ui_tweaks";
 import { setupFirstPerson } from "./first_person";
 
@@ -80,6 +81,7 @@ BBPlugin.register('hytale_plugin', {
         setupPivotSnap();
         setupNondestructiveUVMove();
         setupUVFill();
+        setupEraserLockAlpha();
 
         // Collections panel setting
         let panel_setup_listener: Deletable;

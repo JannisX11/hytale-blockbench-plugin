@@ -8718,6 +8718,37 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     return null;
   }
 
+  // src/eraser_lock_alpha.ts
+  function setupEraserLockAlpha() {
+    const painter = Painter;
+    function withoutLockAlpha(callback) {
+      const lock_alpha = painter.lock_alpha;
+      painter.lock_alpha = false;
+      try {
+        return callback();
+      } finally {
+        painter.lock_alpha = lock_alpha;
+      }
+    }
+    const brush = BarItems.eraser.brush;
+    const originalChangePixel = brush.changePixel;
+    brush.changePixel = function(...args) {
+      if (!isHytaleFormat()) return originalChangePixel.apply(this, args);
+      return withoutLockAlpha(() => originalChangePixel.apply(this, args));
+    };
+    const originalRaycast = Preview.prototype.raycast;
+    Preview.prototype.raycast = function(...args) {
+      if (!isHytaleFormat() || Toolbox.selected !== BarItems.eraser) return originalRaycast.apply(this, args);
+      return withoutLockAlpha(() => originalRaycast.apply(this, args));
+    };
+    track({
+      delete() {
+        brush.changePixel = originalChangePixel;
+        Preview.prototype.raycast = originalRaycast;
+      }
+    });
+  }
+
   // src/ui_tweaks.ts
   function setupUITweaks() {
     let setting2 = new Setting("hytale_sync_sidebar_width", {
@@ -9269,6 +9300,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       setupPivotSnap();
       setupNondestructiveUVMove();
       setupUVFill();
+      setupEraserLockAlpha();
       let panel_setup_listener;
       function showCollectionPanel() {
         const local_storage_key = "hytale_plugin:collection_panel_setup";

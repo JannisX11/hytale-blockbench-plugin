@@ -4296,6 +4296,47 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     }, 250);
     trackTimeout(interval);
     track(action, on_rotate);
+    let uv_navigation_shortcut = new KeybindItem("uv_editor_navigation", {
+      // @ts-expect-error
+      condition: { modes: ["edit", "paint"] },
+      category: "navigate",
+      name: "UV Editor Navigation",
+      description: "Hold this key to navigate the UV editor"
+    });
+    track(uv_navigation_shortcut);
+    function startUVNavigate(event) {
+      if (event.repeat) return;
+      if (!uv_navigation_shortcut.keybind.isTriggered(event)) return;
+      let target = document.elementFromPoint(mouse_pos.x, mouse_pos.y);
+      if (!target || !Panels.uv.node.contains(target)) return;
+      UVEditor.total_zoom_offset = [6, 6];
+      let uv_navigation_start = structuredClone(mouse_pos);
+      let { viewport } = UVEditor.vue.$refs;
+      let margin = UVEditor.vue.getFrameMargin();
+      let margin_center = [UVEditor.vue.width / 2, UVEditor.vue.height / 2];
+      let original = [
+        viewport.scrollLeft - 5,
+        viewport.scrollTop - 5
+      ];
+      function movePointer(e2) {
+        let x = original[0] + uv_navigation_start.x - e2.clientX + UVEditor.total_zoom_offset[0];
+        let y = original[1] + uv_navigation_start.y - e2.clientY + UVEditor.total_zoom_offset[1];
+        viewport.scrollLeft = Math.snapToValues(x, [margin[0], margin_center[0]], 10);
+        viewport.scrollTop = Math.snapToValues(y, [margin[1], margin_center[1]], 10);
+        UVEditor.vue.centered_view = (viewport.scrollLeft == margin[0] || viewport.scrollLeft == margin_center[0]) && (viewport.scrollTop == margin[1] || viewport.scrollTop == margin_center[1]);
+        UVEditor.updateUVNavigator();
+      }
+      function movePointerStop(e) {
+        removeEventListeners(document, "pointermove", movePointer);
+        removeEventListeners(document, "keyup", movePointerStop);
+      }
+      addEventListeners(document, "pointermove", movePointer);
+      addEventListeners(document, "keyup", movePointerStop);
+    }
+    document.addEventListener("keydown", startUVNavigate);
+    track({ delete() {
+      document.removeEventListener("keydown", startUVNavigate);
+    } });
   }
 
   // src/pivot_snap.ts

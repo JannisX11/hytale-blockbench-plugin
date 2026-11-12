@@ -253,9 +253,12 @@ export function setupElements() {
 						break;
 					}
 				}
+				// Bone rig: anchor to the parent's pivot, same as add_cube
+				let pos1 = group ? group.origin.slice() as ArrayVector3 : [0, 0, 0] as ArrayVector3;
 				base_quad.extend({
-					from: [-size[0]/2, 0, -size[2]/2],
-					to: [size[0]/2, size[1], size[2]/2],
+					from: [pos1[0] - size[0]/2, pos1[1], pos1[2] - size[2]/2],
+					to: [pos1[0] + size[0]/2, pos1[1] + size[1], pos1[2] + size[2]/2],
+					origin: pos1.slice() as ArrayVector3,
 				});
 
 				let fkey = Object.keys(base_quad.faces).find(fkey => base_quad.faces[fkey].texture != null);

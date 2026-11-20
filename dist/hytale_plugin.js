@@ -325,6 +325,89 @@
     track(finishedEditListener);
   }
 
+  // src/attachments/rebuild.ts
+  function parseAttachmentJson(collection, json, path) {
+    let result = Codecs.blockymodel.parse(json, path, { attachment: collection.name, held: isHeld(collection) });
+    let new_groups = result.new_groups;
+    let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
+    collection.extend({ children: root_groups.map((g) => g.uuid) }).add();
+    assignCollectionScope(collection);
+  }
+  function transferNodeUuids(from, to) {
+    let by_path = /* @__PURE__ */ new Map();
+    let by_name = /* @__PURE__ */ new Map();
+    let baseName = (node) => node.name.replace(/--C\d+$/, "");
+    let collect = (nodes, path) => {
+      for (let node of nodes ?? []) {
+        let key = path + "/" + baseName(node);
+        by_path.set(key, [...by_path.get(key) ?? [], node]);
+        by_name.set(baseName(node), [...by_name.get(baseName(node)) ?? [], node]);
+        collect(node.children, key);
+      }
+    };
+    collect(from.nodes, "");
+    let used = /* @__PURE__ */ new Set();
+    let sameKind = (a, b) => !!a.shape?.settings?.isStaticBox == !!b.shape?.settings?.isStaticBox;
+    let copy = (source, node) => {
+      used.add(source);
+      node.uuid = source.uuid;
+      node.shapeUuid = source.shapeUuid;
+      if (!node.shape) return;
+      node.fileHidden = node.shape.visible == false;
+      node.groupVisible = source.groupVisible ?? true;
+      let shape_visible = source.shape?.visible != false;
+      if (shape_visible == !!source.fileHidden) node.shape.visible = shape_visible;
+    };
+    let unmatched = [];
+    let assign = (nodes, path) => {
+      for (let node of nodes ?? []) {
+        let key = path + "/" + baseName(node);
+        let source = by_path.get(key)?.find((c) => !used.has(c) && sameKind(c, node));
+        if (source) copy(source, node);
+        else unmatched.push(node);
+        assign(node.children, key);
+      }
+    };
+    assign(to.nodes, "");
+    for (let node of unmatched) {
+      let candidates = by_name.get(baseName(node))?.filter((c) => !used.has(c) && sameKind(c, node));
+      if (candidates?.length === 1) copy(candidates[0], node);
+    }
+  }
+  function stashAnimators() {
+    let stash = [];
+    for (let animation of Animator.animations) {
+      for (let uuid in animation.animators) stash.push([animation, uuid, animation.animators[uuid]]);
+    }
+    return stash;
+  }
+  function restoreAnimators(stash) {
+    for (let [animation, uuid, animator] of stash) {
+      if (!animation.animators[uuid] && OutlinerNode.uuids[uuid]) animation.animators[uuid] = animator;
+    }
+  }
+  function rebuildWithDependents(collection, rebuild) {
+    let animators = stashAnimators();
+    let dependents = getAttachDependents(collection).filter((c) => !isUnloaded(c));
+    let snapshots = dependents.map((c) => Codecs.blockymodel.compile({ attachment: c, raw: true, uuids: true }));
+    for (let dependent of dependents.slice().reverse()) {
+      for (let child of dependent.getChildren()) child.remove();
+    }
+    rebuild();
+    dependents.forEach((dependent, i) => parseAttachmentJson(dependent, snapshots[i], dependent.export_path));
+    restoreAnimators(animators);
+    Canvas.updateAllFaces();
+  }
+  function reparseAttachment(collection, change, json) {
+    if (isUnloaded(collection)) return change?.();
+    rebuildWithDependents(collection, () => {
+      json ??= Codecs.blockymodel.compile({ attachment: collection, raw: true, uuids: true });
+      for (let child of collection.getChildren()) child.remove();
+      change?.();
+      parseAttachmentJson(collection, json, collection.export_path);
+    });
+  }
+
   // src/attachments/attach_to.ts
   function getAttachments() {
     return Collection.all.filter((c) => c.export_codec === "blockymodel");
@@ -454,89 +537,6 @@
     });
   }
 
-  // src/attachments/rebuild.ts
-  function parseAttachmentJson(collection, json, path) {
-    let result = Codecs.blockymodel.parse(json, path, { attachment: collection.name, held: isHeld(collection) });
-    let new_groups = result.new_groups;
-    let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
-    collection.extend({ children: root_groups.map((g) => g.uuid) }).add();
-    assignCollectionScope(collection);
-  }
-  function transferNodeUuids(from, to) {
-    let by_path = /* @__PURE__ */ new Map();
-    let by_name = /* @__PURE__ */ new Map();
-    let baseName = (node) => node.name.replace(/--C\d+$/, "");
-    let collect = (nodes, path) => {
-      for (let node of nodes ?? []) {
-        let key = path + "/" + baseName(node);
-        by_path.set(key, [...by_path.get(key) ?? [], node]);
-        by_name.set(baseName(node), [...by_name.get(baseName(node)) ?? [], node]);
-        collect(node.children, key);
-      }
-    };
-    collect(from.nodes, "");
-    let used = /* @__PURE__ */ new Set();
-    let sameKind = (a, b) => !!a.shape?.settings?.isStaticBox == !!b.shape?.settings?.isStaticBox;
-    let copy = (source, node) => {
-      used.add(source);
-      node.uuid = source.uuid;
-      node.shapeUuid = source.shapeUuid;
-      if (!node.shape) return;
-      node.fileHidden = node.shape.visible == false;
-      node.groupVisible = source.groupVisible ?? true;
-      let shape_visible = source.shape?.visible != false;
-      if (shape_visible == !!source.fileHidden) node.shape.visible = shape_visible;
-    };
-    let unmatched = [];
-    let assign = (nodes, path) => {
-      for (let node of nodes ?? []) {
-        let key = path + "/" + baseName(node);
-        let source = by_path.get(key)?.find((c) => !used.has(c) && sameKind(c, node));
-        if (source) copy(source, node);
-        else unmatched.push(node);
-        assign(node.children, key);
-      }
-    };
-    assign(to.nodes, "");
-    for (let node of unmatched) {
-      let candidates = by_name.get(baseName(node))?.filter((c) => !used.has(c) && sameKind(c, node));
-      if (candidates?.length === 1) copy(candidates[0], node);
-    }
-  }
-  function stashAnimators() {
-    let stash = [];
-    for (let animation of Animator.animations) {
-      for (let uuid in animation.animators) stash.push([animation, uuid, animation.animators[uuid]]);
-    }
-    return stash;
-  }
-  function restoreAnimators(stash) {
-    for (let [animation, uuid, animator] of stash) {
-      if (!animation.animators[uuid] && OutlinerNode.uuids[uuid]) animation.animators[uuid] = animator;
-    }
-  }
-  function rebuildWithDependents(collection, rebuild) {
-    let animators = stashAnimators();
-    let dependents = getAttachDependents(collection).filter((c) => !isUnloaded(c));
-    let snapshots = dependents.map((c) => Codecs.blockymodel.compile({ attachment: c, raw: true, uuids: true }));
-    for (let dependent of dependents.slice().reverse()) {
-      for (let child of dependent.getChildren()) child.remove();
-    }
-    rebuild();
-    dependents.forEach((dependent, i) => parseAttachmentJson(dependent, snapshots[i], dependent.export_path));
-    restoreAnimators(animators);
-    Canvas.updateAllFaces();
-  }
-  function reparseAttachment(collection, change, json) {
-    if (isUnloaded(collection)) return change?.();
-    rebuildWithDependents(collection, () => {
-      json ??= Codecs.blockymodel.compile({ attachment: collection, raw: true, uuids: true });
-      for (let child of collection.getChildren()) child.remove();
-      change?.();
-      parseAttachmentJson(collection, json, collection.export_path);
-    });
-  }
-
   // src/attachments/held.ts
   function isHeld(collection) {
     return collection.held === true;
@@ -544,11 +544,18 @@
   function setHeld(collection, held) {
     collection.held = held;
   }
-  function detectHeld(json, path) {
+  function isHeldModel(path, root) {
     if (/[\\/](Armors|Cosmetics|Characters|Attachments)[\\/]/i.test(path)) return false;
-    let root = json.nodes?.[0];
     if (!root) return false;
-    return !isPieceNode(root) || /^[RL]-Attachment$/.test(root.name);
+    return !root.piece || /^[RL]-Attachment$/.test(root.name);
+  }
+  function detectHeld(json, path) {
+    let root = json.nodes?.[0];
+    return isHeldModel(path, root && { name: root.name, piece: isPieceNode(root) });
+  }
+  function detectProjectHeld() {
+    let root = Outliner.root.find((node) => (node instanceof Group || node instanceof Cube) && !getOwningAttachment(node));
+    return isHeldModel(Project.export_path ?? "", root && { name: root.name, piece: root instanceof Group && isGamePiece(root) });
   }
   function changeHeld(collection, held) {
     let uuid = collection.uuid;
@@ -3515,29 +3522,21 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
   }
 
   // src/attachments/validation.ts
-  function isPieceHasError(group) {
-    for (let child of group.children) {
-      if (child instanceof Cube) return true;
-    }
-    return false;
+  function pieceWontAttach(group) {
+    if (group.is_piece !== true || !getMainShape(group)) return false;
+    let attachment = getOwningAttachment(group);
+    return attachment ? !isHeld(attachment) : !detectProjectHeld();
   }
-  function collectionHasPieceError(collection) {
-    for (let group of Group.all) {
-      if (!group.is_piece) continue;
-      if (!collection.contains(group)) continue;
-      if (isPieceHasError(group)) return true;
-    }
-    return false;
+  function collectionHasPieceWarning(collection) {
+    return Group.all.some((group) => collection.contains(group) && pieceWontAttach(group));
   }
   function piecePrefix(group) {
-    let c = Collection.all.find((c2) => c2.export_codec === "blockymodel" && c2.contains(group));
+    let c = getOwningAttachment(group);
     return c ? `[${c.name}] ` : "";
   }
-  function nodeHasPieceError(node) {
-    if (node instanceof Group && node.is_piece) {
-      return node.children.some((c) => c instanceof Cube);
-    }
-    return node instanceof Cube && node.parent instanceof Group && node.parent.is_piece;
+  function nodeHasPieceWarning(node) {
+    if (node instanceof Group) return pieceWontAttach(node);
+    return node instanceof Cube && node.parent instanceof Group && pieceWontAttach(node.parent) && getMainShape(node.parent) === node;
   }
   function allValidatorProblems() {
     let errors = [];
@@ -3550,8 +3549,10 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
   }
   function openValidatorForCollection(collection) {
     let prefix = `[${collection.name}] `;
-    Validator.errors.replace(allValidatorProblems().errors.filter((e) => typeof e.message === "string" && e.message.startsWith(prefix)));
-    Validator.warnings.empty();
+    let ofCollection = (problems) => problems.filter((p) => typeof p.message === "string" && p.message.startsWith(prefix));
+    let all = allValidatorProblems();
+    Validator.errors.replace(ofCollection(all.errors));
+    Validator.warnings.replace(ofCollection(all.warnings));
     Validator.openDialog();
     let dialog = Validator.dialog;
     let originalHide = dialog.hide;
@@ -3563,49 +3564,29 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       return originalHide.apply(this, args);
     };
   }
-  var ERROR_ICON_CLASS = "hytale_piece_error_icon";
-  function updateCollectionErrorIcons() {
+  var WARNING_ICON_CLASS = "hytale_piece_warning_icon";
+  function updateCollectionWarningIcons() {
     if (!isHytaleFormat()) return;
-    document.querySelectorAll("." + ERROR_ICON_CLASS).forEach((el) => el.remove());
+    document.querySelectorAll("." + WARNING_ICON_CLASS).forEach((el) => el.remove());
     for (let collection of Collection.all) {
-      if (!collectionHasPieceError(collection)) continue;
+      if (!collectionHasPieceWarning(collection)) continue;
       let li = document.querySelector(`#collections_list li.collection[uuid="${collection.uuid}"]`);
       if (!li) continue;
-      let errorBtn = document.createElement("div");
-      errorBtn.className = `in_list_button ${ERROR_ICON_CLASS}`;
-      errorBtn.title = "This attachment has invalid piece structure";
-      errorBtn.innerHTML = '<i class="material-icons icon" style="color: var(--color-error)">error</i>';
-      errorBtn.addEventListener("click", (e) => {
+      let warningBtn = document.createElement("div");
+      warningBtn.className = `in_list_button ${WARNING_ICON_CLASS}`;
+      warningBtn.title = "Some attachment pieces in this attachment won't attach in-game";
+      warningBtn.innerHTML = '<i class="material-icons icon" style="color: var(--color-warning)">warning</i>';
+      warningBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         openValidatorForCollection(collection);
       });
-      let firstButton = li.querySelector(".in_list_button:not(." + ERROR_ICON_CLASS + ")");
+      let firstButton = li.querySelector(".in_list_button:not(." + WARNING_ICON_CLASS + ")");
       if (firstButton) {
-        li.insertBefore(errorBtn, firstButton);
+        li.insertBefore(warningBtn, firstButton);
       } else {
-        li.appendChild(errorBtn);
+        li.appendChild(warningBtn);
       }
     }
-  }
-  function confirmSaveWithErrors(collection) {
-    if (!collectionHasPieceError(collection)) return Promise.resolve(true);
-    return new Promise((resolve) => {
-      Blockbench.showMessageBox({
-        title: "Invalid Attachment Structure",
-        message: `The attachment "${collection.name}" has an invalid schema and may not work as expected in-game. Press "Inspect Errors" to review them.`,
-        icon: "warning",
-        buttons: ["Save Anyway", "Inspect Errors"],
-        confirm: 0,
-        cancel: 1
-      }, (button) => {
-        if (button === 0) {
-          resolve(true);
-        } else {
-          resolve(false);
-          openValidatorForCollection(collection);
-        }
-      });
-    });
   }
   function setupAttachmentValidation() {
     let piece_check = new ValidatorCheck("hytale_attachment_piece_structure", {
@@ -3613,45 +3594,39 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
       condition: { formats: FORMAT_IDS },
       run() {
         for (let group of Group.all) {
-          if (!group.is_piece) continue;
-          let cubeCount = 0;
-          for (let child of group.children) {
-            if (child instanceof Cube) cubeCount++;
-          }
-          if (cubeCount > 0) {
-            this.fail({
-              message: `${piecePrefix(group)}"${group.name}" has ${cubeCount} cube(s) as direct children. Cubes cannot be direct children of a group marked as "Attachment Piece" : wrap them in a sub-group.`,
-              buttons: [{
-                name: "Select Group",
-                icon: "fa-folder",
-                click() {
-                  Validator.dialog.hide();
-                  group.select();
-                }
-              }]
-            });
-          }
+          if (!pieceWontAttach(group)) continue;
+          this.warn({
+            message: `${piecePrefix(group)}"${group.name}" is marked as "Attachment Piece" but has a shape (cube "${getMainShape(group)?.name}"), so it won't attach to a bone in-game. Move the cube into a sub-group to make it attach.`,
+            buttons: [{
+              name: "Select Group",
+              icon: "fa-folder",
+              click() {
+                Validator.dialog.hide();
+                group.select();
+              }
+            }]
+          });
         }
-        Vue.nextTick(updateCollectionErrorIcons);
+        Vue.nextTick(updateCollectionWarningIcons);
       }
     });
     piece_check.name = "Hytale Attachment Piece Structure";
     track(piece_check);
     track({
       delete() {
-        document.querySelectorAll("." + ERROR_ICON_CLASS).forEach((el) => el.remove());
+        document.querySelectorAll("." + WARNING_ICON_CLASS).forEach((el) => el.remove());
       }
     });
     let outlinerHook = Blockbench.on("get_outliner_node_classes", ({ node, classes }) => {
-      if (isHytaleFormat() && nodeHasPieceError(node)) classes.push("hytale_outliner_error");
+      if (isHytaleFormat() && nodeHasPieceWarning(node)) classes.push("hytale_outliner_warning");
     });
     let outlinerStyle = Blockbench.addCSS(`
-		.outliner_object.hytale_outliner_error .cube_name { color: var(--color-error); }
-		.outliner_object.hytale_outliner_error .outliner_toggle { order: 1; }
-		.outliner_object.hytale_outliner_error::after {
-			content: 'error';
+		.outliner_object.hytale_outliner_warning .cube_name { color: var(--color-warning); }
+		.outliner_object.hytale_outliner_warning .outliner_toggle { order: 1; }
+		.outliner_object.hytale_outliner_warning::after {
+			content: 'warning';
 			font-family: 'Material Icons';
-			color: var(--color-error);
+			color: var(--color-warning);
 			font-size: 15px;
 			order: 0;
 			margin: 0 4px;
@@ -3660,41 +3635,6 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
     track(outlinerHook, { delete() {
       outlinerStyle.delete();
     } });
-    let codec = Codecs.blockymodel;
-    let originalExportCollection = codec.exportCollection.bind(codec);
-    let originalWriteCollection = codec.writeCollection.bind(codec);
-    codec.exportCollection = async function(collection) {
-      if (await confirmSaveWithErrors(collection)) {
-        return originalExportCollection(collection);
-      }
-    };
-    codec.writeCollection = async function(collection) {
-      if (await confirmSaveWithErrors(collection)) {
-        return originalWriteCollection(collection);
-      }
-    };
-    track({
-      delete() {
-        codec.exportCollection = originalExportCollection;
-        codec.writeCollection = originalWriteCollection;
-      }
-    });
-    let force_save_item = {
-      id: "force_save_hytale_attachment",
-      name: "Force Save",
-      icon: "save",
-      condition: (collection) => isHytaleFormat() && collection instanceof Collection && collection.export_codec === "blockymodel" && !isUnloaded(collection) && collectionHasPieceError(collection),
-      click(collection) {
-        if (collection.export_path) codec.writeCollection(collection);
-        else codec.exportCollection(collection);
-      }
-    };
-    Collection.menu.addAction(force_save_item, 10);
-    track({
-      delete() {
-        Collection.menu.removeAction("force_save_hytale_attachment");
-      }
-    });
   }
 
   // src/attachments/detach.ts

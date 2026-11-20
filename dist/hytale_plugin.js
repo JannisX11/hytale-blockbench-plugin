@@ -1262,6 +1262,26 @@
       UVEditor.vue.updateTexture();
     });
     track(handler);
+    let vue = UVEditor.vue;
+    let originalUpdateTexture = vue.updateTexture;
+    vue.updateTexture = function() {
+      originalUpdateTexture.call(this);
+      if (!isHytaleFormat() || this.texture !== 0) return;
+      for (let element of UVEditor.getMappableElements()) {
+        let selected2 = UVEditor.getSelectedFaces(element).map((key) => element.faces[key]);
+        let texture = [...selected2, ...Object.values(element.faces)].map((face) => face.getTexture()).find((tex) => tex instanceof Texture);
+        if (!texture) continue;
+        this.texture = texture;
+        this.layer = texture.selected_layer || null;
+        this.updateTextureCanvas();
+        return;
+      }
+    };
+    track({
+      delete() {
+        vue.updateTexture = originalUpdateTexture;
+      }
+    });
   }
 
   // src/attachment_texture.ts

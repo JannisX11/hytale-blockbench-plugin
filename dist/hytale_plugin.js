@@ -4864,6 +4864,14 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
         }
       }
     }));
+    const GREEN = 2156858;
+    track(Blockbench.on("update_selection", () => {
+      if (isHytaleFormat() && Group.first_selected && Outliner.selected[0]) {
+        Canvas.outlineMaterial.color.set(GREEN);
+      } else {
+        Canvas.outlineMaterial.color.copy(gizmo_colors.outline);
+      }
+    }));
   }
 
   // src/references/first_person_player.json

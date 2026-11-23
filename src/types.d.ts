@@ -1,3 +1,10 @@
+// UVEditor.vue members the plugin uses; blockbench-types leaves UVEditor untyped
+interface UVEditorVue {
+	texture: Texture | 0 | null;
+	layer: Texture['selected_layer'];
+	updateTexture(): void;
+	updateTextureCanvas(): void;
+}
 
 declare module "*.png" {
 	const value: string;
@@ -66,6 +73,10 @@ interface NumSlider {
 }
 interface Tool {
 	transformerMode?: 'translate' | 'scale' | 'rotate' | 'stretch' | 'hidden' | ''
+	brush?: import('blockbench-types/generated/interface/actions').BrushOptions
+}
+interface BarItemRegistry {
+	add_group: Action
 }
 
 /** Blockbench's rotate gizmo internals; mirrors THREE.TransformGizmoRotate in transform_gizmo.js */

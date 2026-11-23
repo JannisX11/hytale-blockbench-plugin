@@ -4,27 +4,6 @@
 import { track } from "./cleanup";
 import { isHytaleFormat } from "./formats";
 
-const SNAP_EPSILON = 0.01;
-
-function snapAncestors(element: OutlinerNode) {
-	if (!isHytaleFormat()) return;
-
-	let center = Format.centered_grid ? 0 : 8;
-	let node = element.parent;
-	while (node instanceof Group) {
-		if (node.origin[0] !== center && Math.abs(node.origin[0] - center) < SNAP_EPSILON) {
-			node.origin[0] = center;
-		}
-		if (node.rotation[1] !== 0 && Math.abs(node.rotation[1]) < SNAP_EPSILON) {
-			node.rotation[1] = 0;
-		}
-		if (node.rotation[2] !== 0 && Math.abs(node.rotation[2]) < SNAP_EPSILON) {
-			node.rotation[2] = 0;
-		}
-		node = node.parent;
-	}
-}
-
 function hasDescendantElements(group: Group): boolean {
 	for (let child of group.children) {
 		if (child instanceof OutlinerElement) return true;
@@ -33,25 +12,14 @@ function hasDescendantElements(group: Group): boolean {
 	return false;
 }
 
-function isAncestrySymmetrical(child: OutlinerNode, center: number): boolean {
-	let node = child.parent;
-	while (node instanceof Group) {
-		if (Math.abs(node.origin[0] - center) >= SNAP_EPSILON) return false;
-		if (Math.abs(node.rotation[1]) >= SNAP_EPSILON) return false;
-		if (Math.abs(node.rotation[2]) >= SNAP_EPSILON) return false;
-		node = node.parent;
-	}
-	return true;
-}
-
 // Replicates getParentMirror from Blockbench's mirror_modeling.ts:
 // walks up the parent chain, reusing symmetrical parents and finding/creating
 // mirror copies of asymmetrical ones.
-function findOrCreateMirrorParent(child: OutlinerNode, center: number): Group | string {
+function findOrCreateMirrorParent(child: OutlinerNode, center: number): Group | 'root' {
 	let parent = child.parent;
 	if (!(parent instanceof Group)) return 'root';
 
-	if (Math.abs(parent.origin[0] - center) < SNAP_EPSILON && isAncestrySymmetrical(child, center)) {
+	if (Math.epsilon(parent.origin[0], center) && MirrorModeling.isParentTreeSymmetrical(child, {center})) {
 		return parent;
 	}
 
@@ -112,7 +80,7 @@ function tryReplaceName(node: { name: string }, from: string, to: string): boole
 	return true;
 }
 
-function mirrorGroupTree(source: Group, targetParent: Group | string, center: number) {
+function mirrorGroupTree(source: Group, targetParent: Group | 'root', center: number) {
 	let mirrorOriginX = MirrorModeling.flipCoord(source.origin[0]);
 
 	let searchList: OutlinerNode[] = targetParent instanceof Group
@@ -143,18 +111,6 @@ function mirrorGroupTree(source: Group, targetParent: Group | string, center: nu
 }
 
 export function setupMirrorFix() {
-	const origIsCentered = MirrorModeling.isCentered;
-	MirrorModeling.isCentered = function (element: OutlinerElement) {
-		snapAncestors(element);
-		return origIsCentered(element);
-	};
-
-	const origCreateClone = MirrorModeling.createClone;
-	MirrorModeling.createClone = function (original: OutlinerElement, undo_aspects: UndoAspects) {
-		snapAncestors(original);
-		return origCreateClone(original, undo_aspects);
-	};
-
 	let action = BarItems.apply_mirror_modeling as Action;
 	let origClick = action.click;
 	action.click = function (...args: any[]) {
@@ -173,26 +129,28 @@ export function setupMirrorFix() {
 			groups: Group.selected,
 			outliner: true,
 		});
+		let groupsBefore = new Set(Group.all);
 
 		for (let group of emptyGroups) {
-			snapAncestors(group);
-
-			let isCentered = Math.abs(group.origin[0] - center) < SNAP_EPSILON
-				&& isAncestrySymmetrical(group, center);
+			let isCentered = Math.epsilon(group.origin[0], center)
+				&& MirrorModeling.isParentTreeSymmetrical(group, {center});
 			if (isCentered) continue;
 
 			let mirrorParent = findOrCreateMirrorParent(group, center);
 			mirrorGroupTree(group, mirrorParent, center);
 		}
 
-		Undo.finishEdit('Applied mirror modeling');
+		// Undo only removes new groups that are listed in the edit
+		Undo.finishEdit('Applied mirror modeling', {
+			elements: Outliner.selected,
+			groups: [...Group.selected, ...Group.all.filter(g => !groupsBefore.has(g))],
+			outliner: true,
+		});
 		toggle.value = valueBefore;
 	};
 
 	track({
 		delete() {
-			MirrorModeling.isCentered = origIsCentered;
-			MirrorModeling.createClone = origCreateClone;
 			action.click = origClick;
 		}
 	});

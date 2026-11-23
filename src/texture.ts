@@ -1,7 +1,7 @@
 //! Copyright (C) 2025 Hypixel Studios Canada inc.
 //! Licensed under the GNU General Public License, see LICENSE.MD
 
-import { AttachmentCollection } from "./attachments/texture";
+import { AttachmentCollection } from "./attachments";
 import { track } from "./cleanup";
 import { isHytaleFormat } from "./formats";
 
@@ -45,6 +45,31 @@ export function setupTextureHandling() {
         UVEditor.vue.updateTexture();
     });
     track(handler);
+
+    // Blockbench falls back to a disabled (null) face and hides the UV texture: use the first face that has one
+    let vue: UVEditorVue = UVEditor.vue;
+    let originalUpdateTexture = vue.updateTexture;
+    vue.updateTexture = function (this: UVEditorVue) {
+        originalUpdateTexture.call(this);
+        if (!isHytaleFormat() || this.texture !== 0) return;
+
+        for (let element of UVEditor.getMappableElements() as Cube[]) {
+            let selected: CubeFace[] = UVEditor.getSelectedFaces(element).map((key: CubeFaceDirection) => element.faces[key]);
+            let texture = [...selected, ...Object.values(element.faces)]
+                .map(face => face.getTexture())
+                .find((tex): tex is Texture => tex instanceof Texture);
+            if (!texture) continue;
+            this.texture = texture;
+            this.layer = texture.selected_layer || null;
+            this.updateTextureCanvas();
+            return;
+        }
+    };
+    track({
+        delete() {
+            vue.updateTexture = originalUpdateTexture;
+        }
+    });
 
     /*let on_update_select = Blockbench.on('update_texture_selection', (arg) => {
         if (Texture.getDefault()) updateUVSize(Texture.getDefault());

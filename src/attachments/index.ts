@@ -14,6 +14,9 @@ import { setupDetachFromAttachment } from "./detach";
 import { setupCollectionColor } from "./collection_color";
 import { setupCollectionFolders } from "./collection_folder";
 import { setupUnload } from "./unload";
+import { setupAttachTo } from "./attach_to";
+import { setupAttachmentRename } from "./rename";
+import { setupHeld } from "./held";
 
 export { AttachmentCollection } from "./texture";
 export { reload_all_attachments, reloadAttachment } from "./import";
@@ -51,13 +54,32 @@ function setupCollectionDoubleClick() {
 	});
 }
 
-function setupUnsavedIndicator() {
+function setupOutlinerStyles() {
 	let style = Blockbench.addCSS(`
-		#collections_list .collection .in_list_button[title]:not(.unclickable):not(.hytale_piece_error_icon) {
-			color: var(--color-warning);
+		.outliner_object.hytale_attachment_piece > .icon.material-icons:not(.outliner_toggle)::before {
+			content: "attachment";
+			display: block;
+			margin-bottom: 10px;
+			margin-right: 10px;
+		}
+		.outliner_object.hytale_quad > .icon.fa_big.fa-cube::before {
+			content: "\\f0c8";
+			font-weight: 400;
+			font-style: italic;
+		}
+		.outliner_object.hytale_attachment_piece > input[type=text] {
+			text-decoration: underline;
 		}
 	`);
-	track({ delete() { style.delete(); } });
+	let outlinerHook = Blockbench.on('get_outliner_node_classes', ({node, classes}: any) => {
+		if (isHytaleFormat()) {
+			if (node.is_piece) classes.push('hytale_attachment_piece');
+			if (node instanceof Cube && node.size().some(v => Math.epsilon(v, 0))) {
+				classes.push('hytale_quad');
+			}
+		}
+	});
+	track(outlinerHook, style);
 }
 
 export function setupAttachments() {
@@ -70,8 +92,11 @@ export function setupAttachments() {
 	setupAttachmentValidation();
 	setupAttachmentWatcher();
 	setupCollectionDoubleClick();
-	setupUnsavedIndicator();
 	setupUnload();
 	setupCollectionFolders();
 	setupCollectionColor();
+	setupAttachTo();
+	setupAttachmentRename();
+	setupHeld();
+	setupOutlinerStyles();
 }

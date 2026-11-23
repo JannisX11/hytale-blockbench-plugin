@@ -5,6 +5,14 @@ let list: Deletable[] = [];
 export function track(...items: Deletable[]) {
     list.push(...items);
 }
+export function trackTimeout(interval_code: any): number {
+    list.push({
+        delete() {
+            clearTimeout(interval_code);
+        }
+    })
+    return interval_code as number;
+}
 export function cleanup() {
     // Delete actions etc. when reloading or uninstalling the plugin
     for (let deletable of list) {

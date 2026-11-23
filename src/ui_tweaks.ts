@@ -1,4 +1,5 @@
 import { track } from "./cleanup";
+import { isHytaleFormat } from "./formats";
 
 export function setupUITweaks() {
 
@@ -28,6 +29,16 @@ export function setupUITweaks() {
             if (previous_uv_panel_data) {
                 Object.assign(Panels.uv.position_data, previous_uv_panel_data);
             }
+        }
+    }));
+
+    // Highlight selection in green if bone is selected
+    const GREEN = 0x20e93a;
+    track(Blockbench.on('update_selection', () => {
+        if (isHytaleFormat() && Group.first_selected && Outliner.selected[0]) {
+            Canvas.outlineMaterial.color.set(GREEN);
+        } else {
+            Canvas.outlineMaterial.color.copy(gizmo_colors.outline);
         }
     }));
 }

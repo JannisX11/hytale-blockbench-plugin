@@ -4,13 +4,15 @@
 import { BlockymodelNode } from "../blockymodel";
 import { assignCollectionScope, isUnloaded } from "./unload";
 import { getAttachDependents } from "./attach_to";
-import { isHeld } from "./held";
+import { detectHeld, setHeld } from "./held";
 
 export type AnimatorStash = [BBAnimation, string, GeneralAnimator][];
 
 /** Parses attachment JSON into an existing collection */
 export function parseAttachmentJson(collection: Collection, json: any, path: string) {
-	let result: any = Codecs.blockymodel.parse(json, path, {attachment: collection.name, held: isHeld(collection)});
+	let held = detectHeld(json, path);
+	setHeld(collection, held);
+	let result: any = Codecs.blockymodel.parse(json, path, {attachment: collection.name, held});
 	let new_groups = result.new_groups as Group[];
 	let root_groups = new_groups.filter(group => !new_groups.includes(group.parent as Group));
 	collection.extend({ children: root_groups.map(g => g.uuid) }).add();

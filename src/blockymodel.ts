@@ -603,12 +603,18 @@ export function setupBlockymodelCodec(): Codec {
 			let first_root = model.nodes[0];
 			if (args.attachment && args.held && first_root) {
 				let o = first_root.orientation;
+				let orientation = new THREE.Quaternion(o.x, o.y, o.z, o.w).normalize();
+				let position = new THREE.Vector3(...parseVector(first_root.position));
+				// A shapeless root cancels its children's frame, offset included (JellySquid fix, hytale fix/jellysquid/model-attachment-offsets)
+				if (first_root.shape?.type == 'none') {
+					position.add(new THREE.Vector3(...parseVector(first_root.shape.offset)).applyQuaternion(orientation));
+				}
 				held = {
 					bone: attach_targets.get(isPieceNode(first_root) ? first_root.name : 'R-Attachment')
 						// Like in-game, fall back to the model root
 						?? existing_groups.find(g => g.parent == 'root' && !getOwningAttachment(g)),
-					inverse: new THREE.Quaternion(o.x, o.y, o.z, o.w).normalize().invert(),
-					position: new THREE.Vector3(...parseVector(first_root.position)),
+					inverse: orientation.invert(),
+					position,
 				};
 			}
 
@@ -647,12 +653,12 @@ export function setupBlockymodelCodec(): Codec {
 					rotation = [0, 0, 0];
 
 				} else if (held_root && held) {
-					// In-game: x = bone * (inverse(R0) * x_item - P0)
+					// In-game: x = bone * (inverse(R0) * (x_item - P0))
 					original_position = origin;
 					original_rotation = rotation;
 					let euler = new THREE.Euler().setFromQuaternion(held.inverse.clone().multiply(quaternion), 'ZYX');
 					rotation = [euler.x, euler.y, euler.z].map(v => Math.roundTo(Math.radToDeg(v), 3)) as ArrayVector3;
-					origin = new THREE.Vector3(...origin).applyQuaternion(held.inverse).sub(held.position).toArray() as ArrayVector3;
+					origin = new THREE.Vector3(...origin).sub(held.position).applyQuaternion(held.inverse).toArray() as ArrayVector3;
 					if (held.bone) {
 						origin.V3_add(getBoneAnchor(held.bone));
 						parent_group = held.bone;

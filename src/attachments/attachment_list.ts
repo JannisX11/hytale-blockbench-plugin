@@ -7,7 +7,7 @@ import { assignCollectionScope, isUnloaded } from "./unload";
 import { AttachmentCollection, resolveTexturePath } from "./texture";
 import { getAttachParent } from "./attach_to";
 import { getUniqueAttachmentName } from "./rename";
-import { detectHeld, isHeld, setHeld } from "./held";
+import { detectHeld, setHeld } from "./held";
 
 export type BlockymodelAttachment = {
 	name: string
@@ -18,7 +18,6 @@ export type BlockymodelAttachment = {
 	color?: number
 	unloaded?: boolean
 	attachTo?: string
-	held?: boolean
 }
 export type BlockymodelFolder = {
 	uuid: string
@@ -77,7 +76,6 @@ export function compileAttachmentList(model: BlockymodelJSON, modelDir: string) 
 			unloaded: isUnloaded(c) || undefined,
 			// By path: names may change and need not be unique in older projects
 			attachTo: parentPath ? relative(parentPath) : undefined,
-			held: isHeld(c),
 		});
 	}
 	if (attachments.length) model.attachments = attachments;
@@ -118,9 +116,8 @@ export function loadAttachmentList(model: BlockymodelJSON, modelDir: string) {
 		if (!fs.existsSync(absPath)) {
 			Blockbench.showQuickMessage(`Attachment "${att.name}" not found at ${att.path}`, 3000);
 		}
-		// Projects saved before held items existed
 		try {
-			setHeld(collection, att.held ?? detectHeld(autoParseJSON(fs.readFileSync(absPath, 'utf-8'), false), absPath));
+			setHeld(collection, detectHeld(autoParseJSON(fs.readFileSync(absPath, 'utf-8'), false), absPath));
 		} catch {}
 	}
 	let findByPath = (rel: string) => Collection.all.find(c => c.export_path === resolve(rel)) as ListedCollection | undefined;

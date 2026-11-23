@@ -327,7 +327,9 @@
 
   // src/attachments/rebuild.ts
   function parseAttachmentJson(collection, json, path) {
-    let result = Codecs.blockymodel.parse(json, path, { attachment: collection.name, held: isHeld(collection) });
+    let held = detectHeld(json, path);
+    setHeld(collection, held);
+    let result = Codecs.blockymodel.parse(json, path, { attachment: collection.name, held });
     let new_groups = result.new_groups;
     let root_groups = new_groups.filter((group) => !new_groups.includes(group.parent));
     collection.extend({ children: root_groups.map((g) => g.uuid) }).add();
@@ -557,46 +559,12 @@
     let root = Outliner.root.find((node) => (node instanceof Group || node instanceof Cube) && !getOwningAttachment(node));
     return isHeldModel(Project.export_path ?? "", root && { name: root.name, piece: root instanceof Group && isGamePiece(root) });
   }
-  function changeHeld(collection, held) {
-    let uuid = collection.uuid;
-    let apply = (value) => {
-      let target = Collection.all.find((c) => c.uuid === uuid);
-      if (!target || isHeld(target) === value) return;
-      reparseAttachment(target, () => setHeld(target, value));
-      applyCollectionColors();
-    };
-    apply(held);
-    pushReloadUndo(!held, held, held ? "Make attachment held" : "Make attachment worn", apply);
-  }
   function setupHeld() {
     let held_property = new Property(Collection, "boolean", "held", {
       default: false,
       condition: { formats: FORMAT_IDS }
     });
     track(held_property);
-    let isAttachment = () => Collection.selected.length == 1 && Collection.selected[0].export_codec === "blockymodel";
-    let make_held = {
-      id: "hytale_make_held",
-      name: "Make Held Item",
-      icon: "pan_tool",
-      condition: () => isAttachment() && !isHeld(Collection.selected[0]),
-      click: () => changeHeld(Collection.selected[0], true)
-    };
-    let make_worn = {
-      id: "hytale_make_worn",
-      name: "Make Worn Item",
-      icon: "checkroom",
-      condition: () => isAttachment() && isHeld(Collection.selected[0]),
-      click: () => changeHeld(Collection.selected[0], false)
-    };
-    Collection.menu.addAction(make_held, "#settings");
-    Collection.menu.addAction(make_worn, "#settings");
-    track({
-      delete() {
-        Collection.menu.removeAction("hytale_make_held");
-        Collection.menu.removeAction("hytale_make_worn");
-      }
-    });
   }
 
   // src/attachments/collection_color.ts
@@ -2004,8 +1972,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
         color: c.color != null && c.color >= 0 ? c.color : void 0,
         unloaded: isUnloaded(c) || void 0,
         // By path: names may change and need not be unique in older projects
-        attachTo: parentPath ? relative(parentPath) : void 0,
-        held: isHeld(c)
+        attachTo: parentPath ? relative(parentPath) : void 0
       });
     }
     if (attachments.length) model.attachments = attachments;
@@ -2040,7 +2007,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
         Blockbench.showQuickMessage(`Attachment "${att.name}" not found at ${att.path}`, 3e3);
       }
       try {
-        setHeld(collection, att.held ?? detectHeld(autoParseJSON(fs.readFileSync(absPath, "utf-8"), false), absPath));
+        setHeld(collection, detectHeld(autoParseJSON(fs.readFileSync(absPath, "utf-8"), false), absPath));
       } catch {
       }
     }
@@ -2499,10 +2466,15 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
         let first_root = model.nodes[0];
         if (args.attachment && args.held && first_root) {
           let o = first_root.orientation;
+          let orientation = new THREE.Quaternion(o.x, o.y, o.z, o.w).normalize();
+          let position = new THREE.Vector3(...parseVector(first_root.position));
+          if (first_root.shape?.type == "none") {
+            position.add(new THREE.Vector3(...parseVector(first_root.shape.offset)).applyQuaternion(orientation));
+          }
           held = {
             bone: attach_targets.get(isPieceNode(first_root) ? first_root.name : "R-Attachment") ?? existing_groups.find((g) => g.parent == "root" && !getOwningAttachment(g)),
-            inverse: new THREE.Quaternion(o.x, o.y, o.z, o.w).normalize().invert(),
-            position: new THREE.Vector3(...parseVector(first_root.position))
+            inverse: orientation.invert(),
+            position
           };
         }
         function parseNode(node, parent_node, parent_group = "root", parent_offset) {
@@ -2539,7 +2511,7 @@ ${unsaved.map((c) => `\u2022 ${c.name}`).join("\n")}`;
             original_rotation = rotation;
             let euler = new THREE.Euler().setFromQuaternion(held.inverse.clone().multiply(quaternion), "ZYX");
             rotation = [euler.x, euler.y, euler.z].map((v) => Math.roundTo(Math.radToDeg(v), 3));
-            origin = new THREE.Vector3(...origin).applyQuaternion(held.inverse).sub(held.position).toArray();
+            origin = new THREE.Vector3(...origin).sub(held.position).applyQuaternion(held.inverse).toArray();
             if (held.bone) {
               origin.V3_add(getBoneAnchor(held.bone));
               parent_group = held.bone;

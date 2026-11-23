@@ -23,6 +23,7 @@ import { setupPivotControl } from "./pivot_control";
 import { setupChangeOrientation } from "./change_orientation";
 import { setupShortcuts } from "./shortcuts";
 import { setupPivotSnap } from "./pivot_snap";
+import { setupEraserLockAlpha } from "./eraser_lock_alpha";
 import { setupUITweaks } from "./ui_tweaks";
 import { setupFirstPerson } from "./first_person";
 
@@ -68,6 +69,7 @@ BBPlugin.register('hytale_plugin', {
         setupShortcuts();
         setupUITweaks();
         setupPivotSnap();
+        setupEraserLockAlpha();
 
         // Collections panel setting
         let panel_setup_listener: Deletable;

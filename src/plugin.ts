@@ -32,6 +32,7 @@ import { setupUVFill } from "./uv_fill";
 import { setupEraserLockAlpha } from "./eraser_lock_alpha";
 import { setupUITweaks } from "./ui_tweaks";
 import { setupFirstPerson } from "./first_person";
+import { setupBrushConstrain } from "./brush_constrain";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -82,6 +83,7 @@ BBPlugin.register('hytale_plugin', {
         setupNondestructiveUVMove();
         setupUVFill();
         setupEraserLockAlpha();
+        setupBrushConstrain();
 
         // Collections panel setting
         let panel_setup_listener: Deletable;

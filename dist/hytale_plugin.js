@@ -5347,6 +5347,114 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     });
   }
 
+  // src/brush_constrain.ts
+  function setupBrushConstrain() {
+    let anchor = null;
+    let axis = null;
+    let last = null;
+    let stroke_event = null;
+    function canConstrain(screen_projection) {
+      let tool = Toolbox.selected.id;
+      return isHytaleFormat() && Modes.paint && (tool == "brush_tool" || tool == "eraser") && !screen_projection;
+    }
+    let originalStartPaintTool = Painter.startPaintTool;
+    Painter.startPaintTool = function(texture, x, y, uvTag, event, data) {
+      let brush = Toolbox.selected.brush;
+      let screen_projection = !!data && brush?.screen_space && BarItems.screen_space_brush_projection.value;
+      if (!brush || !(event.shiftKey || Pressing.overrides.shift) || !canConstrain(!!screen_projection)) {
+        return originalStartPaintTool.call(Painter, texture, x, y, uvTag, event, data);
+      }
+      let line = brush.line;
+      brush.line = false;
+      try {
+        originalStartPaintTool.call(Painter, texture, x, y, uvTag, event, data);
+      } finally {
+        if (line === void 0) delete brush.line;
+        else brush.line = line;
+      }
+    };
+    let unwatch_preview = UVEditor.vue.$watch("mouse_coords.line_preview", (active) => {
+      if (active && canConstrain(false)) UVEditor.vue.mouse_coords.line_preview = false;
+    });
+    let guide = document.createElement("div");
+    guide.id = "hytale_brush_constrain_guide";
+    let style = Blockbench.addCSS(`
+        #hytale_brush_constrain_guide {
+            position: absolute;
+            pointer-events: none;
+            z-index: 3;
+            height: 0;
+            margin-top: -1px;
+            border-top: 2px dotted var(--color-accent);
+            transform-origin: 0 0;
+        }
+    `);
+    function updateGuide(texture, event) {
+      let frame = UVEditor.vue.$refs.frame;
+      let viewport = UVEditor.vue.$refs.viewport;
+      if (!frame || !viewport || UVEditor.vue.texture != texture || !(event.target instanceof Node) || !viewport.contains(event.target)) {
+        return hideGuide();
+      }
+      let rect = frame.getBoundingClientRect();
+      let x0 = (Painter.current.x + 0.5) * frame.clientWidth / texture.width;
+      let y0 = (Painter.current.y % texture.display_height + 0.5) * frame.clientHeight / texture.display_height;
+      let x1 = event.clientX - rect.left - frame.clientLeft;
+      let y1 = event.clientY - rect.top - frame.clientTop;
+      guide.style.left = x0 + "px";
+      guide.style.top = y0 + "px";
+      guide.style.width = Math.hypot(x1 - x0, y1 - y0) + "px";
+      guide.style.transform = `rotate(${Math.atan2(y1 - y0, x1 - x0)}rad)`;
+      if (guide.parentElement != frame) frame.append(guide);
+    }
+    function hideGuide() {
+      guide.remove();
+    }
+    document.addEventListener("pointerup", hideGuide);
+    function moveConstrained(texture, x, y, event, new_face, uv) {
+      if (stroke_event != Painter.current.start_event) {
+        stroke_event = Painter.current.start_event;
+        anchor = axis = last = null;
+      }
+      let constrain = canConstrain(!!Painter.current.use_screen_projection) && (event.shiftKey || Pressing.overrides.shift);
+      if (constrain && anchor && last && new_face) {
+        Object.assign(Painter.current, last);
+        return true;
+      }
+      let resume = axis != null && !constrain;
+      if (!constrain || new_face) anchor = axis = null;
+      if (constrain && !new_face) {
+        if (!anchor) anchor = [Painter.current.x, Painter.current.y];
+        if (axis == null) {
+          let dx = Math.abs(x - anchor[0]);
+          let dy = Math.abs(y - anchor[1]);
+          if (Math.max(dx, dy) < 2) return true;
+          axis = dx >= dy ? 0 : 1;
+        }
+        if (axis == 0) y = anchor[1];
+        else x = anchor[0];
+        if (x == Painter.current.x && y == Painter.current.y) return true;
+      }
+      originalMovePaintTool.call(Painter, texture, x, y, event, new_face || resume, uv);
+      let { face, element } = Painter.current;
+      last = { x: Painter.current.x, y: Painter.current.y, face, element };
+      return constrain && !new_face;
+    }
+    let originalMovePaintTool = Painter.movePaintTool;
+    Painter.movePaintTool = function(texture, x, y, event, new_face, uv) {
+      if (moveConstrained(texture, x, y, event, new_face, uv)) updateGuide(texture, event);
+      else hideGuide();
+    };
+    track(style, {
+      delete() {
+        unwatch_preview();
+        document.removeEventListener("pointerup", hideGuide);
+        hideGuide();
+        Painter.startPaintTool = originalStartPaintTool;
+        Painter.movePaintTool = originalMovePaintTool;
+      }
+    });
+  }
+
   // src/plugin.ts
   BBPlugin.register("hytale_plugin", {
     title: "Hytale Models",
@@ -5390,6 +5498,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       setupUITweaks();
       setupPivotSnap();
       setupEraserLockAlpha();
+      setupBrushConstrain();
       let panel_setup_listener;
       function showCollectionPanel() {
         const local_storage_key = "hytale_plugin:collection_panel_setup";

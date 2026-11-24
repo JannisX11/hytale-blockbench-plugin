@@ -26,6 +26,7 @@ import { setupPivotSnap } from "./pivot_snap";
 import { setupEraserLockAlpha } from "./eraser_lock_alpha";
 import { setupUITweaks } from "./ui_tweaks";
 import { setupFirstPerson } from "./first_person";
+import { setupBrushConstrain } from "./brush_constrain";
 
 BBPlugin.register('hytale_plugin', {
     title: 'Hytale Models',
@@ -70,6 +71,7 @@ BBPlugin.register('hytale_plugin', {
         setupUITweaks();
         setupPivotSnap();
         setupEraserLockAlpha();
+        setupBrushConstrain();
 
         // Collections panel setting
         let panel_setup_listener: Deletable;

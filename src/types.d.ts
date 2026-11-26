@@ -76,6 +76,7 @@ interface NumSlider {
 	onAfter?(difference?: number): void
 }
 interface Tool {
+	id: string
 	transformerMode?: 'translate' | 'scale' | 'rotate' | 'stretch' | 'hidden' | ''
 	brush?: import('blockbench-types/generated/interface/actions').BrushOptions
 }

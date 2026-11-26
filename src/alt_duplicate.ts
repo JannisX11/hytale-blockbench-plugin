@@ -21,6 +21,8 @@ export function setupAltDuplicate() {
     let isCombinedUndoActive = false;
     let combinedUndoCubesBefore = 0;
     let combinedUndoGroups: Group[] = [];
+    // Originals listed by a taken-over Transformer edit; kept in "after" so redo doesn't delete them
+    let combinedUndoOriginals: { elements: OutlinerElement[], groups: Group[] } = { elements: [], groups: [] };
     let originalInitEdit: typeof Undo.initEdit | null = null;
     let originalFinishEdit: typeof Undo.finishEdit | null = null;
 
@@ -66,7 +68,7 @@ export function setupAltDuplicate() {
 
     // Duplicates and temporarily disables Undo methods.
     // Transformer can't create a separate undo entry: restored in finishCombinedUndo().
-    function performDuplicationForCombinedUndo(shouldInitEdit: boolean): boolean {
+    function performDuplicationForCombinedUndo(): boolean {
         const hasGroups = Group.all.some(g => g.selected);
         const hasElements = Outliner.selected.length > 0;
         if (!hasGroups && !hasElements) return false;
@@ -77,8 +79,13 @@ export function setupAltDuplicate() {
         originalInitEdit = Undo.initEdit.bind(Undo);
         originalFinishEdit = Undo.finishEdit.bind(Undo);
 
-        // Skip if Transformer already initialized undo (Alt pressed mid-drag)
-        if (shouldInitEdit) {
+        // Alt pressed mid-drag: take over the Transformer's open edit so the originals' move stays undoable
+        const openAspects = Undo.current_save?.aspects;
+        combinedUndoOriginals = {
+            elements: openAspects?.elements?.slice() ?? [],
+            groups: openAspects?.groups?.slice() ?? []
+        };
+        if (!openAspects) {
             originalInitEdit({ outliner: true, elements: [], groups: [], selection: true });
         }
 
@@ -110,10 +117,11 @@ export function setupAltDuplicate() {
 
         Undo.finishEdit('Duplicate and move', {
             outliner: true,
-            elements: Outliner.elements.slice(combinedUndoCubesBefore),
-            groups: combinedUndoGroups,
+            elements: [...combinedUndoOriginals.elements, ...Outliner.elements.slice(combinedUndoCubesBefore)],
+            groups: [...combinedUndoOriginals.groups, ...combinedUndoGroups],
             selection: true
         });
+        combinedUndoOriginals = { elements: [], groups: [] };
     }
 
     function onMouseDown(event: MouseEvent) {
@@ -127,7 +135,7 @@ export function setupAltDuplicate() {
 
         if (isModifierPressed(event)) {
             event.stopImmediatePropagation();
-            if (!performDuplicationForCombinedUndo(true)) return;
+            if (!performDuplicationForCombinedUndo()) return;
 
             isDragging = true;
             modifierWasPressed = true;
@@ -162,9 +170,8 @@ export function setupAltDuplicate() {
         // Settle pivots on the cubes being left behind, before they're copied
         commitPivotFollow();
 
-        const shouldInitEdit = isCombinedUndoActive; // Only init on subsequent Alt presses
         if (isCombinedUndoActive) finishCombinedUndo();
-        performDuplicationForCombinedUndo(shouldInitEdit);
+        performDuplicationForCombinedUndo();
         resumePivotFollow();
     }
 

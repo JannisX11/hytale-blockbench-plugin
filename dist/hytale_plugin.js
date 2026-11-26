@@ -6406,6 +6406,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
     let isCombinedUndoActive = false;
     let combinedUndoCubesBefore = 0;
     let combinedUndoGroups = [];
+    let combinedUndoOriginals = { elements: [], groups: [] };
     let originalInitEdit = null;
     let originalFinishEdit = null;
     function isModifierPressed(event) {
@@ -6438,7 +6439,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
         Outliner.selected[i] = obj.duplicate();
       });
     }
-    function performDuplicationForCombinedUndo(shouldInitEdit) {
+    function performDuplicationForCombinedUndo() {
       const hasGroups = Group.all.some((g) => g.selected);
       const hasElements = Outliner.selected.length > 0;
       if (!hasGroups && !hasElements) return false;
@@ -6446,7 +6447,12 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       combinedUndoGroups = [];
       originalInitEdit = Undo.initEdit.bind(Undo);
       originalFinishEdit = Undo.finishEdit.bind(Undo);
-      if (shouldInitEdit) {
+      const openAspects = Undo.current_save?.aspects;
+      combinedUndoOriginals = {
+        elements: openAspects?.elements?.slice() ?? [],
+        groups: openAspects?.groups?.slice() ?? []
+      };
+      if (!openAspects) {
         originalInitEdit({ outliner: true, elements: [], groups: [], selection: true });
       }
       Undo.initEdit = () => {
@@ -6471,10 +6477,11 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       originalFinishEdit = null;
       Undo.finishEdit("Duplicate and move", {
         outliner: true,
-        elements: Outliner.elements.slice(combinedUndoCubesBefore),
-        groups: combinedUndoGroups,
+        elements: [...combinedUndoOriginals.elements, ...Outliner.elements.slice(combinedUndoCubesBefore)],
+        groups: [...combinedUndoOriginals.groups, ...combinedUndoGroups],
         selection: true
       });
+      combinedUndoOriginals = { elements: [], groups: [] };
     }
     function onMouseDown(event) {
       if (isCombinedUndoActive) return;
@@ -6484,7 +6491,7 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       if (!axis || !hasSelection || !isTransformTool || !Modes.edit) return;
       if (isModifierPressed(event)) {
         event.stopImmediatePropagation();
-        if (!performDuplicationForCombinedUndo(true)) return;
+        if (!performDuplicationForCombinedUndo()) return;
         isDragging = true;
         modifierWasPressed = true;
         setTimeout(() => {
@@ -6511,9 +6518,8 @@ body.hytale-uv-outline-only #uv_frame .cube_uv_face:not(.unselected)::before {
       if (!isTransformTool || !Modes.edit) return;
       modifierWasPressed = true;
       commitPivotFollow();
-      const shouldInitEdit = isCombinedUndoActive;
       if (isCombinedUndoActive) finishCombinedUndo();
-      performDuplicationForCombinedUndo(shouldInitEdit);
+      performDuplicationForCombinedUndo();
       resumePivotFollow();
     }
     function onKeyUp(event) {

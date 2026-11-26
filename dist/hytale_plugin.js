@@ -1449,6 +1449,16 @@
     toolbar.add(import_as_attachment);
     MenuBar.menus.file.addAction(import_as_attachment, "import");
     function reloadAttachment(collection) {
+      let kept = [];
+      for (let group of collection.getAllChildren()) {
+        if (!(group instanceof Group)) continue;
+        for (let animation of Animator.animations) {
+          let animator = animation.animators[group.uuid];
+          if (!(animator instanceof BoneAnimator) || !animator.keyframes.length) continue;
+          animator.name = group.name;
+          kept.push([animation, animator]);
+        }
+      }
       for (let child of collection.getChildren()) {
         child.remove();
       }
@@ -1460,6 +1470,13 @@
         collection.extend({
           children: root_groups.map((g) => g.uuid)
         }).add();
+        for (let [animation, animator] of kept) {
+          animator.getGroup();
+          animation.animators[animator.uuid] = animator;
+        }
+        for (let animation of Animator.animations) {
+          for (let group of new_groups) animation.getBoneAnimator(group);
+        }
         Canvas.updateAllFaces();
       });
     }
